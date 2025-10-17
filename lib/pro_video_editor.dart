@@ -4,6 +4,7 @@ export 'core/models/video/progress_model.dart';
 export 'core/models/video/editor_video_model.dart';
 export 'core/models/video/export_transform_model.dart';
 export 'core/models/video/render_video_model.dart';
+export 'core/models/video/video_clip_model.dart';
 export 'core/models/video/video_metadata_model.dart';
 export 'core/models/video/video_quality_preset.dart';
 export 'core/models/video/video_quality_config.dart';

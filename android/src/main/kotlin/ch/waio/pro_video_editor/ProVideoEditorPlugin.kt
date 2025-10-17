@@ -1,5 +1,7 @@
 package ch.waio.pro_video_editor
 
+import PACKAGE_TAG
+import VideoClip
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -134,22 +136,39 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                 val flipY = call.argument<Boolean>("flipY") ?: false
                 val enableAudio = call.argument<Boolean>("enableAudio") ?: true
                 val playbackSpeed = call.argument<Number>("playbackSpeed")?.toFloat()
-                val startUs = call.argument<Number>("startTime")?.toLong()
-                val endUs = call.argument<Number>("endTime")?.toLong()
                 val inputFormat = call.argument<String>("inputFormat") ?: "mp4"
                 val outputFormat = call.argument<String>("outputFormat") ?: "mp4"
-                val inputPath = call.argument<String>("inputPath") ?: ""
                 val outputPath = call.argument<String>("outputPath")
                 val colorMatrixList = call.argument<List<List<Double>>>("colorMatrixList")
                     ?: emptyList<List<Double>>()
 
+                // Video-Clips (required)
+                val videoClipsRaw = call.argument<List<Map<String, Any>>>("videoClips")
+                
+                Log.d(PACKAGE_TAG, "Received videoClipsRaw: ${videoClipsRaw?.size ?: 0} clips")
+                
+                if (videoClipsRaw == null || videoClipsRaw.isEmpty()) {
+                    result.error("INVALID_ARGUMENTS", "videoClips is required and cannot be empty", null)
+                    return
+                }
+                
+                val videoClips: List<VideoClip> = videoClipsRaw.mapIndexed { index, clipMap ->
+                    val clip = VideoClip(
+                        inputPath = clipMap["inputPath"] as String,
+                        startUs = (clipMap["startUs"] as? Number)?.toLong(),
+                        endUs = (clipMap["endUs"] as? Number)?.toLong()
+                    )
+                    Log.d(PACKAGE_TAG, "Clip $index: path=${clip.inputPath}, start=${clip.startUs}, end=${clip.endUs}")
+                    clip
+                }
+
                 postProgress(id, 0.0)
 
                 renderVideo.render(
+                    videoClips = videoClips,
                     imageBytes = imageBytes,
                     inputFormat = inputFormat,
                     outputFormat = outputFormat,
-                    inputPath = inputPath,
                     outputPath = outputPath,
                     rotateTurns = rotateTurns,
                     flipX = flipX,
@@ -162,8 +181,6 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                     cropY = cropY,
                     enableAudio = enableAudio,
                     playbackSpeed = playbackSpeed,
-                    startUs = startUs,
-                    endUs = endUs,
                     colorMatrixList = colorMatrixList,
                     blur = blur,
                     bitrate = bitrate,

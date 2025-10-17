@@ -3,13 +3,21 @@ import 'package:pro_video_editor/pro_video_editor.dart';
 
 /// A model describing settings for rendering or exporting a video.
 ///
-/// Includes input video data, optional overlays, transformations,
-/// color filters, audio options, playback settings, and output format.
+/// Includes input video data (single video or multiple clips), optional
+/// overlays, transformations, color filters, audio options, playback settings,
+/// and output format.
 class RenderVideoModel {
   /// Creates a [RenderVideoModel] with the given parameters.
+  ///
+  /// **Important:** You must provide either [video] OR [videoClips], but not
+  /// both.
+  /// - Use [video] for a single video with optional [startTime] and [endTime]
+  /// - Use [videoClips] for concatenating multiple videos, each with their
+  ///   own trim settings
   RenderVideoModel({
     required this.outputFormat,
-    required this.video,
+    this.video,
+    this.videoClips,
     this.imageBytes,
     this.transform,
     this.enableAudio = true,
@@ -20,8 +28,19 @@ class RenderVideoModel {
     this.bitrate,
     this.colorMatrixList = const [],
     this.qualityConfig,
+    this.customAudioPath,
+    this.originalAudioVolume,
+    this.customAudioVolume,
     String? id,
   })  : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        assert(
+          (video != null) != (videoClips != null),
+          'You must provide either video OR videoClips, but not both',
+        ),
+        assert(
+          videoClips == null || videoClips.isNotEmpty,
+          'videoClips must not be empty if provided',
+        ),
         assert(
           startTime == null || endTime == null || startTime < endTime,
           'startTime must be before endTime',
@@ -37,6 +56,14 @@ class RenderVideoModel {
         assert(
           bitrate == null || bitrate > 0,
           '[bitrate] must be greater than 0',
+        ),
+        assert(
+          originalAudioVolume == null || originalAudioVolume >= 0,
+          '[originalAudioVolume] must be greater than or equal to 0',
+        ),
+        assert(
+          customAudioVolume == null || customAudioVolume >= 0,
+          '[customAudioVolume] must be greater than or equal to 0',
         );
 
   /// Creates a [RenderVideoModel] with a predefined quality preset.
@@ -70,6 +97,9 @@ class RenderVideoModel {
     double? blur,
     int? bitrateOverride,
     List<List<double>> colorMatrixList = const [],
+    String? customAudioPath,
+    double? originalAudioVolume,
+    double? customAudioVolume,
     String? id,
   }) {
     final qualityConfig = VideoQualityConfig.fromPreset(qualityPreset);
@@ -88,6 +118,9 @@ class RenderVideoModel {
       bitrate: bitrateOverride ?? qualityConfig.bitrate,
       colorMatrixList: colorMatrixList,
       qualityConfig: qualityConfig,
+      customAudioPath: customAudioPath,
+      originalAudioVolume: originalAudioVolume,
+      customAudioVolume: customAudioVolume,
     );
   }
 
@@ -105,7 +138,37 @@ class RenderVideoModel {
   /// This class supports videos from in-memory bytes, file system, network,
   /// or asset bundle. It provides convenience methods for identifying the
   /// source type and safely retrieving video bytes.
-  final EditorVideo video;
+  ///
+  /// **Note:** Either [video] or [videoClips] must be provided, but not both.
+  /// Use this field for a single video. For concatenating multiple videos,
+  /// use [videoClips] instead.
+  final EditorVideo? video;
+
+  /// A list of video clips to be concatenated into a single output video.
+  ///
+  /// Each clip can have its own start and end time for trimming. The clips
+  /// will be joined in the order they appear in the list.
+  ///
+  /// **Note:** Either [video] or [videoClips] must be provided, but not both.
+  /// Use this field for concatenating multiple videos. For a single video,
+  /// use [video] instead.
+  ///
+  /// **Example:**
+  /// ```dart
+  /// videoClips: [
+  ///   VideoClipModel(
+  ///     video: EditorVideo.file('video1.mp4'),
+  ///     startTime: Duration(seconds: 0),
+  ///     endTime: Duration(seconds: 5),
+  ///   ),
+  ///   VideoClipModel(
+  ///     video: EditorVideo.file('video2.mp4'),
+  ///     startTime: Duration(seconds: 2),
+  ///     endTime: Duration(seconds: 8),
+  ///   ),
+  /// ]
+  /// ```
+  final List<VideoClipModel>? videoClips;
 
   /// A transparent image which will overlay the video.
   final Uint8List? imageBytes;
@@ -154,6 +217,43 @@ class RenderVideoModel {
   /// applied bitrate.
   final int? bitrate;
 
+  /// Path to a custom audio file to be mixed with the video.
+  ///
+  /// When provided, this audio will be mixed with the original video audio.
+  /// Use [originalAudioVolume] and [customAudioVolume] to control the mix
+  /// levels of each audio track.
+  final String? customAudioPath;
+
+  /// Volume multiplier for the original video audio track.
+  ///
+  /// - Range: `0.0` (mute) to `1.0+` (amplify)
+  /// - Default: `1.0` (unchanged)
+  ///
+  /// **Examples:**
+  /// - `0.0`: Mute original audio completely
+  /// - `0.5`: Reduce original audio to 50%
+  /// - `1.0`: Keep original volume (default)
+  /// - `1.5`: Amplify original audio by 50%
+  /// - `2.0`: Double the original volume
+  ///
+  /// This parameter is only effective when [enableAudio] is `true`.
+  final double? originalAudioVolume;
+
+  /// Volume multiplier for the custom audio track.
+  ///
+  /// - Range: `0.0` (mute) to `1.0+` (amplify)
+  /// - Default: `1.0` (unchanged)
+  ///
+  /// **Examples:**
+  /// - `0.0`: Mute custom audio
+  /// - `0.3`: Subtle background music (30%)
+  /// - `0.5`: Equal mix with original audio
+  /// - `1.0`: Full volume (default)
+  /// - `1.2`: Slightly amplified
+  ///
+  /// This parameter is only effective when [customAudioPath] is provided.
+  final double? customAudioVolume;
+
   /// Returns a [Stream] of [ProgressModel] objects that provides updates on
   /// the progress of the video rendering process associated with this model's
   /// [id].
@@ -164,6 +264,51 @@ class RenderVideoModel {
     return ProVideoEditor.instance.progressStreamById(id);
   }
 
+  /// Extracts the file extension from the video or first video clip.
+  ///
+  /// This is a convenience method for platform channel implementations that
+  /// need to determine the output format based on the input video.
+  ///
+  /// The method checks in this order:
+  /// 1. First clip in `videoClips` if present
+  /// 2. Single `video` if present
+  /// 3. Defaults to 'mp4' if neither is found
+  ///
+  /// Returns the file extension (without dot), e.g., 'mp4', 'mov'.
+  ///
+  /// Example:
+  /// ```dart
+  /// final model = RenderVideoModel(
+  ///   video: EditorVideo.file('path/to/video.mov'),
+  ///   outputFormat: VideoOutputFormat.mov,
+  /// );
+  /// final ext = await model.getVideoExtension();
+  /// // ext: 'mov'
+  /// ```
+  Future<String> _getFirstVideoExtension() async {
+    String? filePath;
+
+    // Try to get from videoClips first
+    if (videoClips != null && videoClips!.isNotEmpty) {
+      filePath = await videoClips!.first.video.safeFilePath();
+    }
+    // Otherwise try single video
+    else if (video != null) {
+      filePath = await video!.safeFilePath();
+    }
+
+    return filePath != null ? _getFileExtension(filePath) : 'mp4';
+  }
+
+  /// Helper method to extract file extension from a file path.
+  static String _getFileExtension(String path) {
+    final lastDot = path.lastIndexOf('.');
+    if (lastDot == -1 || lastDot == path.length - 1) {
+      return 'mp4'; // default
+    }
+    return path.substring(lastDot + 1).toLowerCase();
+  }
+
   /// Converts the model into a serializable map.
   Future<Map<String, dynamic>> toAsyncMap() async {
     var transform = this.transform ?? const ExportTransform();
@@ -171,31 +316,52 @@ class RenderVideoModel {
     double? scaleX = transform.scaleX;
     double? scaleY = transform.scaleY;
 
-    if (qualityConfig != null && scaleX == null && scaleY == null) {
-      final meta = await ProVideoEditor.instance.getMetadata(video);
+    // Handle quality config for single video
+    if (qualityConfig != null &&
+        scaleX == null &&
+        scaleY == null &&
+        video != null) {
+      final meta = await ProVideoEditor.instance.getMetadata(video!);
       final originalResolution = meta.resolution;
       final targetResolution = qualityConfig!.resolution ?? originalResolution;
       scaleX = targetResolution.width / originalResolution.width;
       scaleY = targetResolution.height / originalResolution.height;
     }
 
-    String inputPath = await video.safeFilePath();
+    // Convert video clips to map format
+    List<Map<String, dynamic>>? videoClipsMaps;
+    if (videoClips != null) {
+      videoClipsMaps = await Future.wait(
+        videoClips!.map((clip) => clip.toAsyncMap()),
+      );
+    } else if (video != null) {
+      // Single video: convert to single clip format
+      videoClipsMaps = [
+        {
+          'inputPath': await video!.safeFilePath(),
+          'startUs': startTime?.inMicroseconds,
+          'endUs': endTime?.inMicroseconds,
+        }
+      ];
+    }
 
     return {
       ...transform.toMap(),
       'id': id,
-      'inputPath': inputPath,
+      'inputFormat': await _getFirstVideoExtension(),
+      'videoClips': videoClipsMaps,
       'imageBytes': imageBytes,
       'enableAudio': enableAudio,
       'playbackSpeed': playbackSpeed,
-      'startTime': startTime?.inMicroseconds,
-      'endTime': endTime?.inMicroseconds,
       'colorMatrixList': colorMatrixList,
       'outputFormat': outputFormat.name,
       'blur': blur,
       'bitrate': bitrate,
       'scaleX': scaleX,
       'scaleY': scaleY,
+      'customAudioPath': customAudioPath,
+      'originalAudioVolume': originalAudioVolume,
+      'customAudioVolume': customAudioVolume,
     };
   }
 
@@ -204,6 +370,7 @@ class RenderVideoModel {
     String? id,
     VideoOutputFormat? outputFormat,
     EditorVideo? video,
+    List<VideoClipModel>? videoClips,
     Uint8List? imageBytes,
     ExportTransform? transform,
     bool? enableAudio,
@@ -214,11 +381,15 @@ class RenderVideoModel {
     double? blur,
     int? bitrate,
     VideoQualityConfig? qualityConfig,
+    String? customAudioPath,
+    double? originalAudioVolume,
+    double? customAudioVolume,
   }) {
     return RenderVideoModel(
       id: id ?? this.id,
       outputFormat: outputFormat ?? this.outputFormat,
       video: video ?? this.video,
+      videoClips: videoClips ?? this.videoClips,
       imageBytes: imageBytes ?? this.imageBytes,
       transform: transform ?? this.transform,
       enableAudio: enableAudio ?? this.enableAudio,
@@ -229,6 +400,9 @@ class RenderVideoModel {
       blur: blur ?? this.blur,
       bitrate: bitrate ?? this.bitrate,
       qualityConfig: qualityConfig ?? this.qualityConfig,
+      customAudioPath: customAudioPath ?? this.customAudioPath,
+      originalAudioVolume: originalAudioVolume ?? this.originalAudioVolume,
+      customAudioVolume: customAudioVolume ?? this.customAudioVolume,
     );
   }
 }

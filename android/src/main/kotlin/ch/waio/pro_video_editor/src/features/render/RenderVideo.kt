@@ -25,23 +25,26 @@ import applyAudio
 import applyBitrate
 import applyBlur
 import applyColorMatrix
+import applyComposition
 import applyCrop
 import applyFlip
 import applyImageLayer
 import applyPlaybackSpeed
 import applyRotation
 import applyScale
-import applyTrim
 import mapFormatToMimeType
 import java.io.File
+
+// VideoClip Data Class Import
+import VideoClip
 
 @UnstableApi
 class RenderVideo(private val context: Context) {
     fun render(
+        videoClips: List<VideoClip>,
         imageBytes: ByteArray?,
         inputFormat: String,
         outputFormat: String,
-        inputPath: String,
         outputPath: String?,
         rotateTurns: Int?,
         flipX: Boolean = false,
@@ -55,15 +58,12 @@ class RenderVideo(private val context: Context) {
         bitrate: Int?,
         enableAudio: Boolean = true,
         playbackSpeed: Float? = null,
-        startUs: Long? = null,
-        endUs: Long? = null,
         colorMatrixList: List<List<Double>>,
         blur: Double?,
         onProgress: (Double) -> Unit,
         onComplete: (ByteArray?) -> Unit,
         onError: (Throwable) -> Unit
     ) {
-        val inputFile = File(inputPath)
         val outputFile =
             if (outputPath != null) {
                 File(outputPath)
@@ -76,40 +76,21 @@ class RenderVideo(private val context: Context) {
 
         val videoEffects = mutableListOf<Effect>()
         val audioEffects = mutableListOf<AudioProcessor>()
-        val mediaItemBuilder = MediaItem.Builder().setUri(Uri.fromFile(inputFile))
 
         val rotationDegrees = (4 - (rotateTurns ?: 0)) * 90f
 
         applyRotation(videoEffects, rotationDegrees)
         applyFlip(videoEffects, flipX, flipY)
-        applyCrop(
-            videoEffects, inputFile, rotationDegrees,
-            flipX, flipY, cropWidth, cropHeight, cropX, cropY,
-        )
         applyScale(videoEffects, scaleX, scaleY)
-        applyTrim(mediaItemBuilder, startUs, endUs)
         applyColorMatrix(videoEffects, colorMatrixList)
         applyBlur(videoEffects, blur)
-        applyImageLayer(
-            videoEffects, inputFile, imageBytes, rotationDegrees,
-            cropWidth, cropHeight, scaleX, scaleY
-        )
         applyPlaybackSpeed(videoEffects, audioEffects, playbackSpeed)
-
-        val mediaItem = mediaItemBuilder.build()
-        val effects = Effects(audioEffects, videoEffects)
-
-        val editedMediaItemBuilder = EditedMediaItem.Builder(mediaItem).setEffects(effects)
-
-        applyAudio(editedMediaItemBuilder, enableAudio)
 
         var shouldStopPolling = false
         val outputMimeType = mapFormatToMimeType(outputFormat)
-        var editedMediaItem = editedMediaItemBuilder.build()
         val encoderFactoryBuilder = DefaultEncoderFactory.Builder(context)
 
         applyBitrate(encoderFactoryBuilder, outputMimeType, bitrate)
-
 
         val mainHandler = Handler(Looper.getMainLooper())
 
@@ -150,7 +131,28 @@ class RenderVideo(private val context: Context) {
             .build()
 
         // Start transformation
-        transformer.start(editedMediaItem, outputFile.absolutePath)
+        val composition = applyComposition(
+            videoClips = videoClips,
+            videoEffects = videoEffects,
+            audioEffects = audioEffects,
+            enableAudio = enableAudio,
+            imageBytes = imageBytes,
+            rotationDegrees = rotationDegrees,
+            flipX = flipX,
+            flipY = flipY,
+            cropWidth = cropWidth,
+            cropHeight = cropHeight,
+            cropX = cropX,
+            cropY = cropY,
+            scaleX = scaleX,
+            scaleY = scaleY
+        )
+        if (composition != null) {
+            transformer.start(composition, outputFile.absolutePath)
+        } else {
+            onError(IllegalStateException("Failed to create composition"))
+            return
+        }
 
         // Progress tracking setup
         val progressHolder = ProgressHolder()

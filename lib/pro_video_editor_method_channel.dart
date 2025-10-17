@@ -74,14 +74,9 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   Future<Uint8List> renderVideo(RenderVideoModel value) async {
     final renderData = await value.toAsyncMap();
 
-    var extension = _getFileExtension(renderData['inputPath']);
-
     final Uint8List? result = await methodChannel.invokeMethod<Uint8List>(
       'renderVideo',
-      {
-        ...renderData,
-        'inputFormat': extension,
-      },
+      renderData,
     );
 
     if (result == null) {
@@ -97,16 +92,11 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
     RenderVideoModel value,
   ) async {
     final renderData = await value.toAsyncMap();
-    final inputPath = await value.video.safeFilePath();
-
-    var extension = _getFileExtension(renderData['inputPath']);
 
     await methodChannel.invokeMethod<String>(
       'renderVideo',
       {
         ...renderData,
-        'inputFormat': extension,
-        'inputPath': inputPath,
         'outputPath': filePath,
       },
     );

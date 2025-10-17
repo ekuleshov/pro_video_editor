@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
@@ -54,7 +55,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     super.initState();
     _playerContent.open(
       Media('asset:///$kVideoEditorExampleAssetPath'),
-      play: true,
+      play: false,
     );
     _video = EditorVideo.asset(kVideoEditorExampleAssetPath);
   }
@@ -141,6 +142,121 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
       outputFormat: VideoOutputFormat.mp4,
       video: _video,
       enableAudio: false,
+    );
+
+    await _renderVideo(data);
+  }
+
+  Future<File> _writeAssetAudioToFile(String assetPath) async {
+    final ByteData data = await rootBundle.load(assetPath);
+    final buffer = data.buffer;
+
+    final directory = await getTemporaryDirectory();
+
+    // Extract just the filename from the asset path
+    final fileName = assetPath.split('/').last;
+    final file = File('${directory.path}/$fileName');
+
+    await file.writeAsBytes(
+      buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      flush: true,
+    );
+
+    return file;
+  }
+
+  /// Replace original audio with custom audio track.
+  ///
+  /// This example demonstrates how to replace the video's original audio
+  /// with a custom audio track from an asset file.
+  ///
+  /// The asset audio is first loaded and saved to a temporary file,
+  /// then the native code can access it via the file path.
+  ///
+  /// **Supported Audio Formats:**
+  /// - MP3 (.mp3) - Universal support, good for music/voice
+  /// - AAC (.aac, .m4a) - Modern, efficient compression
+  /// - WAV (.wav) - Uncompressed, best quality
+  /// - OGG (.ogg) - Open format
+  /// - FLAC (.flac) - Lossless compression
+  ///
+  /// **Parameters:**
+  /// - `customAudioPath`: Path to the custom audio file
+  /// - `originalAudioVolume: 0.0`: Mutes the original video audio
+  /// - `customAudioVolume: 1.0`: Plays custom audio at full volume
+  Future<void> _customAudioReplace() async {
+    final customAudioFile =
+        await _writeAssetAudioToFile(kVideoEditorExampleAudio1Path);
+
+    var data = RenderVideoModel(
+      outputFormat: VideoOutputFormat.mp4,
+      video: _video,
+      customAudioPath: customAudioFile.path,
+      originalAudioVolume: 0.0, // Mute original audio
+      customAudioVolume: 1.0, // Full volume for custom audio
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Mix original audio with background music.
+  ///
+  /// This example shows how to blend the video's original audio with
+  /// a custom background music track at different volume levels.
+  ///
+  /// The asset audio is first loaded and saved to a temporary file,
+  /// then mixed with the original video audio during export.
+  ///
+  /// **Supported Audio Formats:**
+  /// All standard formats: MP3, AAC, WAV, OGG, FLAC
+  ///
+  /// **Parameters:**
+  /// - `customAudioPath`: Path to the background music file
+  /// - `originalAudioVolume: 0.7`: Original audio at 70% volume
+  /// - `customAudioVolume: 0.3`: Background music at 30% volume
+  ///
+  /// **Use Case:** Adding subtle background music to vlogs or tutorials
+  Future<void> _customAudioMix() async {
+    final customAudioFile =
+        await _writeAssetAudioToFile(kVideoEditorExampleAudio1Path);
+
+    var data = RenderVideoModel(
+      outputFormat: VideoOutputFormat.mp4,
+      video: _video,
+      customAudioPath: customAudioFile.path,
+      originalAudioVolume: 0.7, // Original audio at 70%
+      customAudioVolume: 0.3, // Background music at 30%
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Adjust the volume of the original video audio.
+  ///
+  /// This example demonstrates how to reduce or amplify the video's
+  /// original audio without adding any custom audio track.
+  ///
+  /// **Parameters:**
+  /// - `originalAudioVolume: 0.5`: Reduces original audio to 50% volume
+  ///
+  /// **Volume Range:**
+  /// - `0.0`: Completely muted
+  /// - `0.5`: Half volume (50%)
+  /// - `1.0`: Original volume (100%)
+  /// - `1.5`: Amplified by 50%
+  /// - `2.0`: Doubled volume
+  ///
+  /// **Use Cases:**
+  /// - Normalizing loud videos
+  /// - Amplifying quiet recordings
+  /// - Creating background-friendly versions
+  ///
+  /// **Platform Support:** All platforms
+  Future<void> _adjustOriginalVolume() async {
+    var data = RenderVideoModel(
+      outputFormat: VideoOutputFormat.mp4,
+      video: _video,
+      originalAudioVolume: 0.5, // Reduce original audio to 50%
     );
 
     await _renderVideo(data);
@@ -235,6 +351,59 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     var data = RenderVideoModel.withQualityPreset(
       video: _video,
       qualityPreset: VideoQualityPreset.k4,
+    );
+
+    await _renderVideo(data);
+  }
+
+  Future<void> _concatenateVideos() async {
+    var data = RenderVideoModel(
+      outputFormat: VideoOutputFormat.mp4,
+      videoClips: [
+        VideoClipModel(
+          video: _video,
+          startTime: const Duration(seconds: 0),
+          endTime: const Duration(seconds: 5),
+        ),
+        VideoClipModel(
+          video: EditorVideo.asset(kVideoEditorExampleAssetWorldPath),
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+        ),
+        VideoClipModel(
+          video: _video,
+          startTime: const Duration(seconds: 8),
+          endTime: const Duration(seconds: 12),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  Future<void> _concatenateWithTransforms() async {
+    final imageBytes = await _captureLayerContent();
+    var data = RenderVideoModel(
+      outputFormat: VideoOutputFormat.mp4,
+      imageBytes: imageBytes,
+      videoClips: [
+        VideoClipModel(
+          video: _video,
+          startTime: const Duration(seconds: 0),
+          endTime: const Duration(seconds: 5),
+        ),
+        VideoClipModel(
+          video: EditorVideo.asset(kVideoEditorExampleAssetWorldPath),
+          startTime: const Duration(seconds: 7),
+          endTime: const Duration(seconds: 12),
+        ),
+      ],
+
+      transform: const ExportTransform(
+        rotateTurns: 2, // Rotate all clips 180°
+        flipX: true, // Flip all clips horizontally
+      ),
+      enableAudio: true, // Keep audio from all clips
     );
 
     await _renderVideo(data);
@@ -362,12 +531,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
                             style: TextStyle(fontSize: 40),
                           ),
                         ),
-                        Center(
-                          child: Text(
-                            '🚀',
-                            style: TextStyle(fontSize: 48),
-                          ),
-                        ),
                         Positioned(
                           bottom: 10,
                           right: 10,
@@ -472,11 +635,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           title: const Text('Change playback speed'),
         ),
         ListTile(
-          onTap: _removeAudio,
-          leading: const Icon(Icons.volume_off_outlined),
-          title: const Text('Remove Audio'),
-        ),
-        ListTile(
           onTap: _layers,
           leading: const Icon(Icons.layers_outlined),
           title: const Text('Parse with layers'),
@@ -507,7 +665,44 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
             leading: const Icon(Icons.video_file_outlined),
             title: const Text('Output-Format "mov"'),
           ),
-        const Divider(height: 32),
+        ..._buildSectionTitle('Video Concatenation'),
+        ListTile(
+          onTap: _concatenateVideos,
+          leading: const Icon(Icons.video_library_outlined),
+          title: const Text('Concatenate Multiple Clips'),
+          subtitle: const Text('Combine 3 clips'),
+        ),
+        ListTile(
+          onTap: _concatenateWithTransforms,
+          leading: const Icon(Icons.join_full_outlined),
+          title: const Text('Concatenate with Transformations'),
+          subtitle: const Text('2 clips with rotation, flip, layers'),
+        ),
+        ..._buildSectionTitle('Audio'),
+        ListTile(
+          onTap: _removeAudio,
+          leading: const Icon(Icons.volume_off_outlined),
+          title: const Text('Remove Audio'),
+        ),
+        ListTile(
+          onTap: _customAudioReplace,
+          leading: const Icon(Icons.library_music_outlined),
+          title: const Text('Replace Audio with Custom Track'),
+          subtitle: const Text('Custom audio at 100%'),
+        ),
+        ListTile(
+          onTap: _customAudioMix,
+          leading: const Icon(Icons.music_note_outlined),
+          title: const Text('Mix Custom Audio'),
+          subtitle: const Text('Original 70% + Custom 30%'),
+        ),
+        ListTile(
+          onTap: _adjustOriginalVolume,
+          leading: const Icon(Icons.volume_down_outlined),
+          title: const Text('Adjust Original Volume'),
+          subtitle: const Text('Reduce to 50%'),
+        ),
+        ..._buildSectionTitle('Quality'),
         ListTile(
           onTap: _qualityPreset1080p,
           leading: const Icon(Icons.high_quality),
@@ -528,5 +723,21 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
         ),
       ],
     );
+  }
+
+  List<Widget> _buildSectionTitle(String title) {
+    return [
+      const Divider(height: 32),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      )
+    ];
   }
 }

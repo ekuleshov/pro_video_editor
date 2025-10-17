@@ -143,7 +143,7 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 | `Multiple ColorMatrix 4x5` | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Blur background`          | 🧪      | 🧪  | 🧪     | ❌      | ❌     | 🚫   |
 | `Custom Audio Tracks`      | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
-| `Merge Videos`             | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
+| `Merge Videos`             | ✅      | ❌  | ❌     | ❌      | ❌     | 🚫   |
 | `Censor-Layers "Pixelate"` | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
 
 
@@ -226,12 +226,15 @@ var task = RenderVideoModel(
     video: EditorVideo.asset('assets/my-video.mp4'),
     imageBytes: imageBytes, /// A image "Layer" which will overlay the video.
     outputFormat: VideoOutputFormat.mp4,
-    enableAudio: false,
     playbackSpeed: 2,
     startTime: const Duration(seconds: 5),
     endTime: const Duration(seconds: 20),
     blur: 10,
     bitrate: 5000000,
+    customAudioPath: customAudioPath,
+    enableAudio: false,
+    originalAudioVolume: 0.7, // Original audio at 70%
+    customAudioVolume: 0.3, // Background music at 30%
     transform: const ExportTransform(
         flipX: true,
         flipY: true,

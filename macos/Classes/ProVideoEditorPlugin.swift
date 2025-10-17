@@ -89,8 +89,7 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
 
         case "renderVideo":
             guard let args = call.arguments as? [String: Any],
-                let id = args["id"] as? String,
-                let inputPath = args["inputPath"] as? String
+                let id = args["id"] as? String
             else {
                 result(
                     FlutterError(
@@ -115,14 +114,35 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
             let bitrate = args["bitrate"] as? Int
             let enableAudio = args["enableAudio"] as? Bool ?? true
             let playbackSpeed = (args["playbackSpeed"] as? NSNumber)?.floatValue
-            let startUs = args["startTime"] as? Int64
-            let endUs = args["endTime"] as? Int64
             let colorMatrixList = args["colorMatrixList"] as? [[Double]] ?? []
+            
+            // Custom audio settings
+            let customAudioPath = args["customAudioPath"] as? String
+            let originalAudioVolume = (args["originalAudioVolume"] as? NSNumber)?.floatValue
+            let customAudioVolume = (args["customAudioVolume"] as? NSNumber)?.floatValue
+            
+            // Video clips (required)
+            guard let videoClipsRaw = args["videoClips"] as? [[String: Any]],
+                  !videoClipsRaw.isEmpty else {
+                result(
+                    FlutterError(
+                        code: "INVALID_ARGUMENTS", 
+                        message: "videoClips is required and cannot be empty", 
+                        details: nil))
+                return
+            }
+            
+            let videoClips = videoClipsRaw.map { clipMap -> VideoClip in
+                let inputPath = clipMap["inputPath"] as! String
+                let startUs = clipMap["startUs"] as? Int64
+                let endUs = clipMap["endUs"] as? Int64
+                return VideoClip(inputPath: inputPath, startUs: startUs, endUs: endUs)
+            }
 
             postProgress(id: id, progress: 0.0)
 
             RenderVideo.render(
-                inputPath: inputPath,
+                videoClips: videoClips,
                 imageData: imageBytes,
                 inputFormat: inputFormat,
                 outputFormat: outputFormat,
@@ -139,10 +159,11 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
                 bitrate: bitrate,
                 enableAudio: enableAudio,
                 playbackSpeed: playbackSpeed,
-                startUs: startUs,
-                endUs: endUs,
                 colorMatrixList: colorMatrixList,
                 blur: blur,
+                customAudioPath: customAudioPath,
+                originalAudioVolume: originalAudioVolume,
+                customAudioVolume: customAudioVolume,
                 onProgress: { progress in
                     self.postProgress(id: id, progress: progress)
                 },

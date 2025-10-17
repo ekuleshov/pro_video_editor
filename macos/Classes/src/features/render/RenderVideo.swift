@@ -7,7 +7,7 @@ class RenderVideo {
     static let queue = DispatchQueue(label: "RenderVideoQueue")
 
     static func render(
-        inputPath: String,
+        videoClips: [VideoClip],
         imageData: Data?,
         inputFormat: String,
         outputFormat: String,
@@ -24,17 +24,26 @@ class RenderVideo {
         bitrate: Int?,
         enableAudio: Bool,
         playbackSpeed: Float?,
-        startUs: Int64?,
-        endUs: Int64?,
         colorMatrixList: [[Double]],
         blur: Double?,
+        customAudioPath: String?,
+        originalAudioVolume: Float?,
+        customAudioVolume: Float?,
         onProgress: @escaping (Double) -> Void,
         onComplete: @escaping (Data?) -> Void,
         onError: @escaping (Error) -> Void
     ) {
         queue.async {
             Task {
-                var inputURL: URL!
+                guard !videoClips.isEmpty else {
+                    onError(NSError(
+                        domain: "RenderVideo", 
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Video clips cannot be empty"]
+                    ))
+                    return
+                }
+                
                 var outputURL: URL!
 
                 let finalize: () -> Void = {
@@ -50,41 +59,40 @@ class RenderVideo {
                 }
 
                 do {
-                    inputURL = URL(fileURLWithPath: inputPath)
                     if let outputPath = outputPath {
                         outputURL = URL(fileURLWithPath: outputPath)
                     } else {
                         outputURL = temporaryURL(for: outputFormat)
                     }
 
-                    let asset = AVURLAsset(url: inputURL)
-                    let composition = AVMutableComposition()
+                    // Create configuration for video effects
                     var config = VideoCompositorConfig()
-
-                    let videoTrack = try await loadVideoTrack(from: asset)
-
-                    let timeRange = await applyTrim(asset: asset, startUs: startUs, endUs: endUs)
-
-                    let videoCompositionTrack = try insertVideoTrack(
-                        into: composition,
-                        from: videoTrack,
-                        timeRange: timeRange
+                    
+                    // Use composition helper to merge multiple video clips
+                    let (composition, videoComposition, renderSize, audioMix) = try await applyComposition(
+                        videoClips: videoClips,
+                        videoEffects: config,
+                        enableAudio: enableAudio,
+                        customAudioPath: customAudioPath,
+                        originalAudioVolume: originalAudioVolume,
+                        customAudioVolume: customAudioVolume
                     )
-
-                    // Apply audio track
-                    await applyAudio(
-                        from: asset, to: composition, timeRange: timeRange, enableAudio: enableAudio
-                    )
+                    
+                    // Apply playback speed to the entire composition
                     applyPlaybackSpeed(composition: composition, speed: playbackSpeed)
-
-                    // Enhanced video composition with orientation handling
-                    let (videoComposition, correctedNaturalSize, preferredTransform) =
-                        try await createVideoComposition(
-                            asset: asset,
-                            track: videoCompositionTrack,
-                            duration: composition.duration
-                        )
-
+                    
+                    // Get the first video track for orientation info
+                    let firstClipURL = URL(fileURLWithPath: videoClips[0].inputPath)
+                    let firstAsset = AVURLAsset(url: firstClipURL)
+                    let videoTrack = try await loadVideoTrack(from: firstAsset)
+                    
+                    let preferredTransform: CGAffineTransform
+                    if #available(macOS 15.0, *) {
+                        preferredTransform = try await videoTrack.load(.preferredTransform)
+                    } else {
+                        preferredTransform = videoTrack.preferredTransform
+                    }
+                    
                     let videoRotationDegrees = extractRotationFromTransform(preferredTransform)
                     config.videoRotationDegrees = videoRotationDegrees
                     config.shouldApplyOrientationCorrection = abs(videoRotationDegrees) > 1.0
@@ -92,7 +100,7 @@ class RenderVideo {
 
                     let croppedSize = applyCrop(
                         config: &config,
-                        naturalSize: correctedNaturalSize,
+                        naturalSize: renderSize,
                         rotateTurns: rotateTurns,
                         cropX: cropX,
                         cropY: cropY,
@@ -149,6 +157,7 @@ class RenderVideo {
                     let export = try prepareExportSession(
                         composition: composition,
                         videoComposition: videoComposition,
+                        audioMix: audioMix,
                         outputURL: outputURL,
                         outputFormat: outputFormat,
                         preset: preset
@@ -298,6 +307,7 @@ class RenderVideo {
     private static func prepareExportSession(
         composition: AVAsset,
         videoComposition: AVVideoComposition,
+        audioMix: AVAudioMix?,
         outputURL: URL,
         outputFormat: String,
         preset: String
@@ -310,6 +320,13 @@ class RenderVideo {
         export.outputURL = outputURL
         export.outputFileType = mapFormatToMimeType(format: outputFormat)
         export.videoComposition = videoComposition
+        
+        // Apply audio mix if available
+        if let audioMix = audioMix {
+            export.audioMix = audioMix
+            print("🔊 Audio mix applied to export session")
+        }
+        
         return export
     }
 

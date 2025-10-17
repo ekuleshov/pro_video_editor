@@ -109,6 +109,11 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       let startUs = args["startTime"] as? Int64
       let endUs = args["endTime"] as? Int64
       let colorMatrixList = args["colorMatrixList"] as? [[Double]] ?? []
+      
+      // Custom audio settings
+      let customAudioPath = args["customAudioPath"] as? String
+      let originalAudioVolume = (args["originalAudioVolume"] as? NSNumber)?.floatValue
+      let customAudioVolume = (args["customAudioVolume"] as? NSNumber)?.floatValue
 
       postProgress(id: id, progress: 0.0)
 
@@ -134,6 +139,9 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         endUs: endUs,
         colorMatrixList: colorMatrixList,
         blur: blur,
+        customAudioPath: customAudioPath,
+        originalAudioVolume: originalAudioVolume,
+        customAudioVolume: customAudioVolume,
         onProgress: { progress in
           self.postProgress(id: id, progress: progress)
         },

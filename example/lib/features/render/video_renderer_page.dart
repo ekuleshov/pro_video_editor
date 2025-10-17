@@ -310,6 +310,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
+  /// FIXME: Not working on macos
   Future<void> _concatenateVideos() async {
     var data = RenderVideoModel(
       videoClips: [

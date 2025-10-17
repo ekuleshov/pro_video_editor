@@ -26,8 +26,20 @@ func applyComposition(
     var totalDuration = CMTime.zero
     var maxRenderSize = CGSize.zero
     var maxFrameRate: Float = 30.0
-    var allVideoInstructions: [AVMutableVideoCompositionLayerInstruction] = []
+    var firstClipTransform = CGAffineTransform.identity
     var originalAudioTracks: [AVMutableCompositionTrack] = []
+    
+    // Create single video track for all clips
+    guard let compositionVideoTrack = composition.addMutableTrack(
+        withMediaType: .video,
+        preferredTrackID: kCMPersistentTrackID_Invalid
+    ) else {
+        throw NSError(
+            domain: "ApplyComposition",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to create video track"]
+        )
+    }
     
     // Process each video clip
     for (index, clip) in videoClips.enumerated() {
@@ -77,22 +89,16 @@ func applyComposition(
             maxFrameRate = nominalFrameRate
         }
         
+        // Store the transform from the first clip for the composition
+        if index == 0 {
+            firstClipTransform = preferredTransform
+        }
+        
         // Calculate time range for this clip
         let clipTimeRange = calculateTimeRange(for: clip, from: asset)
         let clipDuration = clipTimeRange.duration
         
-        // Add video track to composition
-        guard let compositionVideoTrack = composition.addMutableTrack(
-            withMediaType: .video,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            throw NSError(
-                domain: "ApplyComposition",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to create video track"]
-            )
-        }
-        
+        // Insert video clip into the single composition track
         try compositionVideoTrack.insertTimeRange(
             clipTimeRange,
             of: videoTrack,
@@ -122,10 +128,7 @@ func applyComposition(
             }
         }
         
-        // Create layer instruction for this clip
-        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideoTrack)
-        layerInstruction.setTransform(preferredTransform, at: totalDuration)
-        allVideoInstructions.append(layerInstruction)
+        // Note: Layer instruction is created later for the entire composition track
         
         totalDuration = CMTimeAdd(totalDuration, clipDuration)
         print("✅ Clip \(index) added, duration: \(clipDuration.seconds)s, total: \(totalDuration.seconds)s")
@@ -163,11 +166,15 @@ func applyComposition(
     videoComposition.frameDuration = CMTime(value: 1, timescale: Int32(max(30, maxFrameRate)))
     videoComposition.renderSize = maxRenderSize
     
-    // Create instruction with all layer instructions
+    // Create single instruction for the entire composition track
     let instruction = AVMutableVideoCompositionInstruction()
     instruction.timeRange = CMTimeRange(start: .zero, duration: totalDuration)
     instruction.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
-    instruction.layerInstructions = allVideoInstructions
+    
+    // Create layer instruction for the single composition video track
+    let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideoTrack)
+    layerInstruction.setTransform(firstClipTransform, at: CMTime.zero)
+    instruction.layerInstructions = [layerInstruction]
     
     videoComposition.instructions = [instruction]
     
@@ -262,10 +269,21 @@ private func addCustomAudioTrack(
         try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
         print("✂️ Custom audio trimmed to \(totalDuration.seconds)s")
     } else {
-        // Insert audio (could be looped in future implementation)
-        let timeRange = CMTimeRange(start: .zero, duration: audioDuration)
-        try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
-        print("🎵 Custom audio added: \(audioDuration.seconds)s")
+        // Loop audio to match video duration
+        var currentTime = CMTime.zero
+        var loopCount = 0
+        
+        while currentTime < totalDuration {
+            let remainingDuration = CMTimeSubtract(totalDuration, currentTime)
+            let insertDuration = CMTimeMinimum(audioDuration, remainingDuration)
+            let timeRange = CMTimeRange(start: .zero, duration: insertDuration)
+            
+            try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: currentTime)
+            currentTime = CMTimeAdd(currentTime, insertDuration)
+            loopCount += 1
+        }
+        
+        print("🔄 Custom audio looped \(loopCount) times to match \(totalDuration.seconds)s duration")
     }
     
     if let volume = volume, volume != 1.0 {

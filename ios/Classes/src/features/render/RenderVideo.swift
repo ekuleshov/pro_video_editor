@@ -27,6 +27,9 @@ class RenderVideo {
         endUs: Int64?,
         colorMatrixList: [[Double]],
         blur: Double?,
+        customAudioPath: String?,
+        originalAudioVolume: Float?,
+        customAudioVolume: Float?,
         onProgress: @escaping (Double) -> Void,
         onComplete: @escaping (Data?) -> Void,
         onError: @escaping (Error) -> Void
@@ -71,9 +74,31 @@ class RenderVideo {
                     )
 
                     // Apply audio track
-                    await applyAudio(
-                        from: asset, to: composition, timeRange: timeRange, enableAudio: enableAudio
-                    )
+                    var originalAudioTracks: [AVMutableCompositionTrack] = []
+                    if enableAudio {
+                        if let audioTrack = try? await loadAudioTrack(from: asset) {
+                            if let compositionAudioTrack = composition.addMutableTrack(
+                                withMediaType: .audio,
+                                preferredTrackID: kCMPersistentTrackID_Invalid
+                            ) {
+                                try? compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
+                                originalAudioTracks.append(compositionAudioTrack)
+                            }
+                        }
+                    }
+                    
+                    // Add custom audio track if provided
+                    var customAudioTrack: AVMutableCompositionTrack?
+                    if let customAudioPath = customAudioPath, !customAudioPath.isEmpty {
+                        print("🎵 Adding custom audio track: \(customAudioPath)")
+                        customAudioTrack = try await addCustomAudioTrack(
+                            to: composition,
+                            audioPath: customAudioPath,
+                            totalDuration: composition.duration,
+                            volume: customAudioVolume
+                        )
+                    }
+                    
                     applyPlaybackSpeed(composition: composition, speed: playbackSpeed)
 
                     // Enhanced video composition with orientation handling
@@ -146,12 +171,24 @@ class RenderVideo {
 
                     let preset = applyBitrate(requestedBitrate: bitrate)
 
+                    // Create audio mix with volume parameters
+                    var audioMix: AVAudioMix?
+                    if enableAudio && (originalAudioVolume != nil || customAudioVolume != nil) {
+                        audioMix = createAudioMix(
+                            originalTracks: originalAudioTracks,
+                            customTrack: customAudioTrack,
+                            originalVolume: originalAudioVolume ?? 1.0,
+                            customVolume: customAudioVolume ?? 1.0
+                        )
+                    }
+
                     let export = try prepareExportSession(
                         composition: composition,
                         videoComposition: videoComposition,
                         outputURL: outputURL,
                         outputFormat: outputFormat,
-                        preset: preset
+                        preset: preset,
+                        audioMix: audioMix
                     )
 
                     try await monitorExportProgress(export, onProgress: onProgress)
@@ -300,7 +337,8 @@ class RenderVideo {
         videoComposition: AVVideoComposition,
         outputURL: URL,
         outputFormat: String,
-        preset: String
+        preset: String,
+        audioMix: AVAudioMix?
     ) throws -> AVAssetExportSession {
         guard let export = AVAssetExportSession(asset: composition, presetName: preset) else {
             throw NSError(
@@ -310,6 +348,7 @@ class RenderVideo {
         export.outputURL = outputURL
         export.outputFileType = mapFormatToMimeType(format: outputFormat)
         export.videoComposition = videoComposition
+        export.audioMix = audioMix
         return export
     }
 
@@ -362,5 +401,100 @@ class RenderVideo {
         for url in urls {
             try? FileManager.default.removeItem(at: url)
         }
+    }
+    
+    private static func loadAudioTrack(from asset: AVAsset) async throws -> AVAssetTrack? {
+        if #available(iOS 15.0, *) {
+            let tracks = try await asset.loadTracks(withMediaType: .audio)
+            return tracks.first
+        } else {
+            return asset.tracks(withMediaType: .audio).first
+        }
+    }
+    
+    private static func addCustomAudioTrack(
+        to composition: AVMutableComposition,
+        audioPath: String,
+        totalDuration: CMTime,
+        volume: Float?
+    ) async throws -> AVMutableCompositionTrack? {
+        let audioURL = URL(fileURLWithPath: audioPath)
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            print("⚠️ Custom audio file does not exist: \(audioPath)")
+            return nil
+        }
+        
+        let audioAsset = AVURLAsset(url: audioURL)
+        
+        guard let audioTrack = try? await loadAudioTrack(from: audioAsset),
+              let compositionAudioTrack = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+              ) else {
+            print("⚠️ Failed to add custom audio track")
+            return nil
+        }
+        
+        // Loop custom audio to match video duration
+        let audioDuration = audioAsset.duration
+        
+        if audioDuration > totalDuration {
+            // Trim audio to match video duration
+            let timeRange = CMTimeRange(start: .zero, duration: totalDuration)
+            try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
+            print("✂️ Custom audio trimmed to \(totalDuration.seconds)s")
+        } else {
+            // Loop audio to match video duration
+            var currentTime = CMTime.zero
+            var loopCount = 0
+            
+            while currentTime < totalDuration {
+                let remainingDuration = CMTimeSubtract(totalDuration, currentTime)
+                let insertDuration = CMTimeMinimum(audioDuration, remainingDuration)
+                let timeRange = CMTimeRange(start: .zero, duration: insertDuration)
+                
+                try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: currentTime)
+                currentTime = CMTimeAdd(currentTime, insertDuration)
+                loopCount += 1
+            }
+            
+            print("🔄 Custom audio looped \(loopCount) times to match \(totalDuration.seconds)s duration")
+        }
+        
+        if let volume = volume, volume != 1.0 {
+            print("🔊 Custom audio volume: \(volume)")
+        }
+        
+        return compositionAudioTrack
+    }
+    
+    private static func createAudioMix(
+        originalTracks: [AVMutableCompositionTrack],
+        customTrack: AVMutableCompositionTrack?,
+        originalVolume: Float,
+        customVolume: Float
+    ) -> AVAudioMix {
+        var audioMixInputParameters: [AVMutableAudioMixInputParameters] = []
+        
+        // Apply volume to original audio tracks
+        for track in originalTracks {
+            let inputParameters = AVMutableAudioMixInputParameters(track: track)
+            inputParameters.setVolume(originalVolume, at: .zero)
+            audioMixInputParameters.append(inputParameters)
+            print("🔊 Applied volume \(originalVolume) to original audio track")
+        }
+        
+        // Apply volume to custom audio track
+        if let customTrack = customTrack {
+            let inputParameters = AVMutableAudioMixInputParameters(track: customTrack)
+            inputParameters.setVolume(customVolume, at: .zero)
+            audioMixInputParameters.append(inputParameters)
+            print("🔊 Applied volume \(customVolume) to custom audio track")
+        }
+        
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = audioMixInputParameters
+        
+        return audioMix
     }
 }

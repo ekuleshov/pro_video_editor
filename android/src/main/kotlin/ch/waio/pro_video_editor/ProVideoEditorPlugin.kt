@@ -142,6 +142,11 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                 val colorMatrixList = call.argument<List<List<Double>>>("colorMatrixList")
                     ?: emptyList<List<Double>>()
 
+                // Custom audio settings
+                val customAudioPath = call.argument<String?>("customAudioPath")
+                val originalAudioVolume = call.argument<Number?>("originalAudioVolume")?.toFloat()
+                val customAudioVolume = call.argument<Number?>("customAudioVolume")?.toFloat()
+
                 // Video-Clips (required)
                 val videoClipsRaw = call.argument<List<Map<String, Any>>>("videoClips")
                 
@@ -184,6 +189,9 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                     colorMatrixList = colorMatrixList,
                     blur = blur,
                     bitrate = bitrate,
+                    customAudioPath = customAudioPath,
+                    originalAudioVolume = originalAudioVolume,
+                    customAudioVolume = customAudioVolume,
                     onProgress = { progress -> postProgress(id, progress) },
                     onComplete = { resultBytes ->
                         postProgress(id, 1.0)

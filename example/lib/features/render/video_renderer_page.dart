@@ -69,7 +69,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _rotate() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       transform: const ExportTransform(
         rotateTurns: 1,
@@ -81,7 +80,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _flip() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       transform: const ExportTransform(
         flipX: true,
@@ -93,7 +91,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _crop() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       transform: const ExportTransform(
         x: 100,
@@ -108,7 +105,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _scale() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       transform: const ExportTransform(scaleX: 0.2, scaleY: 0.2),
     );
@@ -118,7 +114,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _trim() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       startTime: const Duration(seconds: 7),
       endTime: const Duration(seconds: 20),
@@ -129,7 +124,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _changeSpeed() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       playbackSpeed: 2,
     );
@@ -139,7 +133,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _removeAudio() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       enableAudio: false,
     );
@@ -172,28 +165,15 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   ///
   /// The asset audio is first loaded and saved to a temporary file,
   /// then the native code can access it via the file path.
-  ///
-  /// **Supported Audio Formats:**
-  /// - MP3 (.mp3) - Universal support, good for music/voice
-  /// - AAC (.aac, .m4a) - Modern, efficient compression
-  /// - WAV (.wav) - Uncompressed, best quality
-  /// - OGG (.ogg) - Open format
-  /// - FLAC (.flac) - Lossless compression
-  ///
-  /// **Parameters:**
-  /// - `customAudioPath`: Path to the custom audio file
-  /// - `originalAudioVolume: 0.0`: Mutes the original video audio
-  /// - `customAudioVolume: 1.0`: Plays custom audio at full volume
   Future<void> _customAudioReplace() async {
     final customAudioFile =
         await _writeAssetAudioToFile(kVideoEditorExampleAudio1Path);
 
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       customAudioPath: customAudioFile.path,
       originalAudioVolume: 0.0, // Mute original audio
-      customAudioVolume: 1.0, // Full volume for custom audio
+      customAudioVolume: 1, // Full volume for custom audio
     );
 
     await _renderVideo(data);
@@ -206,26 +186,16 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   ///
   /// The asset audio is first loaded and saved to a temporary file,
   /// then mixed with the original video audio during export.
-  ///
-  /// **Supported Audio Formats:**
-  /// All standard formats: MP3, AAC, WAV, OGG, FLAC
-  ///
-  /// **Parameters:**
-  /// - `customAudioPath`: Path to the background music file
-  /// - `originalAudioVolume: 0.7`: Original audio at 70% volume
-  /// - `customAudioVolume: 0.3`: Background music at 30% volume
-  ///
-  /// **Use Case:** Adding subtle background music to vlogs or tutorials
+  /// FIXME: Not working on android
   Future<void> _customAudioMix() async {
     final customAudioFile =
-        await _writeAssetAudioToFile(kVideoEditorExampleAudio1Path);
+        await _writeAssetAudioToFile(kVideoEditorExampleAudio2Path);
 
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       customAudioPath: customAudioFile.path,
       originalAudioVolume: 0.7, // Original audio at 70%
-      customAudioVolume: 0.3, // Background music at 30%
+      customAudioVolume: 0.1, // Background music at 30%
     );
 
     await _renderVideo(data);
@@ -236,27 +206,16 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   /// This example demonstrates how to reduce or amplify the video's
   /// original audio without adding any custom audio track.
   ///
-  /// **Parameters:**
-  /// - `originalAudioVolume: 0.5`: Reduces original audio to 50% volume
-  ///
   /// **Volume Range:**
   /// - `0.0`: Completely muted
   /// - `0.5`: Half volume (50%)
   /// - `1.0`: Original volume (100%)
   /// - `1.5`: Amplified by 50%
   /// - `2.0`: Doubled volume
-  ///
-  /// **Use Cases:**
-  /// - Normalizing loud videos
-  /// - Amplifying quiet recordings
-  /// - Creating background-friendly versions
-  ///
-  /// **Platform Support:** All platforms
   Future<void> _adjustOriginalVolume() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
-      originalAudioVolume: 0.5, // Reduce original audio to 50%
+      originalAudioVolume: 0.2, // Reduce original audio to 20%
     );
 
     await _renderVideo(data);
@@ -265,7 +224,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Future<void> _layers() async {
     final imageBytes = await _captureLayerContent();
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       imageBytes: imageBytes,
     );
@@ -275,7 +233,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _colorMatrix() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       colorMatrixList: kComplexFilterMatrix,
     );
@@ -285,7 +242,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _blur() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       blur: 5,
     );
@@ -296,7 +252,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Future<void> _multipleChanges() async {
     final imageBytes = await _captureLayerContent();
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       transform: const ExportTransform(
         flipX: true,
@@ -312,7 +267,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _bitrate() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       video: _video,
       bitrate: 1000000,
     );
@@ -358,7 +312,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _concatenateVideos() async {
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       videoClips: [
         VideoClipModel(
           video: _video,
@@ -384,7 +337,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Future<void> _concatenateWithTransforms() async {
     final imageBytes = await _captureLayerContent();
     var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
       imageBytes: imageBytes,
       videoClips: [
         VideoClipModel(
@@ -700,7 +652,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           onTap: _adjustOriginalVolume,
           leading: const Icon(Icons.volume_down_outlined),
           title: const Text('Adjust Original Volume'),
-          subtitle: const Text('Reduce to 50%'),
+          subtitle: const Text('Reduce to 20%'),
         ),
         ..._buildSectionTitle('Quality'),
         ListTile(

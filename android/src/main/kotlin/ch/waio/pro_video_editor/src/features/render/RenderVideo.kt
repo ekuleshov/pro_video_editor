@@ -21,7 +21,6 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
-import applyAudio
 import applyBitrate
 import applyBlur
 import applyColorMatrix
@@ -60,6 +59,9 @@ class RenderVideo(private val context: Context) {
         playbackSpeed: Float? = null,
         colorMatrixList: List<List<Double>>,
         blur: Double?,
+        customAudioPath: String? = null,
+        originalAudioVolume: Float? = null,
+        customAudioVolume: Float? = null,
         onProgress: (Double) -> Unit,
         onComplete: (ByteArray?) -> Unit,
         onError: (Throwable) -> Unit
@@ -145,7 +147,10 @@ class RenderVideo(private val context: Context) {
             cropX = cropX,
             cropY = cropY,
             scaleX = scaleX,
-            scaleY = scaleY
+            scaleY = scaleY,
+            customAudioPath = customAudioPath,
+            originalAudioVolume = originalAudioVolume,
+            customAudioVolume = customAudioVolume
         )
         if (composition != null) {
             transformer.start(composition, outputFile.absolutePath)

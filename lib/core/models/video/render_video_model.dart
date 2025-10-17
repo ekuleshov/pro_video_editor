@@ -15,7 +15,7 @@ class RenderVideoModel {
   /// - Use [videoClips] for concatenating multiple videos, each with their
   ///   own trim settings
   RenderVideoModel({
-    required this.outputFormat,
+    this.outputFormat = VideoOutputFormat.mp4,
     this.video,
     this.videoClips,
     this.imageBytes,

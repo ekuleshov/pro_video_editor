@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io' as io;
 import 'dart:math';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +12,8 @@ import 'package:pro_image_editor/designs/grounded/grounded_design.dart';
 import 'package:pro_image_editor/pro_image_editor.dart';
 import 'package:pro_video_editor/core/platform/io/io_helper.dart';
 import 'package:pro_video_editor/pro_video_editor.dart';
+import 'package:pro_video_editor_example/core/constants/example_audio_tracks_constant.dart';
+import 'package:pro_video_editor_example/features/editor/services/audio_helper_service.dart';
 import 'package:video_player/video_player.dart';
 
 import '/core/constants/example_constants.dart';
@@ -34,28 +35,13 @@ class VideoEditorGroundedExamplePage extends StatefulWidget {
 
 class _VideoEditorGroundedExamplePageState
     extends State<VideoEditorGroundedExamplePage> {
+  final _editorKey = GlobalKey<ProImageEditorState>();
   final _mainEditorBarKey = GlobalKey<GroundedMainBarState>();
   final bool _useMaterialDesign =
       platformDesignMode == ImageEditorDesignMode.material;
 
   /// The target format for the exported video.
   final _outputFormat = VideoOutputFormat.mp4;
-
-  /// Video editor configuration settings.
-  final VideoEditorConfigs _videoConfigs = const VideoEditorConfigs(
-    initialMuted: true,
-    initialPlay: false,
-    isAudioSupported: true,
-    minTrimDuration: Duration(seconds: 7),
-    enablePlayButton: true,
-    controlsPosition: VideoEditorControlPosition.bottom,
-    style: VideoEditorStyle(
-      toolbarPadding: EdgeInsets.fromLTRB(12, 0, 12, 20),
-    ),
-  );
-
-  /// The audio player instance.
-  final audioPlayer = AudioPlayer();
 
   /// Indicates whether a seek operation is in progress.
   bool _isSeeking = false;
@@ -81,7 +67,7 @@ class _VideoEditorGroundedExamplePageState
   final int _thumbnailCount = 7;
 
   /// The video currently loaded in the editor.
-  final _video = EditorVideo.asset(kVideoEditorExampleAssetPath);
+  EditorVideo _video = EditorVideo.asset(kVideoEditorExampleAssetPath);
 
   String? _outputPath;
 
@@ -89,10 +75,410 @@ class _VideoEditorGroundedExamplePageState
   Duration _videoGenerationTime = Duration.zero;
   late VideoPlayerController _videoController;
 
+  late final _audioService = AudioHelperService(
+    videoController: _videoController,
+  );
+  final _updateClipsNotifier = ValueNotifier(false);
+
+  final _proVideoEditor = ProVideoEditor.instance;
+
   final _taskId = DateTime.now().microsecondsSinceEpoch.toString();
   final Map<String, Uint8List> _cachedKeyFrames = {};
   final Map<String, List<Uint8List>> _cachedKeyFrameList = {};
-  double _lastVolumeBalance = 0;
+
+  late final ProImageEditorConfigs _configs = ProImageEditorConfigs(
+    designMode: platformDesignMode,
+    dialogConfigs: DialogConfigs(
+      widgets: DialogWidgets(
+        loadingDialog: (message, configs) => VideoProgressAlert(
+          taskId: _taskId,
+        ),
+      ),
+    ),
+    mainEditor: MainEditorConfigs(
+      tools: [
+        SubEditorMode.videoClips,
+        SubEditorMode.audio,
+        SubEditorMode.paint,
+        SubEditorMode.text,
+        SubEditorMode.cropRotate,
+        SubEditorMode.tune,
+        SubEditorMode.filter,
+        SubEditorMode.blur,
+        SubEditorMode.emoji,
+        SubEditorMode.sticker,
+      ],
+      widgets: MainEditorWidgets(
+        appBar: (editor, rebuildStream) => null,
+        bottomBar: (editor, rebuildStream, key) => ReactiveWidget(
+          key: key,
+          builder: (context) {
+            return GroundedMainBar(
+              key: _mainEditorBarKey,
+              editor: editor,
+              configs: editor.configs,
+              callbacks: editor.callbacks,
+            );
+          },
+          stream: rebuildStream,
+        ),
+      ),
+      style: const MainEditorStyle(
+        background: Color(0xFF000000),
+        bottomBarBackground: Color(0xFF161616),
+      ),
+    ),
+    paintEditor: PaintEditorConfigs(
+      tools: [
+        PaintMode.freeStyle,
+        PaintMode.arrow,
+        PaintMode.line,
+        PaintMode.rect,
+        PaintMode.circle,
+        PaintMode.dashLine,
+        PaintMode.polygon,
+        // Blur and pixelate are not supported.
+        // PaintMode.pixelate,
+        // PaintMode.blur,
+        PaintMode.eraser,
+      ],
+      style: const PaintEditorStyle(
+        background: Color(0xFF000000),
+        bottomBarBackground: Color(0xFF161616),
+        initialStrokeWidth: 5,
+      ),
+      widgets: PaintEditorWidgets(
+        appBar: (paintEditor, rebuildStream) => null,
+        colorPicker: (paintEditor, rebuildStream, currentColor, setColor) =>
+            null,
+        bottomBar: (editorState, rebuildStream) {
+          return ReactiveWidget(
+            builder: (context) {
+              return GroundedPaintBar(
+                  configs: editorState.configs,
+                  callbacks: editorState.callbacks,
+                  editor: editorState,
+                  i18nColor: 'Color',
+                  showColorPicker: (currentColor) {
+                    Color? newColor;
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        content: SingleChildScrollView(
+                          child: ColorPicker(
+                            pickerColor: currentColor,
+                            onColorChanged: (color) {
+                              newColor = color;
+                            },
+                          ),
+                        ),
+                        actions: <Widget>[
+                          ElevatedButton(
+                            child: const Text('Got it'),
+                            onPressed: () {
+                              if (newColor != null) {
+                                setState(() => editorState.setColor(newColor!));
+                              }
+                              Navigator.of(context).pop();
+                            },
+                          ),
+                        ],
+                      ),
+                    );
+                  });
+            },
+            stream: rebuildStream,
+          );
+        },
+      ),
+    ),
+    textEditor: TextEditorConfigs(
+      customTextStyles: [
+        GoogleFonts.roboto(),
+        GoogleFonts.averiaLibre(),
+        GoogleFonts.lato(),
+        GoogleFonts.comicNeue(),
+        GoogleFonts.actor(),
+        GoogleFonts.odorMeanChey(),
+        GoogleFonts.nabla(),
+      ],
+      style: TextEditorStyle(
+        textFieldMargin: const EdgeInsets.only(top: kToolbarHeight),
+        bottomBarBackground: const Color(0xFF161616),
+        bottomBarMainAxisAlignment: !_useMaterialDesign
+            ? MainAxisAlignment.spaceEvenly
+            : MainAxisAlignment.start,
+      ),
+      widgets: TextEditorWidgets(
+        appBar: (textEditor, rebuildStream) => null,
+        colorPicker: (textEditor, rebuildStream, currentColor, setColor) =>
+            null,
+        bottomBar: (editorState, rebuildStream) {
+          return ReactiveWidget(
+            builder: (context) {
+              return GroundedTextBar(
+                  configs: editorState.configs,
+                  callbacks: editorState.callbacks,
+                  editor: editorState,
+                  i18nColor: 'Color',
+                  showColorPicker: (currentColor) {
+                    Color? newColor;
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        content: SingleChildScrollView(
+                          child: ColorPicker(
+                            pickerColor: currentColor,
+                            onColorChanged: (color) {
+                              newColor = color;
+                            },
+                          ),
+                        ),
+                        actions: <Widget>[
+                          ElevatedButton(
+                            child: const Text('Got it'),
+                            onPressed: () {
+                              if (newColor != null) {
+                                setState(
+                                    () => editorState.primaryColor = newColor!);
+                              }
+                              Navigator.of(context).pop();
+                            },
+                          ),
+                        ],
+                      ),
+                    );
+                  });
+            },
+            stream: rebuildStream,
+          );
+        },
+        bodyItems: (editorState, rebuildStream) => [
+          ReactiveWidget(
+            stream: rebuildStream,
+            builder: (_) => Padding(
+              padding: const EdgeInsets.only(top: kToolbarHeight),
+              child: GroundedTextSizeSlider(textEditor: editorState),
+            ),
+          ),
+        ],
+      ),
+    ),
+    cropRotateEditor: CropRotateEditorConfigs(
+      style: const CropRotateEditorStyle(
+        cropCornerColor: Color(0xFFFFFFFF),
+        cropCornerLength: 36,
+        cropCornerThickness: 4,
+        background: Color(0xFF000000),
+        bottomBarBackground: Color(0xFF161616),
+        helperLineColor: Color(0x25FFFFFF),
+      ),
+      widgets: CropRotateEditorWidgets(
+        appBar: (cropRotateEditor, rebuildStream) => null,
+        bottomBar: (cropRotateEditor, rebuildStream) => ReactiveWidget(
+          stream: rebuildStream,
+          builder: (_) => GroundedCropRotateBar(
+            configs: cropRotateEditor.configs,
+            callbacks: cropRotateEditor.callbacks,
+            editor: cropRotateEditor,
+            selectedRatioColor: kImageEditorPrimaryColor,
+          ),
+        ),
+      ),
+    ),
+    filterEditor: FilterEditorConfigs(
+      fadeInUpDuration: kGroundedFadeInDuration,
+      fadeInUpStaggerDelayDuration: kGroundedFadeInStaggerDelay,
+      style: const FilterEditorStyle(
+        filterListSpacing: 7,
+        filterListMargin: EdgeInsets.fromLTRB(8, 0, 8, 8),
+        background: Color(0xFF000000),
+      ),
+      widgets: FilterEditorWidgets(
+        slider: (editorState, rebuildStream, value, onChanged, onChangeEnd) =>
+            ReactiveWidget(
+          stream: rebuildStream,
+          builder: (_) => Slider(
+            onChanged: onChanged,
+            onChangeEnd: onChangeEnd,
+            value: value,
+            activeColor: Colors.blue.shade200,
+          ),
+        ),
+        appBar: (editorState, rebuildStream) => null,
+        bottomBar: (editorState, rebuildStream) {
+          return ReactiveWidget(
+            builder: (context) {
+              return GroundedFilterBar(
+                configs: editorState.configs,
+                callbacks: editorState.callbacks,
+                editor: editorState,
+                image: _buildVideoPlayer(),
+              );
+            },
+            stream: rebuildStream,
+          );
+        },
+      ),
+    ),
+    tuneEditor: TuneEditorConfigs(
+      style: const TuneEditorStyle(
+        background: Color(0xFF000000),
+        bottomBarBackground: Color(0xFF161616),
+      ),
+      widgets: TuneEditorWidgets(
+        appBar: (editor, rebuildStream) => null,
+        bottomBar: (editorState, rebuildStream) {
+          return ReactiveWidget(
+            builder: (context) {
+              return GroundedTuneBar(
+                configs: editorState.configs,
+                callbacks: editorState.callbacks,
+                editor: editorState,
+              );
+            },
+            stream: rebuildStream,
+          );
+        },
+      ),
+    ),
+    blurEditor: BlurEditorConfigs(
+      style: const BlurEditorStyle(
+        background: Color(0xFF000000),
+      ),
+      widgets: BlurEditorWidgets(
+        appBar: (blurEditor, rebuildStream) => null,
+        bottomBar: (editorState, rebuildStream) {
+          return ReactiveWidget(
+            builder: (context) {
+              return GroundedBlurBar(
+                configs: editorState.configs,
+                callbacks: editorState.callbacks,
+                editor: editorState,
+              );
+            },
+            stream: rebuildStream,
+          );
+        },
+      ),
+    ),
+    emojiEditor: EmojiEditorConfigs(
+      checkPlatformCompatibility: !kIsWeb,
+      style: EmojiEditorStyle(
+        backgroundColor: Colors.transparent,
+        textStyle: DefaultEmojiTextStyle.copyWith(
+          fontFamily: !kIsWeb ? null : GoogleFonts.notoColorEmoji().fontFamily,
+          fontSize: _useMaterialDesign ? 48 : 30,
+        ),
+        bottomActionBarConfig: const BottomActionBarConfig(enabled: false),
+      ),
+    ),
+    i18n: const I18n(
+      paintEditor: I18nPaintEditor(
+        changeOpacity: 'Opacity',
+        lineWidth: 'Thickness',
+      ),
+      textEditor: I18nTextEditor(
+        backgroundMode: 'Mode',
+        textAlign: 'Align',
+      ),
+    ),
+    stickerEditor: StickerEditorConfigs(
+      builder: (setLayer, scrollController) => DemoBuildStickers(
+          categoryColor: const Color(0xFF161616),
+          setLayer: setLayer,
+          scrollController: scrollController),
+    ),
+    theme: ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.blue.shade800,
+        brightness: Brightness.dark,
+      ),
+    ),
+    layerInteraction: const LayerInteractionConfigs(
+      hideToolbarOnInteraction: false,
+    ),
+    audioEditor: AudioEditorConfigs(
+      audioTracks: kExampleAudioTracks,
+      style: const AudioEditorStyle(
+        reversedTrackList: true,
+      ),
+      widgets: AudioEditorWidgets(
+        appBar: (editorState, rebuildStream) => null,
+        bottomBar: (editorState, rebuildStream) {
+          return ReactiveWidget(
+            builder: (_) {
+              return GroundedAudioBar(
+                configs: editorState.configs,
+                callbacks: editorState.callbacks,
+                editor: editorState,
+              );
+            },
+            stream: rebuildStream,
+          );
+        },
+      ),
+    ),
+    clipsEditor: ClipsEditorConfigs(
+      style: const ClipsEditorStyle(
+        reversedClipsList: true,
+      ),
+      widgets: ClipsEditorWidgets(
+        appBar: (editorState, rebuildStream) => null,
+        bottomBar: (editorState, rebuildStream) {
+          return ReactiveWidget(
+            builder: (_) {
+              return GroundedClipsBar(
+                configs: editorState.configs,
+                callbacks: editorState.callbacks,
+                editor: editorState,
+              );
+            },
+            stream: rebuildStream,
+          );
+        },
+        editClipAppBar: (editorState, rebuildStream) => null,
+        editClipBottomBar: (editorState, rebuildStream) {
+          return ReactiveWidget(
+            builder: (_) {
+              return GroundedClipEditorBar(
+                configs: editorState.configs,
+                callbacks: editorState.callbacks,
+                editor: editorState,
+              );
+            },
+            stream: rebuildStream,
+          );
+        },
+      ),
+      clips: [
+        VideoClip(
+          id: '001',
+          title: 'My awesome video',
+          // subtitle: 'Optional',
+          duration: Duration.zero,
+          clip: EditorVideoClip.autoSource(
+            assetPath: _video.assetPath,
+            bytes: _video.byteArray,
+            file: _video.file,
+            networkUrl: _video.networkUrl,
+          ),
+        ),
+      ],
+    ),
+    videoEditor: const VideoEditorConfigs(
+      initialMuted: false,
+      initialPlay: false,
+      isAudioSupported: true,
+      minTrimDuration: Duration(seconds: 7),
+      playTimeSmoothingDuration: Duration(milliseconds: 600),
+      controlsPosition: VideoEditorControlPosition.bottom,
+      style: VideoEditorStyle(
+        toolbarPadding: EdgeInsets.fromLTRB(12, 0, 12, 20),
+      ),
+    ),
+  );
 
   @override
   void initState() {
@@ -103,6 +489,8 @@ class _VideoEditorGroundedExamplePageState
   @override
   void dispose() {
     _videoController.dispose();
+    _audioService.dispose();
+    _updateClipsNotifier.dispose();
     super.dispose();
   }
 
@@ -112,64 +500,61 @@ class _VideoEditorGroundedExamplePageState
   }
 
   /// Generates thumbnails for the given [_video].
-  void _generateThumbnails() {
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      var imageWidth = MediaQuery.sizeOf(context).width /
-          _thumbnailCount *
-          MediaQuery.devicePixelRatioOf(context);
+  Future<void> _generateThumbnails({bool updateClipThumbnails = true}) async {
+    if (!mounted) return;
+    var imageWidth = MediaQuery.sizeOf(context).width /
+        _thumbnailCount *
+        MediaQuery.devicePixelRatioOf(context);
 
-      List<Uint8List> thumbnailList = [];
+    List<Uint8List> thumbnailList = [];
 
-      /// On android `getKeyFrames` is a way faster than `getThumbnails` but
-      /// the timestamps are more "random". If you want the best results i
-      /// recommend you to use only `getThumbnails`.
-      if (!kIsWeb && Platform.isAndroid) {
-        thumbnailList = await ProVideoEditor.instance.getKeyFrames(
-          KeyFramesConfigs(
-            video: _video,
-            outputSize: Size.square(imageWidth),
-            boxFit: ThumbnailBoxFit.cover,
-            maxOutputFrames: _thumbnailCount,
-            outputFormat: ThumbnailFormat.jpeg,
-          ),
-        );
-      } else {
-        final duration = _videoMetadata.duration;
-        final segmentDuration = duration.inMilliseconds / _thumbnailCount;
+    /// On android `getKeyFrames` is a way faster than `getThumbnails` but
+    /// the timestamps are more "random". If you want the best results i
+    /// recommend you to use only `getThumbnails`.
+    final duration = _videoMetadata.duration;
+    final segmentDuration = duration.inMilliseconds / _thumbnailCount;
+    thumbnailList = await _proVideoEditor.getThumbnails(
+      ThumbnailConfigs(
+        video: _video,
+        outputSize: Size.square(imageWidth),
+        boxFit: ThumbnailBoxFit.cover,
+        timestamps: List.generate(_thumbnailCount, (i) {
+          final midpointMs = (i + 0.5) * segmentDuration;
+          return Duration(milliseconds: midpointMs.round());
+        }),
+        outputFormat: ThumbnailFormat.jpeg,
+      ),
+    );
 
-        thumbnailList = await ProVideoEditor.instance.getThumbnails(
-          ThumbnailConfigs(
-            video: _video,
-            outputSize: Size.square(imageWidth),
-            boxFit: ThumbnailBoxFit.cover,
-            timestamps: List.generate(_thumbnailCount, (i) {
-              final midpointMs = (i + 0.5) * segmentDuration;
-              return Duration(milliseconds: midpointMs.round());
-            }),
-            outputFormat: ThumbnailFormat.jpeg,
-          ),
-        );
-      }
+    List<ImageProvider> temporaryThumbnails =
+        thumbnailList.map(MemoryImage.new).toList();
 
-      List<ImageProvider> temporaryThumbnails =
-          thumbnailList.map(MemoryImage.new).toList();
+    if (updateClipThumbnails) {
+      _configs.clipsEditor.clips.first = _configs.clipsEditor.clips.first
+          .copyWith(thumbnails: temporaryThumbnails);
+    }
 
-      /// Optional precache every thumbnail
-      var cacheList =
-          temporaryThumbnails.map((item) => precacheImage(item, context));
-      await Future.wait(cacheList);
-      _thumbnails = temporaryThumbnails;
+    /// Optional precache every thumbnail
+    var cacheList =
+        temporaryThumbnails.map((item) => precacheImage(item, context));
+    await Future.wait(cacheList);
+    _thumbnails = temporaryThumbnails;
 
-      if (_proVideoController != null) {
-        _proVideoController!.thumbnails = _thumbnails;
-      }
-    });
+    if (_proVideoController != null) {
+      _proVideoController!.thumbnails = _thumbnails;
+    }
   }
 
-  void _initializePlayer() async {
+  Future<void> _initializePlayer() async {
     await _setMetadata();
-    _generateThumbnails();
+
+    _configs.clipsEditor.clips.first =
+        _configs.clipsEditor.clips.first.copyWith(
+      duration: _videoMetadata.duration,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _generateThumbnails();
+    });
 
     _videoController =
         VideoPlayerController.asset(kVideoEditorExampleAssetPath);
@@ -177,10 +562,11 @@ class _VideoEditorGroundedExamplePageState
     await Future.wait([
       _videoController.initialize(),
       _videoController.setLooping(false),
-      _videoController.setVolume(_videoConfigs.initialMuted ? 0 : 100),
-      _videoConfigs.initialPlay
+      _videoController.setVolume(_configs.videoEditor.initialMuted ? 0 : 100),
+      _configs.videoEditor.initialPlay
           ? _videoController.play()
           : _videoController.pause(),
+      _audioService.initialize(),
     ]);
     if (!mounted) return;
 
@@ -305,66 +691,105 @@ class _VideoEditorGroundedExamplePageState
   int _calculateEmojiColumns(BoxConstraints constraints) =>
       max(1, (_useMaterialDesign ? 6 : 10) / 400 * constraints.maxWidth - 1)
           .floor();
+  Future<VideoClip?> _addClip() async {
+    // Open video picker
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      allowMultiple: false,
+    );
+
+    // User cancelled picker
+    if (!mounted || result == null || result.files.isEmpty) return null;
+
+    final file = result.files.single;
+    final path = file.path;
+    if (path == null) return null;
+
+    // Extract file name for display
+    final name = file.name;
+    final title = name.split('.').first;
+    LoadingDialog.instance.show(context, configs: _configs);
+    final meta = await _proVideoEditor.getMetadata(EditorVideo.file(path));
+    LoadingDialog.instance.hide();
+
+    // Create and return your video clip
+    return VideoClip(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: title,
+      clip: EditorVideoClip.file(path),
+      duration: meta.duration,
+    );
+  }
 
   Future<void> _mergeClips(List<VideoClip> clips) async {
-    /// TODO Use pro_video_editor to merge the videoClips
-    final updatedFile = File('');
+    LoadingDialog.instance.show(context, configs: _configs);
+    final directory = await getApplicationCacheDirectory();
+    final updatedFile = File('${directory.path}/temp.mp4');
 
-    /// Generate new thumbnails
-    var imageWidth = MediaQuery.sizeOf(context).width /
-        _thumbnailCount *
-        MediaQuery.devicePixelRatioOf(context);
-
-    final thumbnailList = await ProVideoEditor.instance.getKeyFrames(
-      KeyFramesConfigs(
-        video: _video,
-        outputSize: Size.square(imageWidth),
-        boxFit: ThumbnailBoxFit.cover,
-        maxOutputFrames: _thumbnailCount,
-        outputFormat: ThumbnailFormat.jpeg,
+    _updateClipsNotifier.value = true;
+    await _proVideoEditor.renderVideoToFile(
+      updatedFile.path,
+      RenderVideoModel(
+        id: _taskId,
+        videoClips: clips.map(
+          (el) {
+            final clip = el.clip;
+            return VideoClipModel(
+              video: EditorVideo.autoSource(
+                networkUrl: clip.networkUrl,
+                assetPath: clip.assetPath,
+                byteArray: clip.bytes,
+                file: clip.file,
+              ),
+              startTime: el.trimSpan?.start,
+              endTime: el.trimSpan?.end,
+            );
+          },
+        ).toList(),
       ),
     );
-    if (!mounted) return;
-    List<ImageProvider> temporaryThumbnails =
-        thumbnailList.map(MemoryImage.new).toList();
-    _proVideoController!.thumbnails = temporaryThumbnails;
+    if (!mounted) {
+      LoadingDialog.instance.hide();
+      return;
+    }
 
-    /// Update meta
-    final metaData = await ProVideoEditor.instance.getMetadata(
-      EditorVideo.file(updatedFile),
-    );
-    _proVideoController!.initialResolution = metaData.resolution;
-    _proVideoController!.videoDuration = metaData.duration;
-    _proVideoController!.fileSize = metaData.fileSize;
-    _proVideoController!.bitrate = metaData.bitrate;
-    _proVideoController!.setTrimStart(Duration.zero);
-    _proVideoController!.setTrimEnd(metaData.duration);
+    _video = EditorVideo.file(updatedFile.path);
+
+    await _setMetadata();
+    await _generateThumbnails(updateClipThumbnails: false);
+    await _initializePlayer();
+
+    final editor = _editorKey.currentState!;
+
+    _proVideoController = ProVideoController(
+      videoPlayer: _buildVideoPlayer(),
+      initialResolution: _videoMetadata.resolution,
+      videoDuration: _videoMetadata.duration,
+      fileSize: _videoMetadata.fileSize,
+      thumbnails: _thumbnails,
+    )..initialize(
+        configsFunction: () => _configs.videoEditor,
+        callbacksAudioFunction: () =>
+            editor.audioEditorCallbacks ?? const AudioEditorCallbacks(),
+        callbacksFunction: () =>
+            editor.callbacks.videoEditorCallbacks ?? VideoEditorCallbacks(),
+      );
+
+    /// FIXME: On android video metadata say it's 90deg rotated??
 
     /// Load the new video
     final controller = VideoPlayerController.file(io.File(updatedFile.path));
     await controller.initialize();
+    LoadingDialog.instance.hide();
 
-    // Optionally start playing automatically
-    await controller.play();
+    if (!mounted) return;
 
     _videoController = controller;
+    _videoController.addListener(_onDurationChange);
+    editor.initializeVideoEditor();
 
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _balanceAudio(double volumeBalance) async {
-    double overlayVolume = 1;
-    double originalVolume = 1;
-    if (volumeBalance < 0) {
-      overlayVolume += volumeBalance;
-    } else {
-      originalVolume -= volumeBalance;
-    }
-    await Future.wait([
-      audioPlayer.setVolume(overlayVolume),
-      _videoController.setVolume(originalVolume * 100),
-    ]);
-    _lastVolumeBalance = overlayVolume;
+    _updateClipsNotifier.value = false;
+    setState(() {});
   }
 
   @override
@@ -381,6 +806,7 @@ class _VideoEditorGroundedExamplePageState
     return LayoutBuilder(builder: (context, constraints) {
       return ProImageEditor.video(
         _proVideoController!,
+        key: _editorKey,
         callbacks: ProImageEditorCallbacks(
           onCompleteWithParameters: generateVideo,
           onCloseEditor: onCloseEditor,
@@ -389,10 +815,10 @@ class _VideoEditorGroundedExamplePageState
             onPlay: _videoController.play,
             onMuteToggle: (isMuted) {
               if (isMuted) {
-                audioPlayer.setVolume(0);
-                _videoController.setVolume(isMuted ? 0 : 100);
+                _audioService.setVolume(0);
+                _videoController.setVolume(0);
               } else {
-                _balanceAudio(_lastVolumeBalance);
+                _audioService.balanceAudio();
               }
             },
             onTrimSpanUpdate: (durationSpan) {
@@ -403,47 +829,20 @@ class _VideoEditorGroundedExamplePageState
             onTrimSpanEnd: _seekToPosition,
           ),
           audioEditorCallbacks: AudioEditorCallbacks(
-            onBalanceChange: _balanceAudio,
+            onBalanceChange: _audioService.balanceAudio,
             onStartTimeChange: (startTime) async {
               await Future.value([
-                audioPlayer.seek(startTime),
+                _audioService.seek(startTime),
                 _videoController.seekTo(Duration.zero),
               ]);
             },
-            onPlay: (track) async {
-              final audio = track.audio;
-              Source source;
-              if (audio.hasAssetPath) {
-                source = AssetSource(audio.assetPath!);
-              } else if (audio.hasFile) {
-                source = DeviceFileSource(audio.file!.path);
-              } else if (audio.hasNetworkUrl) {
-                source = UrlSource(audio.networkUrl!);
-              } else {
-                source = BytesSource(audio.bytes!);
-              }
-
-              await audioPlayer.setReleaseMode(ReleaseMode.loop);
-              await audioPlayer.play(source, position: track.startTime);
-            },
-            onStop: (audio) async {
-              return audioPlayer.pause();
-            },
-            onMuteToggle: (isMuted) async {
-              // You can also pause or play the audio instantly, or set the
-              // volume to zero. Some other audio players may support mute
-              // directly.
-              if (isMuted) {
-                await audioPlayer.setVolume(0);
-              } else {
-                await audioPlayer.setVolume(1);
-              }
-            },
+            onPlay: _audioService.play,
+            onStop: (audio) => _audioService.pause(),
           ),
           clipsEditorCallbacks: ClipsEditorCallbacks(
             onBuildPlayer: (controller, videoClip) {
               return ClipsPreviewer(
-                videoConfigs: _videoConfigs,
+                videoConfigs: _configs.videoEditor,
                 proController: controller,
                 videoClip: videoClip,
               );
@@ -454,7 +853,7 @@ class _VideoEditorGroundedExamplePageState
                 return _cachedKeyFrames[source.id]!;
               }
 
-              final result = await ProVideoEditor.instance.getKeyFrames(
+              final result = await _proVideoEditor.getKeyFrames(
                 KeyFramesConfigs(
                   video: EditorVideo.autoSource(
                     assetPath: source.clip.assetPath,
@@ -476,7 +875,7 @@ class _VideoEditorGroundedExamplePageState
                 return _cachedKeyFrameList[source.id]!;
               }
 
-              final result = await ProVideoEditor.instance.getKeyFrames(
+              final result = await _proVideoEditor.getKeyFrames(
                 KeyFramesConfigs(
                   video: EditorVideo.autoSource(
                     assetPath: source.clip.assetPath,
@@ -493,42 +892,7 @@ class _VideoEditorGroundedExamplePageState
               _cachedKeyFrameList[source.id] = result;
               return result;
             },
-            onAddClip: () async {
-              // Open video picker
-              final result = await FilePicker.platform.pickFiles(
-                type: FileType.video,
-                allowMultiple: false,
-              );
-
-              // User cancelled picker
-              if (!context.mounted || result == null || result.files.isEmpty) {
-                return null;
-              }
-
-              final file = result.files.single;
-              final path = file.path;
-              if (path == null) return null;
-
-              // Extract file name for display
-              final name = file.name;
-              final title = name.split('.').first;
-              LoadingDialog.instance.show(
-                context,
-                configs: const ProImageEditorConfigs(),
-              );
-              final meta = await ProVideoEditor.instance.getMetadata(
-                EditorVideo.file(path),
-              );
-              LoadingDialog.instance.hide();
-
-              // Create and return your video clip
-              return VideoClip(
-                id: DateTime.now().millisecondsSinceEpoch.toString(),
-                title: title,
-                clip: EditorVideoClip.file(path),
-                duration: meta.duration,
-              );
-            },
+            onAddClip: _addClip,
           ),
           mainEditorCallbacks: MainEditorCallbacks(
             onStartCloseSubEditor: (value) {
@@ -543,306 +907,9 @@ class _VideoEditorGroundedExamplePageState
             },
           ),
         ),
-        configs: ProImageEditorConfigs(
-          dialogConfigs: DialogConfigs(
-            widgets: DialogWidgets(
-              loadingDialog: (message, configs) => VideoProgressAlert(
-                taskId: _taskId,
-              ),
-            ),
-          ),
-          videoEditor: _videoConfigs.copyWith(
-            playTimeSmoothingDuration: const Duration(milliseconds: 600),
-          ),
-          designMode: platformDesignMode,
-          theme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: Colors.blue.shade800,
-              brightness: Brightness.dark,
-            ),
-          ),
-          layerInteraction: const LayerInteractionConfigs(
-            hideToolbarOnInteraction: false,
-          ),
-          mainEditor: MainEditorConfigs(
-            tools: [
-              SubEditorMode.videoClips,
-              SubEditorMode.audio,
-              SubEditorMode.paint,
-              SubEditorMode.text,
-              SubEditorMode.cropRotate,
-              SubEditorMode.tune,
-              SubEditorMode.filter,
-              SubEditorMode.blur,
-              SubEditorMode.emoji,
-              SubEditorMode.sticker,
-            ],
-            widgets: MainEditorWidgets(
-              appBar: (editor, rebuildStream) => null,
-              bottomBar: (editor, rebuildStream, key) => ReactiveWidget(
-                key: key,
-                builder: (context) {
-                  return GroundedMainBar(
-                    key: _mainEditorBarKey,
-                    editor: editor,
-                    configs: editor.configs,
-                    callbacks: editor.callbacks,
-                  );
-                },
-                stream: rebuildStream,
-              ),
-            ),
-            style: const MainEditorStyle(
-              background: Color(0xFF000000),
-              bottomBarBackground: Color(0xFF161616),
-            ),
-          ),
-          paintEditor: PaintEditorConfigs(
-            tools: [
-              PaintMode.freeStyle,
-              PaintMode.arrow,
-              PaintMode.line,
-              PaintMode.rect,
-              PaintMode.circle,
-              PaintMode.dashLine,
-              PaintMode.polygon,
-              // Blur and pixelate are not supported.
-              // PaintMode.pixelate,
-              // PaintMode.blur,
-              PaintMode.eraser,
-            ],
-            style: const PaintEditorStyle(
-              background: Color(0xFF000000),
-              bottomBarBackground: Color(0xFF161616),
-              initialStrokeWidth: 5,
-            ),
-            widgets: PaintEditorWidgets(
-              appBar: (paintEditor, rebuildStream) => null,
-              colorPicker:
-                  (paintEditor, rebuildStream, currentColor, setColor) => null,
-              bottomBar: (editorState, rebuildStream) {
-                return ReactiveWidget(
-                  builder: (context) {
-                    return GroundedPaintBar(
-                        configs: editorState.configs,
-                        callbacks: editorState.callbacks,
-                        editor: editorState,
-                        i18nColor: 'Color',
-                        showColorPicker: (currentColor) {
-                          Color? newColor;
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              content: SingleChildScrollView(
-                                child: ColorPicker(
-                                  pickerColor: currentColor,
-                                  onColorChanged: (color) {
-                                    newColor = color;
-                                  },
-                                ),
-                              ),
-                              actions: <Widget>[
-                                ElevatedButton(
-                                  child: const Text('Got it'),
-                                  onPressed: () {
-                                    if (newColor != null) {
-                                      setState(() =>
-                                          editorState.setColor(newColor!));
-                                    }
-                                    Navigator.of(context).pop();
-                                  },
-                                ),
-                              ],
-                            ),
-                          );
-                        });
-                  },
-                  stream: rebuildStream,
-                );
-              },
-            ),
-          ),
-          textEditor: TextEditorConfigs(
-            customTextStyles: [
-              GoogleFonts.roboto(),
-              GoogleFonts.averiaLibre(),
-              GoogleFonts.lato(),
-              GoogleFonts.comicNeue(),
-              GoogleFonts.actor(),
-              GoogleFonts.odorMeanChey(),
-              GoogleFonts.nabla(),
-            ],
-            style: TextEditorStyle(
-              textFieldMargin: const EdgeInsets.only(top: kToolbarHeight),
-              bottomBarBackground: const Color(0xFF161616),
-              bottomBarMainAxisAlignment: !_useMaterialDesign
-                  ? MainAxisAlignment.spaceEvenly
-                  : MainAxisAlignment.start,
-            ),
-            widgets: TextEditorWidgets(
-              appBar: (textEditor, rebuildStream) => null,
-              colorPicker:
-                  (textEditor, rebuildStream, currentColor, setColor) => null,
-              bottomBar: (editorState, rebuildStream) {
-                return ReactiveWidget(
-                  builder: (context) {
-                    return GroundedTextBar(
-                        configs: editorState.configs,
-                        callbacks: editorState.callbacks,
-                        editor: editorState,
-                        i18nColor: 'Color',
-                        showColorPicker: (currentColor) {
-                          Color? newColor;
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              content: SingleChildScrollView(
-                                child: ColorPicker(
-                                  pickerColor: currentColor,
-                                  onColorChanged: (color) {
-                                    newColor = color;
-                                  },
-                                ),
-                              ),
-                              actions: <Widget>[
-                                ElevatedButton(
-                                  child: const Text('Got it'),
-                                  onPressed: () {
-                                    if (newColor != null) {
-                                      setState(() =>
-                                          editorState.primaryColor = newColor!);
-                                    }
-                                    Navigator.of(context).pop();
-                                  },
-                                ),
-                              ],
-                            ),
-                          );
-                        });
-                  },
-                  stream: rebuildStream,
-                );
-              },
-              bodyItems: (editorState, rebuildStream) => [
-                ReactiveWidget(
-                  stream: rebuildStream,
-                  builder: (_) => Padding(
-                    padding: const EdgeInsets.only(top: kToolbarHeight),
-                    child: GroundedTextSizeSlider(textEditor: editorState),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          cropRotateEditor: CropRotateEditorConfigs(
-            style: const CropRotateEditorStyle(
-              cropCornerColor: Color(0xFFFFFFFF),
-              cropCornerLength: 36,
-              cropCornerThickness: 4,
-              background: Color(0xFF000000),
-              bottomBarBackground: Color(0xFF161616),
-              helperLineColor: Color(0x25FFFFFF),
-            ),
-            widgets: CropRotateEditorWidgets(
-              appBar: (cropRotateEditor, rebuildStream) => null,
-              bottomBar: (cropRotateEditor, rebuildStream) => ReactiveWidget(
-                stream: rebuildStream,
-                builder: (_) => GroundedCropRotateBar(
-                  configs: cropRotateEditor.configs,
-                  callbacks: cropRotateEditor.callbacks,
-                  editor: cropRotateEditor,
-                  selectedRatioColor: kImageEditorPrimaryColor,
-                ),
-              ),
-            ),
-          ),
-          filterEditor: FilterEditorConfigs(
-            fadeInUpDuration: kGroundedFadeInDuration,
-            fadeInUpStaggerDelayDuration: kGroundedFadeInStaggerDelay,
-            style: const FilterEditorStyle(
-              filterListSpacing: 7,
-              filterListMargin: EdgeInsets.fromLTRB(8, 0, 8, 8),
-              background: Color(0xFF000000),
-            ),
-            widgets: FilterEditorWidgets(
-              slider:
-                  (editorState, rebuildStream, value, onChanged, onChangeEnd) =>
-                      ReactiveWidget(
-                stream: rebuildStream,
-                builder: (_) => Slider(
-                  onChanged: onChanged,
-                  onChangeEnd: onChangeEnd,
-                  value: value,
-                  activeColor: Colors.blue.shade200,
-                ),
-              ),
-              appBar: (editorState, rebuildStream) => null,
-              bottomBar: (editorState, rebuildStream) {
-                return ReactiveWidget(
-                  builder: (context) {
-                    return GroundedFilterBar(
-                      configs: editorState.configs,
-                      callbacks: editorState.callbacks,
-                      editor: editorState,
-                      image: _buildVideoPlayer(),
-                    );
-                  },
-                  stream: rebuildStream,
-                );
-              },
-            ),
-          ),
-          tuneEditor: TuneEditorConfigs(
-            style: const TuneEditorStyle(
-              background: Color(0xFF000000),
-              bottomBarBackground: Color(0xFF161616),
-            ),
-            widgets: TuneEditorWidgets(
-              appBar: (editor, rebuildStream) => null,
-              bottomBar: (editorState, rebuildStream) {
-                return ReactiveWidget(
-                  builder: (context) {
-                    return GroundedTuneBar(
-                      configs: editorState.configs,
-                      callbacks: editorState.callbacks,
-                      editor: editorState,
-                    );
-                  },
-                  stream: rebuildStream,
-                );
-              },
-            ),
-          ),
-          blurEditor: BlurEditorConfigs(
-            style: const BlurEditorStyle(
-              background: Color(0xFF000000),
-            ),
-            widgets: BlurEditorWidgets(
-              appBar: (blurEditor, rebuildStream) => null,
-              bottomBar: (editorState, rebuildStream) {
-                return ReactiveWidget(
-                  builder: (context) {
-                    return GroundedBlurBar(
-                      configs: editorState.configs,
-                      callbacks: editorState.callbacks,
-                      editor: editorState,
-                    );
-                  },
-                  stream: rebuildStream,
-                );
-              },
-            ),
-          ),
-          emojiEditor: EmojiEditorConfigs(
-            checkPlatformCompatibility: !kIsWeb,
-            style: EmojiEditorStyle(
-              backgroundColor: Colors.transparent,
-              textStyle: DefaultEmojiTextStyle.copyWith(
-                fontFamily:
-                    !kIsWeb ? null : GoogleFonts.notoColorEmoji().fontFamily,
-                fontSize: _useMaterialDesign ? 48 : 30,
-              ),
+        configs: _configs.copyWith(
+          emojiEditor: _configs.emojiEditor.copyWith(
+            style: _configs.emojiEditor.style.copyWith(
               emojiViewConfig: EmojiViewConfig(
                 gridPadding: EdgeInsets.zero,
                 horizontalSpacing: 0,
@@ -858,77 +925,6 @@ class _VideoEditorGroundedExamplePageState
                 emojiSizeMax: !_useMaterialDesign ? 32 : 64,
                 replaceEmojiOnLimitExceed: false,
               ),
-              bottomActionBarConfig:
-                  const BottomActionBarConfig(enabled: false),
-            ),
-          ),
-          i18n: const I18n(
-            paintEditor: I18nPaintEditor(
-              changeOpacity: 'Opacity',
-              lineWidth: 'Thickness',
-            ),
-            textEditor: I18nTextEditor(
-              backgroundMode: 'Mode',
-              textAlign: 'Align',
-            ),
-          ),
-          stickerEditor: StickerEditorConfigs(
-            builder: (setLayer, scrollController) => DemoBuildStickers(
-                categoryColor: const Color(0xFF161616),
-                setLayer: setLayer,
-                scrollController: scrollController),
-          ),
-          clipsEditor: ClipsEditorConfigs(
-            style: const ClipsEditorStyle(
-              reversedClipsList: true,
-            ),
-            widgets: ClipsEditorWidgets(
-              appBar: (editorState, rebuildStream) => null,
-              bottomBar: (editorState, rebuildStream) {
-                return ReactiveWidget(
-                  builder: (_) {
-                    return GroundedClipsBar(
-                      configs: editorState.configs,
-                      callbacks: editorState.callbacks,
-                      editor: editorState,
-                    );
-                  },
-                  stream: rebuildStream,
-                );
-              },
-              editClipAppBar: (editorState, rebuildStream) => null,
-              editClipBottomBar: (editorState, rebuildStream) {
-                return ReactiveWidget(
-                  builder: (_) {
-                    return GroundedClipEditorBar(
-                      configs: editorState.configs,
-                      callbacks: editorState.callbacks,
-                      editor: editorState,
-                    );
-                  },
-                  stream: rebuildStream,
-                );
-              },
-            ),
-          ),
-          audioEditor: AudioEditorConfigs(
-            style: const AudioEditorStyle(
-              reversedTrackList: true,
-            ),
-            widgets: AudioEditorWidgets(
-              appBar: (editorState, rebuildStream) => null,
-              bottomBar: (editorState, rebuildStream) {
-                return ReactiveWidget(
-                  builder: (_) {
-                    return GroundedAudioBar(
-                      configs: editorState.configs,
-                      callbacks: editorState.callbacks,
-                      editor: editorState,
-                    );
-                  },
-                  stream: rebuildStream,
-                );
-              },
             ),
           ),
         ),
@@ -937,13 +933,19 @@ class _VideoEditorGroundedExamplePageState
   }
 
   Widget _buildVideoPlayer() {
-    return Center(
-      child: AspectRatio(
-        aspectRatio: _videoController.value.size.aspectRatio,
-        child: VideoPlayer(
-          _videoController,
-        ),
-      ),
-    );
+    return ValueListenableBuilder(
+        valueListenable: _updateClipsNotifier,
+        builder: (_, isLoading, __) {
+          return Center(
+            child: isLoading
+                ? const CircularProgressIndicator.adaptive()
+                : AspectRatio(
+                    aspectRatio: _videoController.value.size.aspectRatio,
+                    child: VideoPlayer(
+                      _videoController,
+                    ),
+                  ),
+          );
+        });
   }
 }

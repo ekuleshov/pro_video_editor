@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io' as io;
 import 'dart:math';
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
@@ -14,6 +17,7 @@ import 'package:video_player/video_player.dart';
 
 import '/core/constants/example_constants.dart';
 import '/features/editor/widgets/video_initializing_widget.dart';
+import '../widgets/clips_previewer.dart';
 import '../widgets/demo_build_stickers.dart';
 import '../widgets/preview_video.dart';
 import '../widgets/video_progress_alert.dart';
@@ -44,7 +48,14 @@ class _VideoEditorGroundedExamplePageState
     isAudioSupported: true,
     minTrimDuration: Duration(seconds: 7),
     enablePlayButton: true,
+    controlsPosition: VideoEditorControlPosition.bottom,
+    style: VideoEditorStyle(
+      toolbarPadding: EdgeInsets.fromLTRB(12, 0, 12, 20),
+    ),
   );
+
+  /// The audio player instance.
+  final audioPlayer = AudioPlayer();
 
   /// Indicates whether a seek operation is in progress.
   bool _isSeeking = false;
@@ -79,6 +90,9 @@ class _VideoEditorGroundedExamplePageState
   late VideoPlayerController _videoController;
 
   final _taskId = DateTime.now().microsecondsSinceEpoch.toString();
+  final Map<String, Uint8List> _cachedKeyFrames = {};
+  final Map<String, List<Uint8List>> _cachedKeyFrameList = {};
+  double _lastVolumeBalance = 0;
 
   @override
   void initState() {
@@ -292,6 +306,67 @@ class _VideoEditorGroundedExamplePageState
       max(1, (_useMaterialDesign ? 6 : 10) / 400 * constraints.maxWidth - 1)
           .floor();
 
+  Future<void> _mergeClips(List<VideoClip> clips) async {
+    /// TODO Use pro_video_editor to merge the videoClips
+    final updatedFile = File('');
+
+    /// Generate new thumbnails
+    var imageWidth = MediaQuery.sizeOf(context).width /
+        _thumbnailCount *
+        MediaQuery.devicePixelRatioOf(context);
+
+    final thumbnailList = await ProVideoEditor.instance.getKeyFrames(
+      KeyFramesConfigs(
+        video: _video,
+        outputSize: Size.square(imageWidth),
+        boxFit: ThumbnailBoxFit.cover,
+        maxOutputFrames: _thumbnailCount,
+        outputFormat: ThumbnailFormat.jpeg,
+      ),
+    );
+    if (!mounted) return;
+    List<ImageProvider> temporaryThumbnails =
+        thumbnailList.map(MemoryImage.new).toList();
+    _proVideoController!.thumbnails = temporaryThumbnails;
+
+    /// Update meta
+    final metaData = await ProVideoEditor.instance.getMetadata(
+      EditorVideo.file(updatedFile),
+    );
+    _proVideoController!.initialResolution = metaData.resolution;
+    _proVideoController!.videoDuration = metaData.duration;
+    _proVideoController!.fileSize = metaData.fileSize;
+    _proVideoController!.bitrate = metaData.bitrate;
+    _proVideoController!.setTrimStart(Duration.zero);
+    _proVideoController!.setTrimEnd(metaData.duration);
+
+    /// Load the new video
+    final controller = VideoPlayerController.file(io.File(updatedFile.path));
+    await controller.initialize();
+
+    // Optionally start playing automatically
+    await controller.play();
+
+    _videoController = controller;
+
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _balanceAudio(double volumeBalance) async {
+    double overlayVolume = 1;
+    double originalVolume = 1;
+    if (volumeBalance < 0) {
+      overlayVolume += volumeBalance;
+    } else {
+      originalVolume -= volumeBalance;
+    }
+    await Future.wait([
+      audioPlayer.setVolume(overlayVolume),
+      _videoController.setVolume(originalVolume * 100),
+    ]);
+    _lastVolumeBalance = overlayVolume;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
@@ -313,7 +388,12 @@ class _VideoEditorGroundedExamplePageState
             onPause: _videoController.pause,
             onPlay: _videoController.play,
             onMuteToggle: (isMuted) {
-              _videoController.setVolume(isMuted ? 0 : 100);
+              if (isMuted) {
+                audioPlayer.setVolume(0);
+                _videoController.setVolume(isMuted ? 0 : 100);
+              } else {
+                _balanceAudio(_lastVolumeBalance);
+              }
             },
             onTrimSpanUpdate: (durationSpan) {
               if (_videoController.value.isPlaying) {
@@ -321,6 +401,134 @@ class _VideoEditorGroundedExamplePageState
               }
             },
             onTrimSpanEnd: _seekToPosition,
+          ),
+          audioEditorCallbacks: AudioEditorCallbacks(
+            onBalanceChange: _balanceAudio,
+            onStartTimeChange: (startTime) async {
+              await Future.value([
+                audioPlayer.seek(startTime),
+                _videoController.seekTo(Duration.zero),
+              ]);
+            },
+            onPlay: (track) async {
+              final audio = track.audio;
+              Source source;
+              if (audio.hasAssetPath) {
+                source = AssetSource(audio.assetPath!);
+              } else if (audio.hasFile) {
+                source = DeviceFileSource(audio.file!.path);
+              } else if (audio.hasNetworkUrl) {
+                source = UrlSource(audio.networkUrl!);
+              } else {
+                source = BytesSource(audio.bytes!);
+              }
+
+              await audioPlayer.setReleaseMode(ReleaseMode.loop);
+              await audioPlayer.play(source, position: track.startTime);
+            },
+            onStop: (audio) async {
+              return audioPlayer.pause();
+            },
+            onMuteToggle: (isMuted) async {
+              // You can also pause or play the audio instantly, or set the
+              // volume to zero. Some other audio players may support mute
+              // directly.
+              if (isMuted) {
+                await audioPlayer.setVolume(0);
+              } else {
+                await audioPlayer.setVolume(1);
+              }
+            },
+          ),
+          clipsEditorCallbacks: ClipsEditorCallbacks(
+            onBuildPlayer: (controller, videoClip) {
+              return ClipsPreviewer(
+                videoConfigs: _videoConfigs,
+                proController: controller,
+                videoClip: videoClip,
+              );
+            },
+            onMergeClips: _mergeClips,
+            onReadKeyFrame: (source) async {
+              if (_cachedKeyFrames.containsKey(source.id)) {
+                return _cachedKeyFrames[source.id]!;
+              }
+
+              final result = await ProVideoEditor.instance.getKeyFrames(
+                KeyFramesConfigs(
+                  video: EditorVideo.autoSource(
+                    assetPath: source.clip.assetPath,
+                    byteArray: source.clip.bytes,
+                    file: source.clip.file,
+                    networkUrl: source.clip.networkUrl,
+                  ),
+                  outputSize: const Size.square(200),
+                  boxFit: ThumbnailBoxFit.cover,
+                  maxOutputFrames: 1,
+                  outputFormat: ThumbnailFormat.jpeg,
+                ),
+              );
+              _cachedKeyFrames[source.id] = result.first;
+              return result.first;
+            },
+            onReadKeyFrames: (source) async {
+              if (_cachedKeyFrameList.containsKey(source.id)) {
+                return _cachedKeyFrameList[source.id]!;
+              }
+
+              final result = await ProVideoEditor.instance.getKeyFrames(
+                KeyFramesConfigs(
+                  video: EditorVideo.autoSource(
+                    assetPath: source.clip.assetPath,
+                    byteArray: source.clip.bytes,
+                    file: source.clip.file,
+                    networkUrl: source.clip.networkUrl,
+                  ),
+                  outputSize: const Size.square(200),
+                  boxFit: ThumbnailBoxFit.cover,
+                  maxOutputFrames: _thumbnailCount,
+                  outputFormat: ThumbnailFormat.jpeg,
+                ),
+              );
+              _cachedKeyFrameList[source.id] = result;
+              return result;
+            },
+            onAddClip: () async {
+              // Open video picker
+              final result = await FilePicker.platform.pickFiles(
+                type: FileType.video,
+                allowMultiple: false,
+              );
+
+              // User cancelled picker
+              if (!context.mounted || result == null || result.files.isEmpty) {
+                return null;
+              }
+
+              final file = result.files.single;
+              final path = file.path;
+              if (path == null) return null;
+
+              // Extract file name for display
+              final name = file.name;
+              final title = name.split('.').first;
+              LoadingDialog.instance.show(
+                context,
+                configs: const ProImageEditorConfigs(),
+              );
+              final meta = await ProVideoEditor.instance.getMetadata(
+                EditorVideo.file(path),
+              );
+              LoadingDialog.instance.hide();
+
+              // Create and return your video clip
+              return VideoClip(
+                id: DateTime.now().millisecondsSinceEpoch.toString(),
+                title: title,
+                clip: EditorVideoClip.file(path),
+                duration: meta.duration,
+              );
+            },
           ),
           mainEditorCallbacks: MainEditorCallbacks(
             onStartCloseSubEditor: (value) {
@@ -358,19 +566,19 @@ class _VideoEditorGroundedExamplePageState
             hideToolbarOnInteraction: false,
           ),
           mainEditor: MainEditorConfigs(
+            tools: [
+              SubEditorMode.videoClips,
+              SubEditorMode.audio,
+              SubEditorMode.paint,
+              SubEditorMode.text,
+              SubEditorMode.cropRotate,
+              SubEditorMode.tune,
+              SubEditorMode.filter,
+              SubEditorMode.blur,
+              SubEditorMode.emoji,
+              SubEditorMode.sticker,
+            ],
             widgets: MainEditorWidgets(
-              removeLayerArea: (
-                removeAreaKey,
-                editor,
-                rebuildStream,
-                isLayerBeingTransformed,
-              ) =>
-                  VideoEditorRemoveArea(
-                removeAreaKey: removeAreaKey,
-                editor: editor,
-                rebuildStream: rebuildStream,
-                isLayerBeingTransformed: isLayerBeingTransformed,
-              ),
               appBar: (editor, rebuildStream) => null,
               bottomBar: (editor, rebuildStream, key) => ReactiveWidget(
                 key: key,
@@ -391,9 +599,19 @@ class _VideoEditorGroundedExamplePageState
             ),
           ),
           paintEditor: PaintEditorConfigs(
-            /// Blur and pixelate are not supported.
-            enableModePixelate: false,
-            enableModeBlur: false,
+            tools: [
+              PaintMode.freeStyle,
+              PaintMode.arrow,
+              PaintMode.line,
+              PaintMode.rect,
+              PaintMode.circle,
+              PaintMode.dashLine,
+              PaintMode.polygon,
+              // Blur and pixelate are not supported.
+              // PaintMode.pixelate,
+              // PaintMode.blur,
+              PaintMode.eraser,
+            ],
             style: const PaintEditorStyle(
               background: Color(0xFF000000),
               bottomBarBackground: Color(0xFF161616),
@@ -655,11 +873,63 @@ class _VideoEditorGroundedExamplePageState
             ),
           ),
           stickerEditor: StickerEditorConfigs(
-            enabled: true,
             builder: (setLayer, scrollController) => DemoBuildStickers(
                 categoryColor: const Color(0xFF161616),
                 setLayer: setLayer,
                 scrollController: scrollController),
+          ),
+          clipsEditor: ClipsEditorConfigs(
+            style: const ClipsEditorStyle(
+              reversedClipsList: true,
+            ),
+            widgets: ClipsEditorWidgets(
+              appBar: (editorState, rebuildStream) => null,
+              bottomBar: (editorState, rebuildStream) {
+                return ReactiveWidget(
+                  builder: (_) {
+                    return GroundedClipsBar(
+                      configs: editorState.configs,
+                      callbacks: editorState.callbacks,
+                      editor: editorState,
+                    );
+                  },
+                  stream: rebuildStream,
+                );
+              },
+              editClipAppBar: (editorState, rebuildStream) => null,
+              editClipBottomBar: (editorState, rebuildStream) {
+                return ReactiveWidget(
+                  builder: (_) {
+                    return GroundedClipEditorBar(
+                      configs: editorState.configs,
+                      callbacks: editorState.callbacks,
+                      editor: editorState,
+                    );
+                  },
+                  stream: rebuildStream,
+                );
+              },
+            ),
+          ),
+          audioEditor: AudioEditorConfigs(
+            style: const AudioEditorStyle(
+              reversedTrackList: true,
+            ),
+            widgets: AudioEditorWidgets(
+              appBar: (editorState, rebuildStream) => null,
+              bottomBar: (editorState, rebuildStream) {
+                return ReactiveWidget(
+                  builder: (_) {
+                    return GroundedAudioBar(
+                      configs: editorState.configs,
+                      callbacks: editorState.callbacks,
+                      editor: editorState,
+                    );
+                  },
+                  stream: rebuildStream,
+                );
+              },
+            ),
           ),
         ),
       );

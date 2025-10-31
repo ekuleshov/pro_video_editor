@@ -346,15 +346,6 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
       ) as _i4.VideoOutputFormat);
 
   @override
-  _i2.EditorVideo get video => (super.noSuchMethod(
-        Invocation.getter(#video),
-        returnValue: _FakeEditorVideo_0(
-          this,
-          Invocation.getter(#video),
-        ),
-      ) as _i2.EditorVideo);
-
-  @override
   bool get enableAudio => (super.noSuchMethod(
         Invocation.getter(#enableAudio),
         returnValue: false,
@@ -387,6 +378,7 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
     String? id,
     _i4.VideoOutputFormat? outputFormat,
     _i2.EditorVideo? video,
+    List<_i4.VideoClipModel>? videoClips,
     _i5.Uint8List? imageBytes,
     _i4.ExportTransform? transform,
     bool? enableAudio,
@@ -397,6 +389,9 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
     double? blur,
     int? bitrate,
     _i4.VideoQualityConfig? qualityConfig,
+    String? customAudioPath,
+    double? originalAudioVolume,
+    double? customAudioVolume,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
@@ -406,6 +401,7 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
             #id: id,
             #outputFormat: outputFormat,
             #video: video,
+            #videoClips: videoClips,
             #imageBytes: imageBytes,
             #transform: transform,
             #enableAudio: enableAudio,
@@ -416,6 +412,9 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
             #blur: blur,
             #bitrate: bitrate,
             #qualityConfig: qualityConfig,
+            #customAudioPath: customAudioPath,
+            #originalAudioVolume: originalAudioVolume,
+            #customAudioVolume: customAudioVolume,
           },
         ),
         returnValue: _FakeRenderVideoModel_2(
@@ -427,6 +426,7 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
               #id: id,
               #outputFormat: outputFormat,
               #video: video,
+              #videoClips: videoClips,
               #imageBytes: imageBytes,
               #transform: transform,
               #enableAudio: enableAudio,
@@ -437,6 +437,9 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
               #blur: blur,
               #bitrate: bitrate,
               #qualityConfig: qualityConfig,
+              #customAudioPath: customAudioPath,
+              #originalAudioVolume: originalAudioVolume,
+              #customAudioVolume: customAudioVolume,
             },
           ),
         ),

@@ -1,5 +1,7 @@
-## x.x.x
+## 0.5.0
 - **BREAKING** refactor(video_model): Rename `RenderVideoModel` to `VideoRenderData`.
+- **BREAKING** refactor(video_model): Rename `RenderVideoModel` to `VideoRenderData`.
+- **FEAT**(android, iOS, macOS): Add video concatenation with `videoClips` parameter for merging multiple videos.
 
 ## 0.4.0
 - **FEAT**(android, iOS, macOS): Add `ProVideoEditor.instance.cancel(taskId)` for cancelling started export tasks.

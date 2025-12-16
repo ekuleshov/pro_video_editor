@@ -106,6 +106,7 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 - 🖼️ **Thumbnails**: Generate one or multiple thumbnails from the video.
 - 🎞️ **Keyframes**: Retrieve keyframe information from the video.
 - ✂️ **Trim**: Cut the video to a specified start and end time.
+- 🔗 **Merge Videos**: Concatenate multiple video clips into a single output.
 - ⏩ **Playback Speed**: Adjust the playback speed of the video.
 - 🔇 **Mute Audio**: Remove or mute the audio track from the video.
 
@@ -143,8 +144,8 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 | `Multiple ColorMatrix 4x5` | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Cancel export task`       | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Blur background`          | 🧪      | 🧪  | 🧪     | ❌      | ❌     | 🚫   |
-| `Custom Audio Tracks`      | 🧪      | ✅  | ✅     | ❌      | ❌     | 🚫   |
-| `Merge Videos`             | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
+| `Custom Audio Tracks`      | 🧪      | ❌  | ❌     | ❌      | ❌     | 🚫   |
+| `Merge Videos`             | ✅      | ❌  | ❌     | ❌      | ❌     | 🚫   |
 | `Censor-Layers "Pixelate"` | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
 
 
@@ -216,6 +217,37 @@ var customData = RenderVideoModel.withQualityPreset(
     qualityPreset: VideoQualityPreset.p720,
     bitrateOverride: 5000000,  // 5 Mbps instead of default 3 Mbps
 );
+```
+
+#### Merge Videos Example
+```dart
+/// Concatenate multiple video clips into a single output video
+/// Each clip can have its own trim settings (startTime/endTime)
+
+var data = RenderVideoModel(
+    videoClips: [
+        VideoSegment(
+            video: EditorVideo.file(File('/path/to/video1.mp4')),
+            startTime: Duration(seconds: 0),
+            endTime: Duration(seconds: 5),
+        ),
+        VideoSegment(
+            video: EditorVideo.file(File('/path/to/video2.mp4')),
+            startTime: Duration(seconds: 2),
+            endTime: Duration(seconds: 8),
+        ),
+        VideoSegment(
+            video: EditorVideo.asset('assets/video3.mp4'),
+            // No trim - uses full video duration
+        ),
+    ],
+    outputFormat: VideoOutputFormat.mp4,
+);
+
+Uint8List result = await ProVideoEditor.instance.renderVideo(data);
+
+/// Note: You must use either 'video' (single video) OR 'videoClips' (multiple videos),
+/// but not both. The clips will be joined in the order they appear in the list.
 ```
 
 #### Cancel an active render
@@ -293,6 +325,9 @@ var task = RenderVideoModel(
 
 Uint8List result = await ProVideoEditor.instance.renderVideo(task);
 
+/// Note: Blur is an experimental feature (🧪 in platform matrix)
+/// The blur effect may render differently than in Flutter's preview.
+
 /// Listen progress
 StreamBuilder<ProgressModel>(
     stream: ProVideoEditor.instance.progressStreamById(task.id),
@@ -327,7 +362,40 @@ The video editor requires the use of the [pro_image_editor](https://github.com/h
 
 You can also use other prebuilt designs from pro_image_editor, such as the WhatsApp or Frosted Glass design. Just check the examples in pro_image_editor to see how it's done.
 
+---
 
+### API Reference
+
+#### VideoSegment
+Represents a video clip segment for merging multiple videos.
+
+```dart
+VideoSegment({
+  required EditorVideo video,  // Video source (file, asset, network, memory)
+  Duration? startTime,          // Optional: Start time for trimming
+  Duration? endTime,            // Optional: End time for trimming
+})
+```
+
+**Parameters:**
+- `video` (required): The video source using `EditorVideo.file()`, `EditorVideo.asset()`, `EditorVideo.network()`, or `EditorVideo.memory()`.
+- `startTime` (optional): The starting point for this clip. If omitted, starts from the beginning (0:00).
+- `endTime` (optional): The ending point for this clip. If omitted, uses the full video duration.
+
+**Usage Example:**
+```dart
+// Full video
+VideoSegment(video: EditorVideo.asset('video.mp4'))
+
+// Trimmed video (5s to 10s)
+VideoSegment(
+  video: EditorVideo.file(File('video.mp4')),
+  startTime: Duration(seconds: 5),
+  endTime: Duration(seconds: 10),
+)
+```
+
+---
 
 #### Metadata Example
 ```dart

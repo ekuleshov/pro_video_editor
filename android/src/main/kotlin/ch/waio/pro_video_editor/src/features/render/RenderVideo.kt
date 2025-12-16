@@ -33,6 +33,7 @@ import applyRotation
 import applyScale
 import mapFormatToMimeType
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 // VideoClip Data Class Import
 import VideoClip
@@ -65,7 +66,7 @@ class RenderVideo(private val context: Context) {
         onProgress: (Double) -> Unit,
         onComplete: (ByteArray?) -> Unit,
         onError: (Throwable) -> Unit
-    ) {
+    ): RenderJobHandle {
         val outputFile =
             if (outputPath != null) {
                 File(outputPath)
@@ -88,7 +89,7 @@ class RenderVideo(private val context: Context) {
         applyBlur(videoEffects, blur)
         applyPlaybackSpeed(videoEffects, audioEffects, playbackSpeed)
 
-        var shouldStopPolling = false
+        val shouldStopPolling = AtomicBoolean(false)
         val outputMimeType = mapFormatToMimeType(outputFormat)
         val encoderFactoryBuilder = DefaultEncoderFactory.Builder(context)
 
@@ -104,7 +105,7 @@ class RenderVideo(private val context: Context) {
             .setVideoMimeType(outputMimeType)
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, result: ExportResult) {
-                    shouldStopPolling = true;
+                    shouldStopPolling.set(true)
                     try {
                         if (outputPath != null) {
                             onComplete(null)
@@ -125,7 +126,7 @@ class RenderVideo(private val context: Context) {
                     result: ExportResult,
                     exception: ExportException
                 ) {
-                    shouldStopPolling = true;
+                    shouldStopPolling.set(true)
                     onError(exception)
                     if (outputPath == null) outputFile.delete()
                 }
@@ -164,7 +165,7 @@ class RenderVideo(private val context: Context) {
 
         mainHandler.post(object : Runnable {
             override fun run() {
-                if (shouldStopPolling) return
+                if (shouldStopPolling.get()) return
 
                 val progressState = transformer.getProgress(progressHolder)
                 if (progressHolder.progress >= 0) {
@@ -172,10 +173,31 @@ class RenderVideo(private val context: Context) {
                 }
 
                 // Continue polling if transformer started
-                if (!shouldStopPolling && progressState != Transformer.PROGRESS_STATE_NOT_STARTED) {
+                if (!shouldStopPolling.get() && progressState != Transformer.PROGRESS_STATE_NOT_STARTED) {
                     mainHandler.postDelayed(this, 200)
                 }
             }
         })
+
+        val cancelHandle = RenderJobHandle {
+            shouldStopPolling.set(true)
+            mainHandler.removeCallbacksAndMessages(null)
+            transformer.cancel()
+            if (outputPath == null && outputFile.exists()) {
+                outputFile.delete()
+            }
+        }
+
+        return cancelHandle
+    }
+}
+
+class RenderJobHandle(private val cancelAction: () -> Unit) {
+    private val isCanceled = AtomicBoolean(false)
+
+    fun cancel() {
+        if (isCanceled.compareAndSet(false, true)) {
+            cancelAction()
+        }
     }
 }

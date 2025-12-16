@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.pro_video_editor_example"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "28.2.13676358"
+    ndkVersion = "29.0.14206865"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

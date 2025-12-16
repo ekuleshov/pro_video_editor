@@ -8,6 +8,7 @@ export 'core/models/video/video_clip_model.dart';
 export 'core/models/video/video_metadata_model.dart';
 export 'core/models/video/video_quality_preset.dart';
 export 'core/models/video/video_quality_config.dart';
+export 'core/models/video/render_exceptions.dart';
 export 'pro_video_editor_platform_interface.dart';
 export 'shared/utils/converters.dart';
 

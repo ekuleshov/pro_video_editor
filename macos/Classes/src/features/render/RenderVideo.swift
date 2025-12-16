@@ -6,6 +6,7 @@ import Foundation
 class RenderVideo {
     static let queue = DispatchQueue(label: "RenderVideoQueue")
 
+    @discardableResult
     static func render(
         videoClips: [VideoClip],
         imageData: Data?,
@@ -32,9 +33,10 @@ class RenderVideo {
         onProgress: @escaping (Double) -> Void,
         onComplete: @escaping (Data?) -> Void,
         onError: @escaping (Error) -> Void
-    ) {
+    ) -> RenderJobHandle {
+        let handle = RenderJobHandle()
         queue.async {
-            Task {
+            let renderTask = Task {
                 guard !videoClips.isEmpty else {
                     onError(NSError(
                         domain: "RenderVideo", 
@@ -43,7 +45,7 @@ class RenderVideo {
                     ))
                     return
                 }
-                
+                var inputURL: URL!
                 var outputURL: URL!
 
                 let finalize: () -> Void = {
@@ -163,6 +165,8 @@ class RenderVideo {
                         preset: preset
                     )
 
+                    handle.attach(export: export)
+
                     try await monitorExportProgress(export, onProgress: onProgress)
 
                     if outputPath != nil {
@@ -175,7 +179,10 @@ class RenderVideo {
                     handleCompletion(.failure(error))
                 }
             }
+            handle.attach(task: renderTask)
         }
+
+        return handle
     }
 
     // MARK: - Helper Methods
@@ -379,5 +386,41 @@ class RenderVideo {
         for url in urls {
             try? FileManager.default.removeItem(at: url)
         }
+    }
+}
+
+final class RenderJobHandle {
+    private let lock = NSLock()
+    private var exportSession: AVAssetExportSession?
+    private var renderTask: Task<Void, Never>?
+    private var canceled = false
+
+    func attach(export: AVAssetExportSession) {
+        lock.lock()
+        defer { lock.unlock() }
+        exportSession = export
+        if canceled {
+            export.cancelExport()
+        }
+    }
+
+    func attach(task: Task<Void, Never>) {
+        lock.lock()
+        defer { lock.unlock() }
+        renderTask = task
+        if canceled {
+            task.cancel()
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        canceled = true
+        let session = exportSession
+        let task = renderTask
+        lock.unlock()
+
+        task?.cancel()
+        session?.cancelExport()
     }
 }

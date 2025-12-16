@@ -1,24 +1,41 @@
 package ch.waio.pro_video_editor
 
-import PACKAGE_TAG
-import VideoClip
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import ch.waio.pro_video_editor.src.features.Metadata
-import ch.waio.pro_video_editor.src.features.render.RenderJobHandle
+import ch.waio.pro_video_editor.src.features.metadata.Metadata
+import ch.waio.pro_video_editor.src.features.metadata.models.MetadataConfig
 import ch.waio.pro_video_editor.src.features.render.RenderVideo
-import ch.waio.pro_video_editor.src.features.ThumbnailGenerator
+import ch.waio.pro_video_editor.src.features.render.models.RenderConfig
+import ch.waio.pro_video_editor.src.features.render.models.RenderTask
+import ch.waio.pro_video_editor.src.features.thumbnail.ThumbnailGenerator
+import ch.waio.pro_video_editor.src.features.thumbnail.models.ThumbnailConfig
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
-import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 
-/** ProVideoEditorPlugin */
+/**
+ * ProVideoEditorPlugin - Main Flutter plugin for advanced video editing capabilities.
+ *
+ * This plugin provides a comprehensive set of video processing features including:
+ * - Video rendering with effects (rotation, flip, scale, color adjustments, blur)
+ * - Video metadata extraction (dimensions, duration, bitrate, tags)
+ * - Thumbnail generation (timestamp-based or keyframe extraction)
+ * - Progress tracking via event channels
+ * - Cancellable operations for all long-running tasks
+ *
+ * The plugin uses a feature-based architecture where each capability is handled
+ * by a dedicated service class (RenderVideo, Metadata, ThumbnailGenerator).
+ * All operations are asynchronous with callback-based APIs to prevent blocking
+ * the Flutter UI thread.
+ *
+ * Communication protocol:
+ * - Method channel: "pro_video_editor" for commands and responses
+ * - Event channel: "pro_video_editor_progress" for progress updates
+ */
 class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var methodChannel: MethodChannel
     private lateinit var eventChannel: EventChannel
@@ -28,9 +45,17 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var metadata: Metadata
     private lateinit var thumbnailGenerator: ThumbnailGenerator
 
-    private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val activeRenderTasks = ConcurrentHashMap<String, RenderTask>()
 
+    /**
+     * Called when the plugin is attached to a Flutter engine.
+     *
+     * Initializes all communication channels and service instances.
+     * This is the entry point for plugin lifecycle management.
+     *
+     * @param flutterPluginBinding Binding providing access to application context and messenger
+     */
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel = MethodChannel(flutterPluginBinding.binaryMessenger, "pro_video_editor")
         eventChannel =
@@ -47,248 +72,211 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
             }
         })
 
-        renderVideo = RenderVideo(flutterPluginBinding.applicationContext);
+        renderVideo = RenderVideo(flutterPluginBinding.applicationContext)
         metadata = Metadata(flutterPluginBinding.applicationContext)
         thumbnailGenerator = ThumbnailGenerator(flutterPluginBinding.applicationContext)
     }
 
-    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        when (call.method) {
-            "getPlatformVersion" -> {
-                result.success("Android ${android.os.Build.VERSION.RELEASE}")
-            }
-
-            "getMetadata" -> {
-                val inputPath = call.argument<String>("inputPath") 
-                val extension = call.argument<String>("extension")
-
-                if (inputPath != null && extension != null) {
-                    val meta = metadata.processVideo(inputPath, extension)
-                    result.success(meta)
-                } else {
-                    result.error(
-                        "InvalidArgument", "Expected raw Uint8List (ByteArray/List<Int>)", null
-                    )
-                }
-            }
-
-            "getThumbnails" -> {
-                val id = call.argument<String>("id") ?: ""
-                val inputPath = call.argument<String>("inputPath") 
-                val extension = call.argument<String>("extension")
-                val boxFit = call.argument<String>("boxFit")
-                val outputFormat = call.argument<String>("outputFormat")
-                val outputWidth = call.argument<Number>("outputWidth")?.toInt()
-                val outputHeight = call.argument<Number>("outputHeight")?.toInt()
-                val rawTimestamps = call.argument<List<Number>>("timestamps") ?: emptyList()
-                val timestampsUs = rawTimestamps.map { it.toLong() }
-                val maxOutputFrames = call.argument<Number>("maxOutputFrames")?.toInt()
-
-
-                if (inputPath == null ||
-                    extension == null ||
-                    boxFit == null ||
-                    outputFormat == null ||
-                    outputWidth == null ||
-                    outputHeight == null ||
-                    (timestampsUs == null && maxOutputFrames == null)
-                ) {
-                    result.error("INVALID_ARGUMENTS", "Missing or invalid arguments", null)
-                    return
-                }
-                postProgress(id, 0.0)
-
-                coroutineScope.launch {
-                    try {
-                        val thumbnails = thumbnailGenerator.getThumbnails(
-                            inputPath = inputPath,
-                            extension = extension,
-                            outputFormat = outputFormat,
-                            boxFit = boxFit,
-                            outputWidth = outputWidth,
-                            outputHeight = outputHeight,
-                            timestampsUs = timestampsUs,
-                            maxOutputFrames = maxOutputFrames,
-                            onProgress = { progress -> postProgress(id, progress) },
-                        )
-
-                        withContext(Dispatchers.Main) {
-                            postProgress(id, 1.0)
-                            result.success(thumbnails)
-                        }
-                    } catch (e: Exception) {
-                        withContext(Dispatchers.Main) {
-                            result.error("THUMBNAIL_ERROR", e.message, null)
-                        }
-                    }
-                }
-            }
-
-            "renderVideo" -> {
-                val id = call.argument<String>("id") ?: ""
-                val imageBytes = call.argument<ByteArray?>("imageBytes")
-                val rotateTurns = call.argument<Number>("rotateTurns")?.toInt()
-                val cropWidth = call.argument<Number>("cropWidth")?.toInt()
-                val cropHeight = call.argument<Number>("cropHeight")?.toInt()
-                val cropX = call.argument<Number>("cropX")?.toInt()
-                val cropY = call.argument<Number>("cropY")?.toInt()
-                val bitrate = call.argument<Number>("bitrate")?.toInt()
-                val scaleX = call.argument<Number>("scaleX")?.toFloat()
-                val scaleY = call.argument<Number>("scaleY")?.toFloat()
-                val blur = call.argument<Number>("blur")?.toDouble()
-                val flipX = call.argument<Boolean>("flipX") ?: false
-                val flipY = call.argument<Boolean>("flipY") ?: false
-                val enableAudio = call.argument<Boolean>("enableAudio") ?: true
-                val playbackSpeed = call.argument<Number>("playbackSpeed")?.toFloat()
-                val inputFormat = call.argument<String>("inputFormat") ?: "mp4"
-                val outputFormat = call.argument<String>("outputFormat") ?: "mp4"
-                val outputPath = call.argument<String>("outputPath")
-                val colorMatrixList = call.argument<List<List<Double>>>("colorMatrixList")
-                    ?: emptyList<List<Double>>()
-
-                // Custom audio settings
-                val customAudioPath = call.argument<String?>("customAudioPath")
-                val originalAudioVolume = call.argument<Number?>("originalAudioVolume")?.toFloat()
-                val customAudioVolume = call.argument<Number?>("customAudioVolume")?.toFloat()
-
-                // Video-Clips (required)
-                val videoClipsRaw = call.argument<List<Map<String, Any>>>("videoClips")
-                
-                Log.d(PACKAGE_TAG, "Received videoClipsRaw: ${videoClipsRaw?.size ?: 0} clips")
-                
-                if (videoClipsRaw == null || videoClipsRaw.isEmpty()) {
-                    result.error("INVALID_ARGUMENTS", "videoClips is required and cannot be empty", null)
-                    return
-                }
-                
-                val videoClips: List<VideoClip> = videoClipsRaw.mapIndexed { index, clipMap ->
-                    val clip = VideoClip(
-                        inputPath = clipMap["inputPath"] as String,
-                        startUs = (clipMap["startUs"] as? Number)?.toLong(),
-                        endUs = (clipMap["endUs"] as? Number)?.toLong()
-                    )
-                    Log.d(PACKAGE_TAG, "Clip $index: path=${clip.inputPath}, start=${clip.startUs}, end=${clip.endUs}")
-                    clip
-                }
-
-                postProgress(id, 0.0)
-
-                val task = RenderTask(job = null, result = result)
-                activeRenderTasks[id] = task
-
-                try {
-                    val jobHandle = renderVideo.render(
-                         videoClips = videoClips,
-                    imageBytes = imageBytes,
-                    inputFormat = inputFormat,
-                    outputFormat = outputFormat,
-                    outputPath = outputPath,
-                    rotateTurns = rotateTurns,
-                    flipX = flipX,
-                    flipY = flipY,
-                    scaleX = scaleX,
-                    scaleY = scaleY,
-                    cropWidth = cropWidth,
-                    cropHeight = cropHeight,
-                    cropX = cropX,
-                    cropY = cropY,
-                    enableAudio = enableAudio,
-                    playbackSpeed = playbackSpeed,
-                    colorMatrixList = colorMatrixList,
-                    blur = blur,
-                    bitrate = bitrate,
-                    customAudioPath = customAudioPath,
-                    originalAudioVolume = originalAudioVolume,
-                    customAudioVolume = customAudioVolume,
-                        onProgress = { progress -> postProgress(id, progress) },
-                        onComplete = { resultBytes ->
-                            postProgress(id, 1.0)
-                            Handler(Looper.getMainLooper()).post {
-                                val removedTask = activeRenderTasks.remove(id)
-                                if (removedTask != null) {
-                                    removedTask.sendSuccess(resultBytes)
-                                } else {
-                                    result.success(resultBytes)
-                                }
-                            }
-                        },
-                        onError = { error ->
-                            Log.e("RenderVideo", "Error rendering video: ${error.message}")
-                            Handler(Looper.getMainLooper()).post {
-                                val removedTask = activeRenderTasks.remove(id)
-                                val code = if (removedTask?.canceled?.get() == true) "CANCELED" else "RENDER_ERROR"
-                                if (removedTask != null) {
-                                    removedTask.sendError(code, error.message)
-                                } else {
-                                    result.error(code, error.message, null)
-                                }
-                            }
-                        }
-                    )
-                    task.job = jobHandle
-                    if (task.canceled.get()) {
-                        jobHandle.cancel()
-                    }
-                } catch (throwable: Throwable) {
-                    activeRenderTasks.remove(id)
-                    throw throwable
-                }
-                return
-            }
-
-            "cancelTask" -> {
-                val id = call.argument<String>("id") ?: ""
-                if (id.isBlank()) {
-                    result.error("INVALID_ARGUMENTS", "Expected non-empty task id", null)
-                    return
-                }
-                val task = activeRenderTasks[id]
-                if (task == null) {
-                    result.error("TASK_NOT_FOUND", "No active render task found for id $id", null)
-                    return
-                }
-
-                task.canceled.set(true)
-                task.job?.cancel()
-                result.success(null)
-                return
-            }
-
-            else -> {
-                result.notImplemented()
-            }
-        }
-    }
-
+    /**
+     * Called when the plugin is detached from the Flutter engine.
+     *
+     * Cleans up all communication channels to prevent memory leaks.
+     * Active render tasks are not automatically canceled.
+     *
+     * @param binding Binding information for cleanup
+     */
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
-        eventSink = null
-        coroutineScope.cancel()
     }
 
-    private class RenderTask(
-        var job: RenderJobHandle?,
-        private val result: MethodChannel.Result,
-        val canceled: AtomicBoolean = AtomicBoolean(false),
-    ) {
-        private val resultConsumed = AtomicBoolean(false)
-
-        fun sendSuccess(payload: Any?) {
-            if (resultConsumed.compareAndSet(false, true)) {
-                result.success(payload)
-            }
-        }
-
-        fun sendError(code: String, message: String?, details: Any? = null) {
-            if (resultConsumed.compareAndSet(false, true)) {
-                result.error(code, message, details)
-            }
+    /**
+     * Routes incoming method calls to appropriate handlers.
+     *
+     * Available methods:
+     * - getPlatformVersion: Returns Android version
+     * - getMetadata: Extracts video metadata
+     * - getThumbnails: Generates thumbnails
+     * - renderVideo: Renders video with effects
+     * - cancelTask: Cancels active render task
+     */
+    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        when (call.method) {
+            "getPlatformVersion" -> handleGetPlatformVersion(result)
+            "getMetadata" -> handleGetMetadata(call, result)
+            "getThumbnails" -> handleGetThumbnails(call, result)
+            "renderVideo" -> handleRenderVideo(call, result)
+            "cancelTask" -> handleCancelTask(call, result)
+            else -> result.notImplemented()
         }
     }
 
+    /**
+     * Returns the Android platform version string.
+     */
+    private fun handleGetPlatformVersion(result: MethodChannel.Result) {
+        result.success("Android ${android.os.Build.VERSION.RELEASE}")
+    }
+
+    /**
+     * Extracts metadata from a video file asynchronously.
+     *
+     * Retrieves technical properties (duration, dimensions, bitrate)
+     * and descriptive tags (title, artist, album, etc.).
+     */
+    private fun handleGetMetadata(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val config = MetadataConfig.fromMethodCall(call)
+            metadata.getMetadata(
+                config = config,
+                onComplete = { meta ->
+                    mainHandler.post {
+                        result.success(meta)
+                    }
+                },
+                onError = { error ->
+                    mainHandler.post {
+                        result.error("METADATA_ERROR", error.message, null)
+                    }
+                }
+            )
+        } catch (e: IllegalArgumentException) {
+            result.error("INVALID_ARGUMENTS", e.message, null)
+        }
+    }
+
+    /**
+     * Generates thumbnail images from a video asynchronously.
+     *
+     * Supports timestamp-based or keyframe-based extraction.
+     * Thumbnails are generated in parallel for optimal performance.
+     */
+    private fun handleGetThumbnails(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val config = ThumbnailConfig.fromMethodCall(call)
+            postProgress(config.id, 0.0)
+
+            thumbnailGenerator.getThumbnails(
+                config = config,
+                onProgress = { progress -> postProgress(config.id, progress) },
+                onComplete = { thumbnails ->
+                    mainHandler.post {
+                        postProgress(config.id, 1.0)
+                        result.success(thumbnails)
+                    }
+                },
+                onError = { error ->
+                    mainHandler.post {
+                        result.error("THUMBNAIL_ERROR", error.message, null)
+                    }
+                }
+            )
+        } catch (e: IllegalArgumentException) {
+            result.error("INVALID_ARGUMENTS", e.message, null)
+        }
+    }
+
+    /**
+     * Starts an asynchronous video render job with effects.
+     *
+     * Handles video concatenation, visual effects (rotation, flip,
+     * scale, color, blur), audio processing, and output configuration.
+     * Each job is tracked by unique ID and can be canceled.
+     */
+    private fun handleRenderVideo(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("id") ?: ""
+        if (id.isBlank()) {
+            result.error("INVALID_ARGUMENTS", "Task id is required and cannot be empty", null)
+            return
+        }
+
+        if (activeRenderTasks.containsKey(id)) {
+            result.error(
+                "TASK_ALREADY_EXISTS",
+                "A render task with id '$id' is already active",
+                null
+            )
+            return
+        }
+
+        postProgress(id, 0.0)
+
+        val task = RenderTask(job = null, result = result)
+        activeRenderTasks[id] = task
+
+        try {
+            val renderConfig = RenderConfig.fromMethodCall(call)
+
+            val jobHandle = renderVideo.render(
+                config = renderConfig,
+                onProgress = { progress -> postProgress(id, progress) },
+                onComplete = { resultBytes ->
+                    mainHandler.post {
+                        postProgress(id, 1.0)
+                        val removedTask = activeRenderTasks.remove(id)
+                        removedTask?.sendSuccess(resultBytes)
+                    }
+                },
+                onError = { error ->
+                    Log.e("RenderVideo", "Error rendering video: ${error.message}")
+                    mainHandler.post {
+                        val removedTask = activeRenderTasks.remove(id)
+                        val code = if (removedTask?.canceled?.get() == true) {
+                            "CANCELED"
+                        } else {
+                            "RENDER_ERROR"
+                        }
+                        removedTask?.sendError(code, error.message)
+                    }
+                }
+            )
+
+            task.job = jobHandle
+            if (task.canceled.get()) {
+                jobHandle.cancel()
+            }
+        } catch (e: IllegalArgumentException) {
+            activeRenderTasks.remove(id)
+            result.error("INVALID_ARGUMENTS", e.message, null)
+        } catch (e: Exception) {
+            activeRenderTasks.remove(id)
+            result.error("RENDER_ERROR", "Failed to start render: ${e.message}", null)
+        }
+    }
+
+    /**
+     * Cancels an active render task by ID.
+     *
+     * Marks task as canceled, triggers cancellation handler
+     * (stops transformer, cleans up files), and removes from tracking.
+     */
+    private fun handleCancelTask(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("id") ?: ""
+        if (id.isBlank()) {
+            result.error("INVALID_ARGUMENTS", "Task id is required and cannot be empty", null)
+            return
+        }
+
+        val task = activeRenderTasks[id]
+        if (task == null) {
+            result.error("TASK_NOT_FOUND", "No active render task found with id '$id'", null)
+            return
+        }
+
+        task.canceled.set(true)
+        task.job?.cancel()
+        activeRenderTasks.remove(id)
+        result.success(true)
+    }
+
+    /**
+     * Sends progress updates to Flutter via event channel.
+     *
+     * Progress events are sent on main thread with task ID
+     * and progress value (0.0 to 1.0).
+     */
     private fun postProgress(id: String, progress: Double) {
-        Handler(Looper.getMainLooper()).post {
+        mainHandler.post {
             eventSink?.success(
                 mapOf(
                     "id" to id,

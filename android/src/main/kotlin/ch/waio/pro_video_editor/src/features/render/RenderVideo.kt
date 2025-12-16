@@ -1,105 +1,83 @@
 package ch.waio.pro_video_editor.src.features.render
 
-import PACKAGE_TAG
-import RENDER_TAG
 import android.content.Context
-import android.media.MediaCodecInfo
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
-import androidx.media3.common.Effect
-import androidx.media3.common.MediaItem
-import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
-import androidx.media3.transformer.EditedMediaItem
-import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
-import androidx.media3.transformer.VideoEncoderSettings
-import applyBitrate
-import applyBlur
-import applyColorMatrix
-import applyComposition
-import applyCrop
-import applyFlip
-import applyImageLayer
-import applyPlaybackSpeed
-import applyRotation
-import applyScale
-import mapFormatToMimeType
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import applyBitrate
+import mapFormatToMimeType
+import ch.waio.pro_video_editor.src.features.render.helpers.applyComposition
+import ch.waio.pro_video_editor.src.features.render.models.RenderConfig
+import ch.waio.pro_video_editor.src.features.render.models.RenderJobHandle
 
-// VideoClip Data Class Import
-import VideoClip
-
+/**
+ * Service for rendering video with applied effects and transformations.
+ *
+ * This class handles the complete video rendering pipeline using AndroidX Media3 Transformer:
+ * - Applies visual and audio effects based on configuration
+ * - Manages output file handling (both temporary and permanent)
+ * - Provides progress tracking during rendering
+ * - Supports cancellation of active render jobs
+ */
 @UnstableApi
 class RenderVideo(private val context: Context) {
+
+    private val effectsProcessor = EffectsProcessor()
+
+    /**
+     * Starts an asynchronous video render job.
+     *
+     * This method configures and starts a Media3 Transformer to process the video
+     * with the specified effects. The operation runs asynchronously and provides
+     * callbacks for progress updates, completion, and errors.
+     *
+     * @param config Complete render configuration including input, output, and effects
+     * @param onProgress Callback invoked with progress updates (0.0 to 1.0)
+     * @param onComplete Callback invoked on success with output bytes (null if saved to file)
+     * @param onError Callback invoked if rendering fails
+     * @return RenderJobHandle that can be used to cancel the render job
+     */
     fun render(
-        videoClips: List<VideoClip>,
-        imageBytes: ByteArray?,
-        inputFormat: String,
-        outputFormat: String,
-        outputPath: String?,
-        rotateTurns: Int?,
-        flipX: Boolean = false,
-        flipY: Boolean = false,
-        cropWidth: Int?,
-        cropHeight: Int?,
-        cropX: Int?,
-        cropY: Int?,
-        scaleX: Float?,
-        scaleY: Float?,
-        bitrate: Int?,
-        enableAudio: Boolean = true,
-        playbackSpeed: Float? = null,
-        colorMatrixList: List<List<Double>>,
-        blur: Double?,
-        customAudioPath: String? = null,
-        originalAudioVolume: Float? = null,
-        customAudioVolume: Float? = null,
+        config: RenderConfig,
         onProgress: (Double) -> Unit,
         onComplete: (ByteArray?) -> Unit,
         onError: (Throwable) -> Unit
     ): RenderJobHandle {
+        // Determine output file location
         val outputFile =
-            if (outputPath != null) {
-                File(outputPath)
+            if (config.outputPath != null) {
+                File(config.outputPath)
             } else {
                 File(
                     context.cacheDir,
-                    "video_output_${System.currentTimeMillis()}.$outputFormat"
+                    "video_output_${System.currentTimeMillis()}.${config.outputFormat}"
                 )
             }
 
-        val videoEffects = mutableListOf<Effect>()
-        val audioEffects = mutableListOf<AudioProcessor>()
-
-        val rotationDegrees = (4 - (rotateTurns ?: 0)) * 90f
-
-        applyRotation(videoEffects, rotationDegrees)
-        applyFlip(videoEffects, flipX, flipY)
-        applyScale(videoEffects, scaleX, scaleY)
-        applyColorMatrix(videoEffects, colorMatrixList)
-        applyBlur(videoEffects, blur)
-        applyPlaybackSpeed(videoEffects, audioEffects, playbackSpeed)
+        // Process effects from configuration
+        val (videoEffects, audioEffects) = effectsProcessor.process(config)
+        val rotationDegrees = (4 - (config.rotateTurns ?: 0)) * 90f
 
         val shouldStopPolling = AtomicBoolean(false)
-        val outputMimeType = mapFormatToMimeType(outputFormat)
+        val outputMimeType = mapFormatToMimeType(config.outputFormat)
         val encoderFactoryBuilder = DefaultEncoderFactory.Builder(context)
 
-        applyBitrate(encoderFactoryBuilder, outputMimeType, bitrate)
+        applyBitrate(encoderFactoryBuilder, outputMimeType, config.bitrate)
 
         val mainHandler = Handler(Looper.getMainLooper())
 
-        // Declare it before so it's visible in the listener
+        // Declare transformer before listener to make it accessible
         lateinit var transformer: Transformer
 
+        // Build transformer with callbacks
         transformer = Transformer.Builder(context)
             .setEncoderFactory(encoderFactoryBuilder.build())
             .setVideoMimeType(outputMimeType)
@@ -107,17 +85,19 @@ class RenderVideo(private val context: Context) {
                 override fun onCompleted(composition: Composition, result: ExportResult) {
                     shouldStopPolling.set(true)
                     try {
-                        if (outputPath != null) {
+                        if (config.outputPath != null) {
+                            // Output saved to file, return null
                             onComplete(null)
                         } else {
+                            // Read temporary file and return bytes
                             val resultBytes = outputFile.readBytes()
                             onComplete(resultBytes)
                         }
                     } catch (e: Exception) {
                         onError(e)
                     } finally {
-                        mainHandler.removeCallbacksAndMessages(null) // stop progress polling
-                        if (outputPath == null) outputFile.delete()
+                        mainHandler.removeCallbacksAndMessages(null)
+                        if (config.outputPath == null) outputFile.delete()
                     }
                 }
 
@@ -128,41 +108,27 @@ class RenderVideo(private val context: Context) {
                 ) {
                     shouldStopPolling.set(true)
                     onError(exception)
-                    if (outputPath == null) outputFile.delete()
+                    if (config.outputPath == null) outputFile.delete()
                 }
             })
             .build()
 
-        // Start transformation
+        // Create composition and start transformation
         val composition = applyComposition(
-            videoClips = videoClips,
+            config = config,
             videoEffects = videoEffects,
-            audioEffects = audioEffects,
-            enableAudio = enableAudio,
-            imageBytes = imageBytes,
-            rotationDegrees = rotationDegrees,
-            flipX = flipX,
-            flipY = flipY,
-            cropWidth = cropWidth,
-            cropHeight = cropHeight,
-            cropX = cropX,
-            cropY = cropY,
-            scaleX = scaleX,
-            scaleY = scaleY,
-            customAudioPath = customAudioPath,
-            originalAudioVolume = originalAudioVolume,
-            customAudioVolume = customAudioVolume
+            audioEffects = audioEffects
         )
+
         if (composition != null) {
             transformer.start(composition, outputFile.absolutePath)
         } else {
             onError(IllegalStateException("Failed to create composition"))
-            return
+            return RenderJobHandle { }
         }
 
-        // Progress tracking setup
+        // Start progress tracking loop
         val progressHolder = ProgressHolder()
-
         mainHandler.post(object : Runnable {
             override fun run() {
                 if (shouldStopPolling.get()) return
@@ -172,32 +138,21 @@ class RenderVideo(private val context: Context) {
                     onProgress(progressHolder.progress / 100.0)
                 }
 
-                // Continue polling if transformer started
+                // Continue polling if transformation is active
                 if (!shouldStopPolling.get() && progressState != Transformer.PROGRESS_STATE_NOT_STARTED) {
                     mainHandler.postDelayed(this, 200)
                 }
             }
         })
 
-        val cancelHandle = RenderJobHandle {
+        // Return cancellation handle
+        return RenderJobHandle {
             shouldStopPolling.set(true)
             mainHandler.removeCallbacksAndMessages(null)
             transformer.cancel()
-            if (outputPath == null && outputFile.exists()) {
+            if (config.outputPath == null && outputFile.exists()) {
                 outputFile.delete()
             }
-        }
-
-        return cancelHandle
-    }
-}
-
-class RenderJobHandle(private val cancelAction: () -> Unit) {
-    private val isCanceled = AtomicBoolean(false)
-
-    fun cancel() {
-        if (isCanceled.compareAndSet(false, true)) {
-            cancelAction()
         }
     }
 }

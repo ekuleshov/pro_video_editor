@@ -106,14 +106,14 @@ class _FakeCancelableEditor extends ProVideoEditor {
   }
 
   @override
-  Future<Uint8List> renderVideo(RenderVideoModel value) {
+  Future<Uint8List> renderVideo(VideoRenderData value) {
     throw UnimplementedError();
   }
 
   @override
   Future<String> renderVideoToFile(
     String filePath,
-    RenderVideoModel value,
+    VideoRenderData value,
   ) {
     throw UnimplementedError();
   }

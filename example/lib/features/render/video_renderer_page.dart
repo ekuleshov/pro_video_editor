@@ -31,6 +31,8 @@ class VideoRendererPage extends StatefulWidget {
 }
 
 class _VideoRendererPageState extends State<VideoRendererPage> {
+  final _pve = ProVideoEditor.instance;
+
   late final _playerContent = Player();
   late final _controllerContent = VideoController(_playerContent);
   late final _playerPreview = Player();
@@ -72,7 +74,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _rotate() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(
         rotateTurns: 1,
@@ -83,7 +85,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _flip() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(
         flipX: true,
@@ -94,7 +96,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _crop() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(
         x: 100,
@@ -108,7 +110,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _scale() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(scaleX: 0.2, scaleY: 0.2),
     );
@@ -117,7 +119,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _trim() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       startTime: const Duration(seconds: 7),
       endTime: const Duration(seconds: 20),
@@ -127,7 +129,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _changeSpeed() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       playbackSpeed: 2,
     );
@@ -136,7 +138,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _removeAudio() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       enableAudio: false,
     );
@@ -173,7 +175,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     final customAudioFile =
         await _writeAssetAudioToFile(kVideoEditorExampleAudio1Path);
 
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       customAudioPath: customAudioFile.path,
       originalAudioVolume: 0.0, // Mute original audio
@@ -195,7 +197,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     final customAudioFile =
         await _writeAssetAudioToFile(kVideoEditorExampleAudio2Path);
 
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       customAudioPath: customAudioFile.path,
       originalAudioVolume: 0.7, // Original audio at 70%
@@ -217,7 +219,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   /// - `1.5`: Amplified by 50%
   /// - `2.0`: Doubled volume
   Future<void> _adjustOriginalVolume() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       originalAudioVolume: 0.2, // Reduce original audio to 20%
     );
@@ -227,7 +229,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _layers() async {
     final imageBytes = await _captureLayerContent();
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       imageBytes: imageBytes,
     );
@@ -236,7 +238,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _colorMatrix() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       colorMatrixList: kComplexFilterMatrix,
     );
@@ -245,7 +247,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _blur() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       blur: 5,
     );
@@ -255,7 +257,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _multipleChanges() async {
     final imageBytes = await _captureLayerContent();
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(
         flipX: true,
@@ -270,7 +272,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _bitrate() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       video: _video,
       bitrate: 1000000,
     );
@@ -279,7 +281,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _generateMov() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       outputFormat: VideoOutputFormat.mov,
       video: _video,
     );
@@ -288,7 +290,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _qualityPreset1080p() async {
-    var data = RenderVideoModel.withQualityPreset(
+    var data = VideoRenderData.withQualityPreset(
       video: _video,
       qualityPreset: VideoQualityPreset.p1080,
     );
@@ -297,7 +299,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _qualityPreset720p() async {
-    var data = RenderVideoModel.withQualityPreset(
+    var data = VideoRenderData.withQualityPreset(
       video: _video,
       qualityPreset: VideoQualityPreset.p720,
     );
@@ -306,7 +308,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _qualityPreset4K() async {
-    var data = RenderVideoModel.withQualityPreset(
+    var data = VideoRenderData.withQualityPreset(
       video: _video,
       qualityPreset: VideoQualityPreset.k4,
     );
@@ -316,19 +318,19 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   /// FIXME: Not working on macos
   Future<void> _concatenateVideos() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       videoClips: [
-        VideoClipModel(
+        VideoSegment(
           video: _video,
           startTime: const Duration(seconds: 0),
           endTime: const Duration(seconds: 5),
         ),
-        VideoClipModel(
+        VideoSegment(
           video: EditorVideo.asset(kVideoEditorExampleAssetWorldPath),
           startTime: const Duration(seconds: 10),
           endTime: const Duration(seconds: 15),
         ),
-        VideoClipModel(
+        VideoSegment(
           video: _video,
           startTime: const Duration(seconds: 8),
           endTime: const Duration(seconds: 12),
@@ -341,15 +343,15 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _concatenateWithTransforms() async {
     final imageBytes = await _captureLayerContent();
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       imageBytes: imageBytes,
       videoClips: [
-        VideoClipModel(
+        VideoSegment(
           video: _video,
           startTime: const Duration(seconds: 0),
           endTime: const Duration(seconds: 5),
         ),
-        VideoClipModel(
+        VideoSegment(
           video: EditorVideo.asset(kVideoEditorExampleAssetWorldPath),
           startTime: const Duration(seconds: 7),
           endTime: const Duration(seconds: 12),
@@ -366,7 +368,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
-  Future<void> _renderVideo(RenderVideoModel value) async {
+  Future<void> _renderVideo(VideoRenderData value) async {
     _taskId = DateTime.now().microsecondsSinceEpoch.toString();
     setState(() => _isExporting = true);
 
@@ -377,7 +379,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     String outputPath = '${directory.path}/my_video_$now.mp4';
 
     try {
-      await ProVideoEditor.instance.renderVideoToFile(
+      await _pve.renderVideoToFile(
         outputPath,
         value.copyWith(id: _taskId),
       );
@@ -390,7 +392,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
     _generationTime = sp.elapsed;
 
-    _outputMetadata = await ProVideoEditor.instance.getMetadata(
+    _outputMetadata = await _pve.getMetadata(
       EditorVideo.memory(result),
     );
 
@@ -405,7 +407,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Future<void> _cancelRender() async {
     if (!_supportsCancel) return;
     try {
-      await ProVideoEditor.instance.cancel(_taskId);
+      await _pve.cancel(_taskId);
       // Reset the state after canceling.
       setState(() {
         _isExporting = false;
@@ -556,7 +558,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Widget _buildOptions() {
     if (_isExporting) {
       return VideoRendererProgressPanel(
-        progressStream: ProVideoEditor.instance.progressStreamById(_taskId),
+        progressStream: _pve.progressStreamById(_taskId),
         supportsCancel: _supportsCancel,
         onCancel: _supportsCancel ? _cancelRender : null,
       );

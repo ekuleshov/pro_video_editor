@@ -4,9 +4,9 @@ import 'package:pro_video_editor/pro_video_editor.dart';
 ///
 /// Each clip can have its own start and end time for trimming.
 /// Multiple clips can be combined to create a concatenated video.
-class VideoClipModel {
-  /// Creates a [VideoClipModel] with the given parameters.
-  const VideoClipModel({
+class VideoSegment {
+  /// Creates a [VideoSegment] with the given parameters.
+  const VideoSegment({
     required this.video,
     this.startTime,
     this.endTime,
@@ -43,12 +43,12 @@ class VideoClipModel {
   }
 
   /// Creates a copy with updated values.
-  VideoClipModel copyWith({
+  VideoSegment copyWith({
     EditorVideo? video,
     Duration? startTime,
     Duration? endTime,
   }) {
-    return VideoClipModel(
+    return VideoSegment(
       video: video ?? this.video,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
@@ -59,7 +59,7 @@ class VideoClipModel {
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
 
-    return other is VideoClipModel &&
+    return other is VideoSegment &&
         other.video == video &&
         other.startTime == startTime &&
         other.endTime == endTime;

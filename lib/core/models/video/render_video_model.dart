@@ -6,15 +6,15 @@ import 'package:pro_video_editor/pro_video_editor.dart';
 /// Includes input video data (single video or multiple clips), optional
 /// overlays, transformations, color filters, audio options, playback settings,
 /// and output format.
-class RenderVideoModel {
-  /// Creates a [RenderVideoModel] with the given parameters.
+class VideoRenderData {
+  /// Creates a [VideoRenderData] with the given parameters.
   ///
   /// **Important:** You must provide either [video] OR [videoClips], but not
   /// both.
   /// - Use [video] for a single video with optional [startTime] and [endTime]
   /// - Use [videoClips] for concatenating multiple videos, each with their
   ///   own trim settings
-  RenderVideoModel({
+  VideoRenderData({
     this.outputFormat = VideoOutputFormat.mp4,
     this.video,
     this.videoClips,
@@ -66,7 +66,7 @@ class RenderVideoModel {
           '[customAudioVolume] must be greater than or equal to 0',
         );
 
-  /// Creates a [RenderVideoModel] with a predefined quality preset.
+  /// Creates a [VideoRenderData] with a predefined quality preset.
   ///
   /// This factory constructor simplifies video export by providing common
   /// quality configurations. The preset automatically sets the appropriate
@@ -84,7 +84,7 @@ class RenderVideoModel {
   /// You can override the preset's resolution by providing a custom
   /// [transform] with scale or crop settings. The bitrate from the preset
   /// will still be used unless explicitly overridden with [bitrateOverride].
-  factory RenderVideoModel.withQualityPreset({
+  factory VideoRenderData.withQualityPreset({
     required EditorVideo video,
     required VideoQualityPreset qualityPreset,
     VideoOutputFormat outputFormat = VideoOutputFormat.mp4,
@@ -104,7 +104,7 @@ class RenderVideoModel {
   }) {
     final qualityConfig = VideoQualityConfig.fromPreset(qualityPreset);
 
-    return RenderVideoModel(
+    return VideoRenderData(
       id: id,
       outputFormat: outputFormat,
       video: video,
@@ -168,7 +168,7 @@ class RenderVideoModel {
   ///   ),
   /// ]
   /// ```
-  final List<VideoClipModel>? videoClips;
+  final List<VideoSegment>? videoClips;
 
   /// A transparent image which will overlay the video.
   final Uint8List? imageBytes;
@@ -366,11 +366,11 @@ class RenderVideoModel {
   }
 
   /// Creates a copy with updated values.
-  RenderVideoModel copyWith({
+  VideoRenderData copyWith({
     String? id,
     VideoOutputFormat? outputFormat,
     EditorVideo? video,
-    List<VideoClipModel>? videoClips,
+    List<VideoSegment>? videoClips,
     Uint8List? imageBytes,
     ExportTransform? transform,
     bool? enableAudio,
@@ -385,7 +385,7 @@ class RenderVideoModel {
     double? originalAudioVolume,
     double? customAudioVolume,
   }) {
-    return RenderVideoModel(
+    return VideoRenderData(
       id: id ?? this.id,
       outputFormat: outputFormat ?? this.outputFormat,
       video: video ?? this.video,

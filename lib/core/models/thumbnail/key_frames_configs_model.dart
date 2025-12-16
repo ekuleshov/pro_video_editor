@@ -1,4 +1,4 @@
-import '/core/models/thumbnail/thumbnail_base.abstract.dart';
+import 'thumbnail_base_abstract.dart';
 
 /// Configuration model for extracting key frames from a video.
 ///

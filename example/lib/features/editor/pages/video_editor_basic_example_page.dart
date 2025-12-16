@@ -318,7 +318,7 @@ class _VideoEditorBasicExamplePageState
       originalVolume -= volumeBalance;
     }
 
-    final exportModel = RenderVideoModel(
+    final exportModel = VideoRenderData(
       id: _taskId,
       video: _video,
       outputFormat: _outputFormat,
@@ -423,12 +423,12 @@ class _VideoEditorBasicExamplePageState
     _updateClipsNotifier.value = true;
     await _proVideoEditor.renderVideoToFile(
       updatedFile.path,
-      RenderVideoModel(
+      VideoRenderData(
         id: _taskId,
         videoClips: clips.map(
           (el) {
             final clip = el.clip;
-            return VideoClipModel(
+            return VideoSegment(
               video: EditorVideo.autoSource(
                 networkUrl: clip.networkUrl,
                 assetPath: clip.assetPath,

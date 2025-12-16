@@ -4,25 +4,49 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mime/mime.dart';
 
+import '/core/models/exceptions/render_exceptions.dart';
+import '/core/models/thumbnail/key_frames_configs_model.dart';
+import '/core/models/thumbnail/thumbnail_base_abstract.dart';
+import '/core/models/thumbnail/thumbnail_configs_model.dart';
 import '/core/models/video/editor_video_model.dart';
-import 'core/models/thumbnail/key_frames_configs.model.dart';
-import 'core/models/thumbnail/thumbnail_base.abstract.dart';
-import 'core/models/thumbnail/thumbnail_configs.model.dart';
-import 'core/models/video/progress_model.dart';
-import 'core/models/video/render_exceptions.dart';
-import 'core/models/video/render_video_model.dart';
-import 'core/models/video/video_metadata_model.dart';
-import 'core/platform/io/io_helper.dart';
-import 'pro_video_editor_platform_interface.dart';
+import '/core/models/video/progress_model.dart';
+import '/core/models/video/render_video_model.dart';
+import '/core/models/video/video_metadata_model.dart';
+import '/core/platform/io/io_helper.dart';
+import 'platform_interface.dart';
 
-/// An implementation of [ProVideoEditor] that uses method channels.
+/// Native platform implementation using Flutter Method Channels.
+///
+/// This implementation supports:
+/// - **iOS**: Using AVFoundation and VideoToolbox
+/// - **Android**: Using MediaExtractor, MediaCodec, and Media3 Transformer
+/// - **macOS**: Using AVFoundation
+/// - **Windows/Linux**: Limited support (progress streams disabled)
+///
+/// Communication with native code happens via:
+/// - [methodChannel] for request-response operations
+/// - [_progressChannel] for streaming progress updates
+///
+/// All video processing is performed on native threads to avoid blocking
+/// the Flutter UI thread.
 class MethodChannelProVideoEditor extends ProVideoEditor {
-  /// Standardized error code emitted when renders are user canceled.
+  /// Error code used when a render task is cancelled by the user.
+  ///
+  /// This is thrown as a [PlatformException] code and converted to
+  /// [RenderCanceledException] for cleaner error handling.
   static const String renderCanceledErrorCode = 'CANCELED';
 
-  /// The method channel used to interact with the native platform.
+  /// Primary method channel for bidirectional communication with native code.
+  ///
+  /// Handles all request-response operations like metadata extraction,
+  /// thumbnail generation, and render requests.
   @visibleForTesting
   final methodChannel = const MethodChannel('pro_video_editor');
+
+  /// Event channel for receiving progress updates from native code.
+  ///
+  /// Emits [ProgressModel] events during long-running operations like
+  /// video rendering and thumbnail generation.
   final _progressChannel = const EventChannel('pro_video_editor_progress');
 
   @override
@@ -75,7 +99,7 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   }
 
   @override
-  Future<Uint8List> renderVideo(RenderVideoModel value) async {
+  Future<Uint8List> renderVideo(VideoRenderData value) async {
     try {
       final renderData = await value.toAsyncMap();
 
@@ -100,7 +124,7 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   @override
   Future<String> renderVideoToFile(
     String filePath,
-    RenderVideoModel value,
+    VideoRenderData value,
   ) async {
     final renderData = await value.toAsyncMap();
 
@@ -131,17 +155,31 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
 
   @override
   void initializeStream() {
+    // Windows and Linux don't support EventChannels for progress yet
     if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) return;
+
+    // Subscribe to native progress events
     _progressChannel.receiveBroadcastStream().map((event) {
       try {
         return ProgressModel.fromMap(event);
       } catch (e, stack) {
-        debugPrint('Error in fromMap: $e\n$stack');
+        // Log parsing errors but don't crash - return error progress
+        debugPrint('Error parsing progress event: $e\n$stack');
         return const ProgressModel(id: 'error', progress: 0);
       }
     }).listen(progressCtrl.add);
   }
 
+  /// Extracts file extension from path using MIME type detection.
+  ///
+  /// Uses the `mime` package to detect file type from extension, then
+  /// extracts the subtype (e.g., 'mp4' from 'video/mp4').
+  ///
+  /// Falls back to 'mp4' if detection fails.
+  ///
+  /// [inputPath] File path or URL to analyze.
+  ///
+  /// Returns file extension without dot (e.g., 'mp4', 'mov', 'webm').
   String _getFileExtension(String inputPath) {
     var mimeType = lookupMimeType(inputPath);
     var mimeSp = mimeType?.split('/') ?? [];

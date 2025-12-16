@@ -1,3 +1,6 @@
+## x.x.x
+- **BREAKING** refactor(video_model): Rename `RenderVideoModel` to `VideoRenderData`.
+
 ## 0.4.0
 - **FEAT**(android, iOS, macOS): Add `ProVideoEditor.instance.cancel(taskId)` for cancelling started export tasks.
 

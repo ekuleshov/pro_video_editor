@@ -1,4 +1,4 @@
-import 'thumbnail_base.abstract.dart';
+import 'thumbnail_base_abstract.dart';
 
 /// Configuration model for generating video thumbnails.
 ///

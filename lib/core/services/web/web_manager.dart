@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import '/core/models/thumbnail/key_frames_configs.model.dart';
-import '/core/models/thumbnail/thumbnail_configs.model.dart';
+import '/core/models/thumbnail/key_frames_configs_model.dart';
+import '/core/models/thumbnail/thumbnail_configs_model.dart';
 import '/core/models/video/editor_video_model.dart';
 import '/core/models/video/video_metadata_model.dart';
 import '/core/services/web/web_thumbnail_generator.dart';

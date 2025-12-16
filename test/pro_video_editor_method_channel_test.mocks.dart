@@ -9,9 +9,9 @@ import 'dart:ui' as _i3;
 
 import 'package:mockito/mockito.dart' as _i1;
 import 'package:mockito/src/dummies.dart' as _i8;
-import 'package:pro_video_editor/core/models/thumbnail/thumbnail_box_fit.model.dart'
+import 'package:pro_video_editor/core/models/thumbnail/thumbnail_box_fit_model.dart'
     as _i10;
-import 'package:pro_video_editor/core/models/thumbnail/thumbnail_format.model.dart'
+import 'package:pro_video_editor/core/models/thumbnail/thumbnail_format_model.dart'
     as _i9;
 import 'package:pro_video_editor/core/models/video/editor_video_model.dart'
     as _i2;
@@ -54,7 +54,7 @@ class _FakeSize_1 extends _i1.SmartFake implements _i3.Size {
 }
 
 class _FakeRenderVideoModel_2 extends _i1.SmartFake
-    implements _i4.RenderVideoModel {
+    implements _i4.VideoRenderData {
   _FakeRenderVideoModel_2(
     Object parent,
     Invocation parentInvocation,
@@ -325,7 +325,7 @@ class MockKeyFramesConfigs extends _i1.Mock implements _i4.KeyFramesConfigs {
 /// A class which mocks [RenderVideoModel].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
+class MockRenderVideoModel extends _i1.Mock implements _i4.VideoRenderData {
   MockRenderVideoModel() {
     _i1.throwOnMissingStub(this);
   }
@@ -374,11 +374,11 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
       ) as _i7.Future<Map<String, dynamic>>);
 
   @override
-  _i4.RenderVideoModel copyWith({
+  _i4.VideoRenderData copyWith({
     String? id,
     _i4.VideoOutputFormat? outputFormat,
     _i2.EditorVideo? video,
-    List<_i4.VideoClipModel>? videoClips,
+    List<_i4.VideoSegment>? videoClips,
     _i5.Uint8List? imageBytes,
     _i4.ExportTransform? transform,
     bool? enableAudio,
@@ -443,5 +443,5 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
             },
           ),
         ),
-      ) as _i4.RenderVideoModel);
+      ) as _i4.VideoRenderData);
 }

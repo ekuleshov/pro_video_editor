@@ -1,10 +1,10 @@
 import 'package:flutter/widgets.dart';
 
-import '../../../pro_video_editor_platform_interface.dart';
+import '../../platform/platform_interface.dart';
 import '../video/editor_video_model.dart';
 import '../video/progress_model.dart';
-import 'thumbnail_box_fit.model.dart';
-import 'thumbnail_format.model.dart';
+import 'thumbnail_box_fit_model.dart';
+import 'thumbnail_format_model.dart';
 
 /// Base model for thumbnail generation tasks.
 ///

@@ -19,7 +19,7 @@ void main() {
 
   Future<VideoMetadata> testRender({
     required String description,
-    required RenderVideoModel renderModel,
+    required VideoRenderData renderModel,
   }) async {
     final result = await ProVideoEditor.instance.renderVideo(renderModel);
     expect(result, isNotNull, reason: '$description failed — result is null');
@@ -44,7 +44,7 @@ void main() {
     required String description,
   }) async {
     final result = await ProVideoEditor.instance.renderVideo(
-      RenderVideoModel(
+      VideoRenderData(
         video: inputVideo,
         outputFormat: format,
       ),
@@ -78,7 +78,7 @@ void main() {
     final originalMeta = await ProVideoEditor.instance.getMetadata(inputVideo);
     var meta = await testRender(
       description: 'Rotate 90°',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         transform: const ExportTransform(rotateTurns: 1),
@@ -95,7 +95,7 @@ void main() {
   testWidgets('flip horizontally and vertically', (tester) async {
     await testRender(
       description: 'Flip X/Y',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         transform: const ExportTransform(flipX: true, flipY: true),
@@ -107,7 +107,7 @@ void main() {
     var size = const Size(700, 300);
     var meta = await testRender(
       description: 'Crop (700x300)',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         transform: ExportTransform(
@@ -127,7 +127,7 @@ void main() {
     final originalMeta = await ProVideoEditor.instance.getMetadata(inputVideo);
     var meta = await testRender(
       description: 'Scale 0.2x',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         transform:
@@ -140,7 +140,7 @@ void main() {
   testWidgets('trim video (7s - 20s)', (tester) async {
     var meta = await testRender(
       description: 'Trim 7s to 20s',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         startTime: const Duration(seconds: 7),
@@ -154,7 +154,7 @@ void main() {
     final originalMeta = await ProVideoEditor.instance.getMetadata(inputVideo);
 
     Future<void> testSpeed(double speed) async {
-      final renderModel = RenderVideoModel(
+      final renderModel = VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         playbackSpeed: speed,
@@ -176,7 +176,7 @@ void main() {
   testWidgets('remove audio', (tester) async {
     await testRender(
       description: 'Audio removed',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         enableAudio: false,
@@ -187,7 +187,7 @@ void main() {
   testWidgets('apply color matrix', (tester) async {
     await testRender(
       description: 'Color filter applied',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         colorMatrixList: kComplexFilterMatrix,
@@ -198,7 +198,7 @@ void main() {
   testWidgets('apply blur', (tester) async {
     await testRender(
       description: 'Apply blur',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         blur: 5,
@@ -212,7 +212,7 @@ void main() {
 
     var meta = await testRender(
       description: 'Bitrate set to 2.5 Mbps',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         bitrate: expectedBitrate,
@@ -236,7 +236,7 @@ void main() {
   testWidgets('combine multiple changes', (tester) async {
     await testRender(
       description: 'Multiple transformations',
-      renderModel: RenderVideoModel(
+      renderModel: VideoRenderData(
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
         transform: const ExportTransform(flipX: true),
@@ -250,7 +250,7 @@ void main() {
   testWidgets('progress stream updates during rendering', (tester) async {
     final List<double> progressValues = [];
 
-    var task = RenderVideoModel(
+    var task = VideoRenderData(
       video: inputVideo,
       outputFormat: VideoOutputFormat.mp4,
       // Using something non-trivial to make rendering take time

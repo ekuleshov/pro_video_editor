@@ -631,7 +631,7 @@ class _VideoEditorGroundedExamplePageState
 
     unawaited(_videoController.pause());
 
-    var exportModel = RenderVideoModel(
+    var exportModel = VideoRenderData(
       id: _taskId,
       video: _video,
       outputFormat: _outputFormat,
@@ -736,12 +736,12 @@ class _VideoEditorGroundedExamplePageState
     _updateClipsNotifier.value = true;
     await _proVideoEditor.renderVideoToFile(
       updatedFile.path,
-      RenderVideoModel(
+      VideoRenderData(
         id: _taskId,
         videoClips: clips.map(
           (el) {
             final clip = el.clip;
-            return VideoClipModel(
+            return VideoSegment(
               video: EditorVideo.autoSource(
                 networkUrl: clip.networkUrl,
                 assetPath: clip.assetPath,

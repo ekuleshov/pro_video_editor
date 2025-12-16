@@ -10,20 +10,36 @@ import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:pro_video_editor/core/models/video/progress_model.dart';
 import 'package:web/web.dart' as web;
 
+import '/core/models/thumbnail/key_frames_configs_model.dart';
+import '/core/models/thumbnail/thumbnail_configs_model.dart';
+import '/core/models/video/editor_video_model.dart';
+import '/core/models/video/render_video_model.dart';
+import '/core/models/video/video_metadata_model.dart';
 import '/core/services/web/web_manager.dart';
-import 'core/models/thumbnail/key_frames_configs.model.dart';
-import 'core/models/thumbnail/thumbnail_configs.model.dart';
-import 'core/models/video/editor_video_model.dart';
-import 'core/models/video/render_video_model.dart';
-import 'core/models/video/video_metadata_model.dart';
-import 'pro_video_editor_platform_interface.dart';
+import 'platform_interface.dart';
 
-/// A web implementation of the ProVideoEditorPlatform of the ProVideoEditor
-/// plugin.
+/// Web platform implementation using JavaScript APIs.
+///
+/// This implementation uses browser-native capabilities:
+/// - **Video Metadata**: HTML5 Video Element
+/// - **Thumbnails**: Canvas API for frame extraction
+/// - **Key Frames**: Canvas-based scene change detection
+///
+/// **Limitations:**
+/// - No video rendering support (browser codec restrictions)
+/// - No task cancellation (not implemented for web)
+/// - Limited codec support compared to native platforms
+///
+/// All operations run in the browser's main thread with Web Workers
+/// for heavy computations when possible.
 class ProVideoEditorWeb extends ProVideoEditor {
-  /// Constructs a ProVideoEditorWeb
+  /// Constructs a ProVideoEditorWeb instance.
   ProVideoEditorWeb();
 
+  /// Manager for all web-based video operations.
+  ///
+  /// Handles video loading, canvas manipulation, and frame extraction
+  /// using browser APIs.
   final WebManager _manager = WebManager();
 
   /// Registers the web implementation of the ProVideoEditor platform interface.
@@ -60,14 +76,14 @@ class ProVideoEditorWeb extends ProVideoEditor {
   }
 
   @override
-  Future<Uint8List> renderVideo(RenderVideoModel value) {
+  Future<Uint8List> renderVideo(VideoRenderData value) {
     throw UnimplementedError('renderVideo() has not been implemented.');
   }
 
   @override
   Future<String> renderVideoToFile(
     String filePath,
-    RenderVideoModel value,
+    VideoRenderData value,
   ) {
     throw UnimplementedError('renderVideoToFile() has not been implemented.');
   }
@@ -78,8 +94,17 @@ class ProVideoEditorWeb extends ProVideoEditor {
   }
 
   @override
-  void initializeStream() {}
+  void initializeStream() {
+    // No-op for web - progress is managed directly by WebManager callbacks
+  }
 
+  /// Updates progress for a specific task.
+  ///
+  /// Called by [WebManager] callbacks during thumbnail/keyframe generation.
+  /// Adds progress events to [progressCtrl] for stream consumers.
+  ///
+  /// [taskId] The unique identifier of the task.
+  /// [progress] Progress value between 0.0 and 1.0.
   void _updateProgress(String taskId, double progress) {
     progressCtrl.add(ProgressModel(id: taskId, progress: progress));
   }

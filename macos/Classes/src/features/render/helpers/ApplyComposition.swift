@@ -68,6 +68,7 @@ func applyComposition(
     }
     
     // Process each video clip
+    // TODO: Fix issue that merged clips not use same clips size
     for (index, clip) in videoClips.enumerated() {
         print("📹 Processing clip \(index): \(clip.inputPath)")
         
@@ -87,19 +88,9 @@ func applyComposition(
         let videoTrack = try await loadVideoTrack(from: asset)
         
         // Get video properties
-        let naturalSize: CGSize
-        let nominalFrameRate: Float
-        let preferredTransform: CGAffineTransform
-        
-        if #available(macOS 15.0, *) {
-            naturalSize = try await videoTrack.load(.naturalSize)
-            nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
-            preferredTransform = try await videoTrack.load(.preferredTransform)
-        } else {
-            naturalSize = videoTrack.naturalSize
-            nominalFrameRate = videoTrack.nominalFrameRate
-            preferredTransform = videoTrack.preferredTransform
-        }
+        let naturalSize = videoTrack.naturalSize
+        let nominalFrameRate = videoTrack.nominalFrameRate
+        let preferredTransform = videoTrack.preferredTransform
         
         // Calculate corrected size (accounting for rotation)
         let displaySize = naturalSize.applying(preferredTransform)

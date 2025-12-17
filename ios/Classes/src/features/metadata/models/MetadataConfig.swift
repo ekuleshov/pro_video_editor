@@ -9,7 +9,7 @@ struct MetadataConfig {
     let inputPath: String
     
     /// The file extension (e.g., "mp4", "mov")
-    let extension: String
+    let fileExtension: String
     
     /// Creates a MetadataConfig from Flutter method call arguments.
     ///
@@ -24,7 +24,7 @@ struct MetadataConfig {
         
         return MetadataConfig(
             inputPath: inputPath,
-            extension: extensionStr
+            fileExtension: extensionStr
         )
     }
 }

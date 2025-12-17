@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents a video clip with optional trimming
-struct VideoClip {
+internal struct VideoClip {
     let inputPath: String
     let startUs: Int64?
     let endUs: Int64?

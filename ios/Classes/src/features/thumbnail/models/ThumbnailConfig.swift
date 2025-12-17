@@ -12,7 +12,7 @@ struct ThumbnailConfig {
     let inputPath: String
     
     /// The file extension (e.g., "mp4", "mov")
-    let extension: String
+    let fileExtension: String
     
     /// Scaling mode: "contain" (fit within bounds) or "cover" (fill bounds)
     let boxFit: String
@@ -62,7 +62,7 @@ struct ThumbnailConfig {
         return ThumbnailConfig(
             id: id,
             inputPath: inputPath,
-            extension: extensionStr,
+            fileExtension: extensionStr,
             boxFit: boxFit,
             outputFormat: outputFormat,
             outputWidth: outputWidth,

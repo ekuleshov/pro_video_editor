@@ -4,7 +4,7 @@ import Foundation
 ///
 /// This struct encapsulates all parameters required for extracting thumbnail images
 /// from video files, supporting both timestamp-based and keyframe-based extraction modes.
-struct ThumbnailConfig {
+internal struct ThumbnailConfig {
     /// Unique identifier for tracking progress of this operation
     let id: String
     
@@ -12,7 +12,7 @@ struct ThumbnailConfig {
     let inputPath: String
     
     /// The file extension (e.g., "mp4", "mov")
-    let extension: String
+    let fileExtension: String
     
     /// Scaling mode: "contain" (fit within bounds) or "cover" (fill bounds)
     let boxFit: String
@@ -62,7 +62,7 @@ struct ThumbnailConfig {
         return ThumbnailConfig(
             id: id,
             inputPath: inputPath,
-            extension: extensionStr,
+            fileExtension: extensionStr,
             boxFit: boxFit,
             outputFormat: outputFormat,
             outputWidth: outputWidth,

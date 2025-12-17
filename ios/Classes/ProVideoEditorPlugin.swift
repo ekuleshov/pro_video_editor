@@ -85,7 +85,7 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
     Task {
       do {
         let meta = try await VideoMetadata.processVideo(
-          inputPath: config.inputPath, ext: config.extension)
+          inputPath: config.inputPath, ext: config.fileExtension)
         result(meta)
       } catch {
         result(

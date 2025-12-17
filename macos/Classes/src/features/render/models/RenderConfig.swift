@@ -1,20 +1,5 @@
 import Foundation
 
-/// Represents a video clip segment with optional trimming.
-///
-/// This struct defines a portion of a video file that should be included in the render,
-/// with optional start and end timestamps for precise trimming.
-struct VideoClip {
-    /// Absolute path to the video file
-    let inputPath: String
-    
-    /// Start time in microseconds (nil = from beginning)
-    let startUs: Int64?
-    
-    /// End time in microseconds (nil = until end)
-    let endUs: Int64?
-}
-
 /// Configuration model for video rendering operations.
 ///
 /// This struct encapsulates all parameters required for rendering a video with

@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import Foundation
 
 /// Service for generating video thumbnail images.
 ///
@@ -34,36 +35,35 @@ class ThumbnailGenerator {
         onError: @escaping (Error) -> Void
     ) {
         Task {
-            do {
-                let videoURL = URL(fileURLWithPath: config.inputPath)
-                let asset = AVURLAsset(url: videoURL)
-                let generator = AVAssetImageGenerator(asset: asset)
-                generator.appliesPreferredTrackTransform = true
-                generator.requestedTimeToleranceBefore = .zero
-                generator.requestedTimeToleranceAfter = .zero
+            let videoURL = URL(fileURLWithPath: config.inputPath)
+            let asset = AVURLAsset(url: videoURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
 
-                let times: [NSValue]
-                if !config.timestampsUs.isEmpty {
-                    times = config.timestampsUs.map {
-                        NSValue(time: CMTime(value: $0, timescale: 1_000_000))
-                    }
-                } else if let maxFrames = config.maxOutputFrames {
-                    times = await extractKeyframeTimestamps(asset: asset, maxFrames: maxFrames)
-                } else {
-                    onComplete([])
-                    return
+            let times: [NSValue]
+            if !config.timestampsUs.isEmpty {
+                times = config.timestampsUs.map {
+                    NSValue(time: CMTime(value: $0, timescale: 1_000_000))
                 }
+            } else if let maxFrames = config.maxOutputFrames {
+                times = await extractKeyframeTimestamps(asset: asset, maxFrames: maxFrames)
+            } else {
+                onComplete([])
+                return
+            }
 
-                // MARK: - Frame Extraction
-                
-                let timeIndexMap: [Double: Int] = Dictionary(
-                    uniqueKeysWithValues:
-                        times.enumerated().map { (index, time) in
-                            (time.timeValue.seconds, index)
-                        }
-                )
+            // MARK: - Frame Extraction
+            
+            let timeIndexMap: [Double: Int] = Dictionary(
+                uniqueKeysWithValues:
+                    times.enumerated().map { (index, time) in
+                        (time.timeValue.seconds, index)
+                    }
+            )
 
-                let results = await withCheckedContinuation { continuation in
+            let results = await withCheckedContinuation { continuation in
                     var resultData = [Data?](repeating: nil, count: times.count)
                     var completed = 0
                     let start = Date().timeIntervalSince1970
@@ -106,11 +106,8 @@ class ThumbnailGenerator {
                     }
                 }
 
-                let filteredResults = results.filter { !$0.isEmpty }
-                onComplete(filteredResults)
-            } catch {
-                onError(error)
-            }
+            let filteredResults = results.filter { !$0.isEmpty }
+            onComplete(filteredResults)
         }
     }
 

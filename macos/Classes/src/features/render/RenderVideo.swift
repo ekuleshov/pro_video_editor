@@ -49,11 +49,10 @@ class RenderVideo {
                     ))
                     return
                 }
-                var inputURL: URL!
                 var outputURL: URL!
 
                 let finalize: () -> Void = {
-                    try? cleanup(outputPath == nil ? [outputURL] : [])
+                    try? cleanup(config.outputPath == nil ? [outputURL] : [])
                 }
 
                 let handleCompletion: (Result<Data?, Error>) -> Void = { result in
@@ -346,44 +345,42 @@ class RenderVideo {
         onProgress: @escaping (Double) -> Void
     ) async throws {
         let updateInterval: TimeInterval = 0.2
-        /*  if #available(macOS 15.0, *) {
-        
-             for try await state in export.states(updateInterval: updateInterval) {
-                 switch state {
-                 case .waiting:
-                     break
-                 case .pending:
-                     break
-                 case .exporting(let progress):
-                     onProgress(progress.fractionCompleted)
-                 @unknown default:
-                     throw NSError(
-                         domain: "RenderVideo", code: 6,
-                         userInfo: [NSLocalizedDescriptionKey: "Unknown export state encountered"]
-                     )
-                 }
-             }
-         } else { */
-        let intervalNs = UInt64(updateInterval * 1_000_000_000)
-        export.exportAsynchronously {}
-        while export.status == .waiting || export.status == .exporting {
-            if export.status == .exporting {
-                let normalizedProgress = min(max(export.progress, 0), 1.0)
-                onProgress(Double(normalizedProgress))
+        if #available(macOS 15.0, *) {
+            // Monitor progress in background using new async API
+            let progressTask = Task {
+                for try await state in export.states(updateInterval: updateInterval) {
+                    if case .exporting(let progress) = state {
+                        onProgress(progress.fractionCompleted)
+                    }
+                }
             }
-            try await Task.sleep(nanoseconds: intervalNs)
-        }
+            
+            // Start export using new async API (replaces deprecated exportAsynchronously)
+            try await export.export(to: export.outputURL!, as: export.outputFileType!)
+            
+            // Ensure progress monitoring completes
+            try await progressTask.value
+        } else {
+            let intervalNs = UInt64(updateInterval * 1_000_000_000)
+            export.exportAsynchronously {}
+            while export.status == .waiting || export.status == .exporting {
+                if export.status == .exporting {
+                    let normalizedProgress = min(max(export.progress, 0), 1.0)
+                    onProgress(Double(normalizedProgress))
+                }
+                try await Task.sleep(nanoseconds: intervalNs)
+            }
 
-        guard export.status == .completed else {
-            throw export.error
-                ?? NSError(
-                    domain: "RenderVideo", code: 4,
-                    userInfo: [
-                        NSLocalizedDescriptionKey:
-                            "Export failed with status \(export.status.rawValue)"
-                    ])
+            guard export.status == .completed else {
+                throw export.error
+                    ?? NSError(
+                        domain: "RenderVideo", code: 4,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Export failed with status \(export.status.rawValue)"
+                        ])
+            }
         }
-        /*  } */
     }
 
     private static func cleanup(_ urls: [URL]) throws {

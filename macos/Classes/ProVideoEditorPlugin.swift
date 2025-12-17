@@ -19,7 +19,7 @@ import Foundation
 /// - Method channel: "pro_video_editor" for commands and responses
 /// - Event channel: "pro_video_editor_progress" for progress updates
 public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
-    private var eventSink: FlutterEventSink?
+    var eventSink: FlutterEventSink?
     private var activeRenderTasks: [String: RenderTask] = [:]
 
     public static func register(with registrar: FlutterPluginRegistrar) {
@@ -86,7 +86,7 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
         Task {
             do {
                 let meta = try await VideoMetadata.processVideo(
-                    inputPath: config.inputPath, ext: config.extension)
+                    inputPath: config.inputPath, ext: config.fileExtension)
                 result(meta)
             } catch {
                 result(

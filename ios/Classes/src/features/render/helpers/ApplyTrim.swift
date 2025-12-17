@@ -1,5 +1,19 @@
 import AVFoundation
 
+/// Calculates the time range for trimming a video asset.
+///
+/// Creates a CMTimeRange that defines which portion of the video to use.
+/// Times are specified in microseconds for precision. If no trim is specified,
+/// the full video duration is used.
+///
+/// - Parameters:
+///   - asset: Video asset to trim.
+///   - startUs: Start time in microseconds. nil = start from beginning.
+///   - endUs: End time in microseconds. nil = use full duration.
+///
+/// - Returns: CMTimeRange defining the trimmed portion of the video.
+///
+/// - Note: Times are converted from microseconds to CMTime for AVFoundation.
 public func applyTrim(
     asset: AVAsset,
     startUs: Int64?,
@@ -26,10 +40,11 @@ public func applyTrim(
         ? CMTime(value: endUs!, timescale: 1_000_000)
         : duration
 
-    // Logging in ms for easier debugging
-    let startMs = Int64(start.seconds * 1000)
-    let endMs = Int64(end.seconds * 1000)
-    print("[\(Tags.render)] Applying trim: start=\(startMs) ms, end=\(endMs) ms")
+    // Logging in seconds for easier debugging
+    let startSec = String(format: "%.2f", start.seconds)
+    let endSec = String(format: "%.2f", end.seconds)
+    let durationSec = String(format: "%.2f", (end - start).seconds)
+    print("[\(Tags.render)] ✂️ Applying trim: start=\(startSec)s, end=\(endSec)s, duration=\(durationSec)s")
 
     return CMTimeRange(start: start, end: end)
 }

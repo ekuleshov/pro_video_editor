@@ -1,7 +1,33 @@
 import AVFoundation
 import Foundation
 
-/// Applies composition for multiple video clips with audio handling
+/// Creates a multi-clip video composition with audio mixing and custom effects.
+///
+/// This function orchestrates the entire composition pipeline:
+/// 1. Concatenates multiple video clips into a single timeline
+/// 2. Manages audio tracks (original + custom audio with volume control)
+/// 3. Applies video effects through VideoCompositorConfig
+/// 4. Calculates optimal render size and frame rate across all clips
+///
+/// The composition is built by inserting each clip sequentially into a shared video track.
+/// Audio handling supports mixing original audio with custom audio, each with independent
+/// volume controls. The final render size is determined by the largest clip dimensions.
+///
+/// - Parameters:
+///   - videoClips: Array of video clips to concatenate. Each clip can have optional trimming.
+///   - videoEffects: Configuration for visual effects (rotation, scale, color, blur, etc.).
+///   - enableAudio: If true, includes original audio from video clips.
+///   - customAudioPath: Optional path to custom audio file to mix over the video.
+///   - originalAudioVolume: Volume for original video audio (0.0 to 1.0). Default 1.0.
+///   - customAudioVolume: Volume for custom audio track (0.0 to 1.0). Default 1.0.
+///
+/// - Returns: A tuple containing:
+///   - AVMutableComposition: The concatenated video/audio composition
+///   - AVMutableVideoComposition: Video composition with effects and instructions
+///   - CGSize: Final render size (max dimensions from all clips)
+///   - AVAudioMix?: Audio mix with volume controls (nil if no audio mixing needed)
+///
+/// - Throws: NSError if video clips are empty, files don't exist, or tracks can't be loaded.
 func applyComposition(
     videoClips: [VideoClip],
     videoEffects: VideoCompositorConfig,

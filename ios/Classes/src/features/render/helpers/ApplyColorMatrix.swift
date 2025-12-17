@@ -1,6 +1,21 @@
 import AVFoundation
 import CoreImage
 
+/// Applies color grading using a 4x5 color matrix converted to a 3D LUT.
+///
+/// Color matrices are powerful tools for color correction and grading. Each matrix
+/// is a 4x5 transformation matrix (R, G, B, A + offset). Multiple matrices are
+/// combined by multiplication and then converted to a 3D lookup table for efficient
+/// GPU-based color transformation during rendering.
+///
+/// - Parameters:
+///   - config: Video compositor configuration to modify.
+///   - composition: Video composition (not currently used but kept for API consistency).
+///   - matrixList: Array of 4x5 color matrices (20 elements each). Multiple matrices
+///                 are combined through matrix multiplication.
+///   - lutSize: Size of the 3D LUT cube (default 33x33x33 = 35,937 color samples).
+///
+/// - Note: The LUT is generated once and applied to every frame by the video compositor.
 func applyColorMatrix(
     config: inout VideoCompositorConfig,
     to composition: AVMutableVideoComposition,
@@ -13,14 +28,14 @@ func applyColorMatrix(
 
     let combined = combineColorMatrices(matrixList)
     guard combined.count == 20 else {
-        print("[\(Tags.render)] Color matrix must be 4x5 (20 elements), skipping.")
+        print("[\(Tags.render)] ⚠️ Invalid color matrix: expected 20 elements, got \(combined.count) - skipping")
         return
     }
 
-    print("[\(Tags.render)]  Applying color matrix LUT...")
+    print("[\(Tags.render)] 🎨 Applying color grading: \(matrixList.count) matrices combined into \(lutSize)x\(lutSize)x\(lutSize) LUT")
 
     guard let data = generateLUTData(from: combined, size: lutSize) else {
-        print("[\(Tags.render)] Failed to generate LUT.")
+        print("[\(Tags.render)] ❌ Failed to generate LUT data")
         return
     }
 

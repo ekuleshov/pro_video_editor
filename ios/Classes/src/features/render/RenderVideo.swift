@@ -2,35 +2,38 @@ import AVFoundation
 import CoreImage
 import Foundation
 
+/// Service for rendering video with applied effects and transformations.
+///
+/// This class handles the complete video rendering pipeline using AVFoundation:
+/// - Applies visual effects (rotation, flip, crop, scale, color matrix, blur)
+/// - Manages audio mixing (original audio volume + custom audio track)
+/// - Supports playback speed adjustment and trimming
+/// - Provides progress tracking during rendering
+/// - Supports cancellation of active render jobs
+///
+/// All rendering operations are performed asynchronously on a dedicated queue.
 class RenderVideo {
     static let queue = DispatchQueue(label: "RenderVideoQueue")
 
+    // MARK: - Public Methods
+    
+    /// Starts an asynchronous video render job using RenderConfig.
+    ///
+    /// This method configures and starts an AVFoundation export session to process
+    /// the video with the specified effects. The operation runs asynchronously and
+    /// provides callbacks for progress updates, completion, and errors.
+    ///
+    /// Note: iOS currently supports single video clip rendering.
+    ///
+    /// - Parameters:
+    ///   - config: Complete render configuration including input, output, and effects
+    ///   - onProgress: Callback invoked with progress updates (0.0 to 1.0)
+    ///   - onComplete: Callback invoked on success with output bytes (nil if saved to file)
+    ///   - onError: Callback invoked if rendering fails
+    /// - Returns: RenderJobHandle that can be used to cancel the render job
     @discardableResult
     static func render(
-        inputPath: String,
-        imageData: Data?,
-        inputFormat: String,
-        outputFormat: String,
-        outputPath: String?,
-        rotateTurns: Int?,
-        flipX: Bool,
-        flipY: Bool,
-        cropWidth: Int?,
-        cropHeight: Int?,
-        cropX: Int?,
-        cropY: Int?,
-        scaleX: Float?,
-        scaleY: Float?,
-        bitrate: Int?,
-        enableAudio: Bool,
-        playbackSpeed: Float?,
-        startUs: Int64?,
-        endUs: Int64?,
-        colorMatrixList: [[Double]],
-        blur: Double?,
-        customAudioPath: String?,
-        originalAudioVolume: Float?,
-        customAudioVolume: Float?,
+        config: RenderConfig,
         onProgress: @escaping (Double) -> Void,
         onComplete: @escaping (Data?) -> Void,
         onError: @escaping (Error) -> Void
@@ -38,6 +41,11 @@ class RenderVideo {
         let handle = RenderJobHandle()
         queue.async {
             let renderTask = Task {
+                // For iOS, we currently support single video clip
+                let inputPath = config.videoClips.first?.inputPath ?? ""
+                let startUs = config.videoClips.first?.startUs ?? config.startUs
+                let endUs = config.videoClips.first?.endUs ?? config.endUs
+                
                 var inputURL: URL!
                 var outputURL: URL!
 
@@ -55,15 +63,15 @@ class RenderVideo {
 
                 do {
                     inputURL = URL(fileURLWithPath: inputPath)
-                    if let outputPath = outputPath {
+                    if let outputPath = config.outputPath {
                         outputURL = URL(fileURLWithPath: outputPath)
                     } else {
-                        outputURL = temporaryURL(for: outputFormat)
+                        outputURL = temporaryURL(for: config.outputFormat)
                     }
 
                     let asset = AVURLAsset(url: inputURL)
                     let composition = AVMutableComposition()
-                    var config = VideoCompositorConfig()
+                    var effectsConfig = VideoCompositorConfig()
 
                     let videoTrack = try await loadVideoTrack(from: asset)
 
@@ -77,7 +85,7 @@ class RenderVideo {
 
                     // Apply audio track
                     var originalAudioTracks: [AVMutableCompositionTrack] = []
-                    if enableAudio {
+                    if config.enableAudio {
                         if let audioTrack = try? await loadAudioTrack(from: asset) {
                             if let compositionAudioTrack = composition.addMutableTrack(
                                 withMediaType: .audio,
@@ -91,17 +99,17 @@ class RenderVideo {
                     
                     // Add custom audio track if provided
                     var customAudioTrack: AVMutableCompositionTrack?
-                    if let customAudioPath = customAudioPath, !customAudioPath.isEmpty {
+                    if let customAudioPath = config.customAudioPath, !customAudioPath.isEmpty {
                         print("🎵 Adding custom audio track: \(customAudioPath)")
                         customAudioTrack = try await addCustomAudioTrack(
                             to: composition,
                             audioPath: customAudioPath,
                             totalDuration: composition.duration,
-                            volume: customAudioVolume
+                            volume: config.customAudioVolume
                         )
                     }
                     
-                    applyPlaybackSpeed(composition: composition, speed: playbackSpeed)
+                    applyPlaybackSpeed(composition: composition, speed: config.playbackSpeed)
 
                     // Enhanced video composition with orientation handling
                     let (videoComposition, correctedNaturalSize, preferredTransform) =
@@ -112,35 +120,35 @@ class RenderVideo {
                         )
 
                     let videoRotationDegrees = extractRotationFromTransform(preferredTransform)
-                    config.videoRotationDegrees = videoRotationDegrees
-                    config.shouldApplyOrientationCorrection = abs(videoRotationDegrees) > 1.0
-                    config.originalNaturalSize = videoTrack.naturalSize
+                    effectsConfig.videoRotationDegrees = videoRotationDegrees
+                    effectsConfig.shouldApplyOrientationCorrection = abs(videoRotationDegrees) > 1.0
+                    effectsConfig.originalNaturalSize = videoTrack.naturalSize
 
                     let croppedSize = applyCrop(
-                        config: &config,
+                        config: &effectsConfig,
                         naturalSize: correctedNaturalSize,
-                        rotateTurns: rotateTurns,
-                        cropX: cropX,
-                        cropY: cropY,
-                        cropWidth: cropWidth,
-                        cropHeight: cropHeight
+                        rotateTurns: config.rotateTurns,
+                        cropX: config.cropX,
+                        cropY: config.cropY,
+                        cropWidth: config.cropWidth,
+                        cropHeight: config.cropHeight
                     )
 
-                    applyRotation(config: &config, rotateTurns: rotateTurns)
-                    applyFlip(config: &config, flipX: flipX, flipY: flipY)
-                    applyScale(config: &config, scaleX: scaleX, scaleY: scaleY)
+                    applyRotation(config: &effectsConfig, rotateTurns: config.rotateTurns)
+                    applyFlip(config: &effectsConfig, flipX: config.flipX, flipY: config.flipY)
+                    applyScale(config: &effectsConfig, scaleX: config.scaleX, scaleY: config.scaleY)
                     applyColorMatrix(
-                        config: &config, to: videoComposition, matrixList: colorMatrixList)
-                    applyBlur(config: &config, sigma: blur)
-                    applyImageLayer(config: &config, imageData: imageData)
+                        config: &effectsConfig, to: videoComposition, matrixList: config.colorMatrixList)
+                    applyBlur(config: &effectsConfig, sigma: config.blur)
+                    applyImageLayer(config: &effectsConfig, imageData: config.imageData)
 
                     var finalRenderSize = videoComposition.renderSize
 
                     // Only update renderSize if cropping was actually applied
-                    if cropWidth != nil || cropHeight != nil {
+                    if config.cropWidth != nil || config.cropHeight != nil {
                         finalRenderSize = croppedSize
                     } else {
-                        if let rotateTurns = rotateTurns {
+                        if let rotateTurns = config.rotateTurns {
                             let normalizedRotation = (rotateTurns % 4 + 4) % 4
                             if normalizedRotation == 1 || normalizedRotation == 3 {
                                 finalRenderSize = CGSize(
@@ -151,36 +159,36 @@ class RenderVideo {
                         }
                     }
 
-                    let effectiveScaleX = scaleX ?? 1.0
-                    let effectiveScaleY = scaleY ?? 1.0
+                    let effectiveScaleX = config.scaleX ?? 1.0
+                    let effectiveScaleY = config.scaleY ?? 1.0
 
                     if effectiveScaleX != 1.0 || effectiveScaleY != 1.0 {
                         finalRenderSize = CGSize(
                             width: finalRenderSize.width * CGFloat(effectiveScaleX),
                             height: finalRenderSize.height * CGFloat(effectiveScaleY)
                         )
-                    } else if config.scaleX != 1.0 || config.scaleY != 1.0 {
+                    } else if effectsConfig.scaleX != 1.0 || effectsConfig.scaleY != 1.0 {
                         finalRenderSize = CGSize(
-                            width: finalRenderSize.width * config.scaleX,
-                            height: finalRenderSize.height * config.scaleY
+                            width: finalRenderSize.width * effectsConfig.scaleX,
+                            height: finalRenderSize.height * effectsConfig.scaleY
                         )
                     }
 
                     videoComposition.renderSize = finalRenderSize
 
-                    let compositorClass = makeVideoCompositorSubclass(with: config)
+                    let compositorClass = makeVideoCompositorSubclass(with: effectsConfig)
                     videoComposition.customVideoCompositorClass = compositorClass
 
-                    let preset = applyBitrate(requestedBitrate: bitrate)
+                    let preset = applyBitrate(requestedBitrate: config.bitrate)
 
                     // Create audio mix with volume parameters
                     var audioMix: AVAudioMix?
-                    if enableAudio && (originalAudioVolume != nil || customAudioVolume != nil) {
+                    if config.enableAudio && (config.originalAudioVolume != nil || config.customAudioVolume != nil) {
                         audioMix = createAudioMix(
                             originalTracks: originalAudioTracks,
                             customTrack: customAudioTrack,
-                            originalVolume: originalAudioVolume ?? 1.0,
-                            customVolume: customAudioVolume ?? 1.0
+                            originalVolume: config.originalAudioVolume ?? 1.0,
+                            customVolume: config.customAudioVolume ?? 1.0
                         )
                     }
 
@@ -188,7 +196,7 @@ class RenderVideo {
                         composition: composition,
                         videoComposition: videoComposition,
                         outputURL: outputURL,
-                        outputFormat: outputFormat,
+                        outputFormat: config.outputFormat,
                         preset: preset,
                         audioMix: audioMix
                     )
@@ -196,7 +204,7 @@ class RenderVideo {
 
                     try await monitorExportProgress(export, onProgress: onProgress)
 
-                    if outputPath != nil {
+                    if config.outputPath != nil {
                         handleCompletion(.success(nil))
                     } else {
                         let data = try Data(contentsOf: outputURL)

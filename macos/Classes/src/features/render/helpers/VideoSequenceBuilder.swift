@@ -77,7 +77,7 @@ internal class VideoSequenceBuilder {
     /// Builds the video composition with all clips.
     ///
     /// - Parameter composition: Composition to build into
-    /// - Returns: Tuple containing video track, audio tracks, render size, and frame rate
+    /// - Returns: Tuple containing video track, audio tracks, render size, frame rate, and clip instructions
     func build(in composition: AVMutableComposition) async throws -> VideoSequenceResult {
         guard !videoClips.isEmpty else {
             throw NSError(
@@ -93,8 +93,8 @@ internal class VideoSequenceBuilder {
         var totalDuration = CMTime.zero
         var maxRenderSize = CGSize.zero
         var maxFrameRate: Float = 30.0
-        var firstClipTransform = CGAffineTransform.identity
         var originalAudioTracks: [AVMutableCompositionTrack] = []
+        var clipInstructions: [ClipInstruction] = []
         
         // Create single video track for all clips
         guard let compositionVideoTrack = composition.addMutableTrack(
@@ -106,6 +106,18 @@ internal class VideoSequenceBuilder {
                 code: 2,
                 userInfo: [NSLocalizedDescriptionKey: "Failed to create video track"]
             )
+        }
+        
+        // Create single shared audio track for all clips (if enabled)
+        var sharedAudioTrack: AVMutableCompositionTrack?
+        if enableAudio {
+            sharedAudioTrack = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            )
+            if sharedAudioTrack != nil {
+                print("🔊 Created SHARED audio track for all clips (will prevent empty segments)")
+            }
         }
         
         // Process each video clip
@@ -139,19 +151,25 @@ internal class VideoSequenceBuilder {
                 height: abs(displaySize.height)
             )
             
+            // Log video properties
+            let angle = atan2(preferredTransform.b, preferredTransform.a)
+            let degrees = angle * 180 / .pi
+            print("📹 Clip \(index) properties:")
+            print("   - Natural size: \(naturalSize.width) x \(naturalSize.height)")
+            print("   - Rotation: \(degrees)° (transform: [\(preferredTransform.a), \(preferredTransform.b), \(preferredTransform.c), \(preferredTransform.d), \(preferredTransform.tx), \(preferredTransform.ty)])")
+            print("   - Display size: \(correctedSize.width) x \(correctedSize.height)")
+            print("   - Frame rate: \(nominalFrameRate) fps")
+            
             // Update max render size
             if correctedSize.width > maxRenderSize.width || correctedSize.height > maxRenderSize.height {
+                let oldSize = maxRenderSize
                 maxRenderSize = correctedSize
+                print("   - ⬆️ Max render size updated: \(oldSize.width)x\(oldSize.height) → \(maxRenderSize.width)x\(maxRenderSize.height)")
             }
             
             // Update max frame rate
             if nominalFrameRate > maxFrameRate {
                 maxFrameRate = nominalFrameRate
-            }
-            
-            // Store the transform from the first clip
-            if index == 0 {
-                firstClipTransform = preferredTransform
             }
             
             // Calculate time range for this clip
@@ -165,33 +183,66 @@ internal class VideoSequenceBuilder {
                 at: totalDuration
             )
             
-            // Add audio track if enabled
-            if enableAudio {
-                if let audioTrack = try? await MediaInfoExtractor.loadAudioTrack(from: asset) {
-                    if let compositionAudioTrack = composition.addMutableTrack(
-                        withMediaType: .audio,
-                        preferredTrackID: kCMPersistentTrackID_Invalid
-                    ) {
-                        try? compositionAudioTrack.insertTimeRange(
-                            clipTimeRange,
-                            of: audioTrack,
-                            at: totalDuration
-                        )
-                        originalAudioTracks.append(compositionAudioTrack)
-                        
-                        if originalAudioVolume != 1.0 {
-                            print("🔊 Setting original audio volume to \(originalAudioVolume)")
-                        }
-                    }
+            // Store instruction for this clip segment
+            clipInstructions.append(ClipInstruction(
+                timeRange: CMTimeRange(start: totalDuration, duration: clipDuration),
+                transform: preferredTransform,
+                naturalSize: naturalSize,
+                renderSize: correctedSize
+            ))
+            
+            // Add audio to shared track if enabled
+            if enableAudio, let audioTrack = try? await MediaInfoExtractor.loadAudioTrack(from: asset), let sharedAudioTrack = sharedAudioTrack {
+                print("🔊 Processing audio for clip \(index)...")
+                print("   ✅ Audio track loaded from asset")
+                print("      Track ID: \(audioTrack.trackID)")
+                print("      Duration: \(String(format: "%.2f", audioTrack.timeRange.duration.seconds))s")
+                print("      Format: \(audioTrack.mediaType)")
+                
+                do {
+                    try sharedAudioTrack.insertTimeRange(
+                        clipTimeRange,
+                        of: audioTrack,
+                        at: totalDuration
+                    )
+                    print("   ✅ Audio inserted into SHARED track!")
+                    print("      Source time range: \(String(format: "%.2f", clipTimeRange.start.seconds))s - \(String(format: "%.2f", (clipTimeRange.start + clipTimeRange.duration).seconds))s")
+                    print("      Inserted at composition time: \(String(format: "%.2f", totalDuration.seconds))s")
+                    print("      Audio duration: \(String(format: "%.2f", clipTimeRange.duration.seconds))s")
+                } catch {
+                    print("   ❌ ERROR inserting audio: \(error.localizedDescription)")
+                    print("      Error details: \(error)")
                 }
             }
             
             totalDuration = CMTimeAdd(totalDuration, clipDuration)
-            print("✅ Clip \(index) added, duration: \(clipDuration.seconds)s, total: \(totalDuration.seconds)s")
+            print("✅ Clip \(index) added successfully")
+            print("   - Duration: \(String(format: "%.2f", clipDuration.seconds))s")
+            print("   - Time range in composition: \(String(format: "%.2f", totalDuration.seconds - clipDuration.seconds))s - \(String(format: "%.2f", totalDuration.seconds))s")
         }
         
-        print("📊 Total video duration: \(totalDuration.seconds)s")
-        print("📐 Max render size: \(maxRenderSize)")
+        print("")
+        print("📊 ===== VIDEO SEQUENCE SUMMARY =====")
+        print("   Total clips: \(videoClips.count)")
+        print("   Total duration: \(String(format: "%.2f", totalDuration.seconds))s")
+        print("   Max render size: \(maxRenderSize.width) x \(maxRenderSize.height)")
+        print("   Max frame rate: \(maxFrameRate) fps")
+        print("   Clip instructions: \(clipInstructions.count)")
+        print("   🔊 AUDIO TRACKS: \(originalAudioTracks.count)")
+        for (idx, track) in originalAudioTracks.enumerated() {
+            print("      Track \(idx): ID=\(track.trackID), Segments=\(track.segments.count)")
+            for (segIdx, segment) in track.segments.enumerated() {
+                let timeMapping = segment as AVCompositionTrackSegment
+                print("         Segment \(segIdx): \(String(format: "%.2f", timeMapping.timeMapping.target.start.seconds))s - \(String(format: "%.2f", (timeMapping.timeMapping.target.start + timeMapping.timeMapping.target.duration).seconds))s (duration: \(String(format: "%.2f", timeMapping.timeMapping.target.duration.seconds))s)")
+            }
+        }
+        print("=====================================")
+        print("")
+        
+        // Add the shared audio track to the result if it exists
+        if let audioTrack = sharedAudioTrack {
+            originalAudioTracks.append(audioTrack)
+        }
         
         return VideoSequenceResult(
             videoTrack: compositionVideoTrack,
@@ -199,7 +250,7 @@ internal class VideoSequenceBuilder {
             totalDuration: totalDuration,
             renderSize: maxRenderSize,
             frameRate: maxFrameRate,
-            transform: firstClipTransform
+            clipInstructions: clipInstructions
         )
     }
     
@@ -225,6 +276,14 @@ internal class VideoSequenceBuilder {
     }
 }
 
+/// Instruction for a single clip in the sequence.
+internal struct ClipInstruction {
+    let timeRange: CMTimeRange
+    let transform: CGAffineTransform
+    let naturalSize: CGSize
+    let renderSize: CGSize
+}
+
 /// Result of building a video sequence.
 internal struct VideoSequenceResult {
     let videoTrack: AVMutableCompositionTrack
@@ -232,5 +291,5 @@ internal struct VideoSequenceResult {
     let totalDuration: CMTime
     let renderSize: CGSize
     let frameRate: Float
-    let transform: CGAffineTransform
+    let clipInstructions: [ClipInstruction]
 }

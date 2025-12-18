@@ -146,19 +146,48 @@ internal class CompositionBuilder {
         )
         videoComposition.renderSize = videoResult.renderSize
         
-        // Create single instruction for the entire composition track
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: videoResult.totalDuration)
-        instruction.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
+        // Create instructions for each clip segment
+        var instructions: [AVMutableVideoCompositionInstruction] = []
         
-        // Create layer instruction for the composition video track
-        let layerInstruction = AVMutableVideoCompositionLayerInstruction(
-            assetTrack: videoResult.videoTrack
-        )
-        layerInstruction.setTransform(videoResult.transform, at: .zero)
-        instruction.layerInstructions = [layerInstruction]
+        print("")
+        print("🎨 ===== CREATING VIDEO INSTRUCTIONS =====")
+        print("   Total clips to process: \(videoResult.clipInstructions.count)")
+        print("   Target render size: \(videoResult.renderSize.width) x \(videoResult.renderSize.height)")
+        print("==========================================")
+        print("")
         
-        videoComposition.instructions = [instruction]
+        for (index, clipInstruction) in videoResult.clipInstructions.enumerated() {
+            print("🎬 Processing instruction for clip \(index)")
+            print("   Time range: \(String(format: "%.2f", clipInstruction.timeRange.start.seconds))s - \(String(format: "%.2f", (clipInstruction.timeRange.start + clipInstruction.timeRange.duration).seconds))s")
+            
+            let instruction = AVMutableVideoCompositionInstruction()
+            instruction.timeRange = clipInstruction.timeRange
+            instruction.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
+            
+            // Create layer instruction for this clip segment
+            let layerInstruction = AVMutableVideoCompositionLayerInstruction(
+                assetTrack: videoResult.videoTrack
+            )
+            
+            // Calculate transform to center and scale the video in the render size
+            let transform = calculateTransform(
+                from: clipInstruction.naturalSize,
+                to: videoResult.renderSize,
+                with: clipInstruction.transform,
+                clipIndex: index
+            )
+            
+            // Set transform at the start of THIS instruction's time range (relative to instruction start)
+            layerInstruction.setTransform(transform, at: .zero)
+            instruction.layerInstructions = [layerInstruction]
+            
+            print("   ⚙️ Layer instruction configured with transform")
+            print("")
+            
+            instructions.append(instruction)
+        }
+        
+        videoComposition.instructions = instructions
         
         print("✅ Composition created successfully with \(videoClips.count) clips")
         
@@ -194,5 +223,90 @@ internal class CompositionBuilder {
         audioMix.inputParameters = audioMixInputParameters
         
         return audioMix
+    }
+    
+    /// Calculates the transform to center and fit a video in the target render size.
+    ///
+    /// - Parameters:
+    ///   - naturalSize: Original size of the video
+    ///   - renderSize: Target render size
+    ///   - preferredTransform: Original transform from the video track
+    /// - Returns: Combined transform to center and fit the video
+    private func calculateTransform(
+        from naturalSize: CGSize,
+        to renderSize: CGSize,
+        with preferredTransform: CGAffineTransform,
+        clipIndex: Int
+    ) -> CGAffineTransform {
+        // Get the display size after applying the original transform (handles rotation)
+        let displaySize = naturalSize.applying(preferredTransform)
+        let videoWidth = abs(displaySize.width)
+        let videoHeight = abs(displaySize.height)
+        
+        print("   📐 Transform calculation:")
+        print("      Natural size: \(naturalSize.width) x \(naturalSize.height)")
+        print("      Display size (after rotation): \(videoWidth) x \(videoHeight)")
+        print("      Target render size: \(renderSize.width) x \(renderSize.height)")
+        
+        // Calculate scale to fill the render size (we want videos to be the same size)
+        let scaleX = renderSize.width / videoWidth
+        let scaleY = renderSize.height / videoHeight
+        let scale = min(scaleX, scaleY)
+        
+        let willBeScaled = abs(scale - 1.0) > 0.01
+        let scalePercentage = scale * 100
+        
+        if willBeScaled {
+            print("      🔍 SCALING: \(String(format: "%.1f%%", scalePercentage)) (factor: \(String(format: "%.3f", scale)))")
+            print("         Scale X: \(String(format: "%.3f", scaleX)) | Scale Y: \(String(format: "%.3f", scaleY))")
+        } else {
+            print("      ✓ No scaling needed (video already fits render size)")
+        }
+        
+        // Calculate the scaled video dimensions
+        let scaledWidth = videoWidth * scale
+        let scaledHeight = videoHeight * scale
+        
+        print("      Final video size: \(String(format: "%.1f", scaledWidth)) x \(String(format: "%.1f", scaledHeight))")
+        
+        // Calculate translation to center the scaled video
+        let translateX = (renderSize.width - scaledWidth) / 2
+        let translateY = (renderSize.height - scaledHeight) / 2
+        
+        // Build the transform step by step
+        // 1. Start with the preferred transform (handles rotation)
+        var transform = preferredTransform
+        
+        let angle = atan2(preferredTransform.b, preferredTransform.a)
+        let degrees = angle * 180 / .pi
+        print("      Rotation: \(String(format: "%.1f", degrees))°")
+        
+        // 2. Scale the video to fit the render size
+        transform = transform.scaledBy(x: scale, y: scale)
+        
+        // 3. Translate to center position
+        // Note: translation needs to account for rotation
+        let isRotated90Or270 = abs(angle - .pi/2) < 0.01 || abs(angle + .pi/2) < 0.01
+        
+        let finalTranslateX: CGFloat
+        let finalTranslateY: CGFloat
+        
+        if isRotated90Or270 {
+            // For 90° or 270° rotation, swap translation coordinates
+            finalTranslateX = translateY
+            finalTranslateY = translateX
+            transform = transform.translatedBy(x: finalTranslateX, y: finalTranslateY)
+            print("      Translation (rotated coords): x=\(String(format: "%.1f", finalTranslateX)), y=\(String(format: "%.1f", finalTranslateY))")
+        } else {
+            finalTranslateX = translateX
+            finalTranslateY = translateY
+            transform = transform.translatedBy(x: finalTranslateX, y: finalTranslateY)
+            print("      Translation: x=\(String(format: "%.1f", finalTranslateX)), y=\(String(format: "%.1f", finalTranslateY))")
+        }
+        
+        print("   ✅ Transform applied for clip \(clipIndex)")
+        print("")
+        
+        return transform
     }
 }

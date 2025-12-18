@@ -1,4 +1,5 @@
 import Foundation
+import FlutterMacOS
 
 /// Configuration model for video rendering operations.
 ///
@@ -104,9 +105,17 @@ struct RenderConfig {
             }
         }
         
+        // Convert imageBytes from Flutter (FlutterStandardTypedData) to Data
+        let imageData: Data?
+        if let flutterData = args["imageBytes"] as? FlutterStandardTypedData {
+            imageData = flutterData.data
+        } else {
+            imageData = args["imageBytes"] as? Data
+        }
+        
         return RenderConfig(
             videoClips: videoClips,
-            imageData: args["imageBytes"] as? Data,
+            imageData: imageData,
             inputFormat: args["inputFormat"] as? String ?? "mp4",
             outputFormat: args["outputFormat"] as? String ?? "mp4",
             outputPath: args["outputPath"] as? String,

@@ -316,7 +316,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
-  /// FIXME: Not working on macos
   Future<void> _concatenateVideos() async {
     var data = VideoRenderData(
       videoClips: [
@@ -357,12 +356,10 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           endTime: const Duration(seconds: 12),
         ),
       ],
-
       transform: const ExportTransform(
         rotateTurns: 2, // Rotate all clips 180°
         flipX: true, // Flip all clips horizontally
       ),
-      enableAudio: true, // Keep audio from all clips
     );
 
     await _renderVideo(data);

@@ -39,7 +39,7 @@ class RenderVideo {
         onError: @escaping (Error) -> Void
     ) -> RenderJobHandle {
         let handle = RenderJobHandle()
-        queue.async {
+        queue.async(group: nil, qos: .default, flags: []) {
             let renderTask = Task {
                 guard !config.videoClips.isEmpty else {
                     onError(NSError(
@@ -69,6 +69,16 @@ class RenderVideo {
                     } else {
                         outputURL = temporaryURL(for: config.outputFormat)
                     }
+                    
+                    print("")
+                    print("🎬 ===== RENDER CONFIG =====")
+                    print("   Video clips: \(config.videoClips.count)")
+                    print("   🔊 Enable Audio: \(config.enableAudio)")
+                    print("   🔊 Original audio volume: \(config.originalAudioVolume ?? 1.0)")
+                    print("   🔊 Custom audio path: \(config.customAudioPath ?? "none")")
+                    print("   🔊 Custom audio volume: \(config.customAudioVolume ?? 1.0)")
+                    print("===========================")
+                    print("")
 
                     // Create configuration for video effects
                     var effectsConfig = VideoCompositorConfig()

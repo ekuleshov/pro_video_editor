@@ -173,7 +173,7 @@ internal class VideoSequenceBuilder {
             }
             
             // Calculate time range for this clip
-            let clipTimeRange = calculateTimeRange(for: clip, from: asset)
+            let clipTimeRange = await calculateTimeRange(for: clip, from: asset)
             let clipDuration = clipTimeRange.duration
             
             // Insert video clip into the composition track
@@ -255,7 +255,7 @@ internal class VideoSequenceBuilder {
     }
     
     /// Calculates time range for a clip considering start/end trimming.
-    private func calculateTimeRange(for clip: VideoClip, from asset: AVAsset) -> CMTimeRange {
+    private func calculateTimeRange(for clip: VideoClip, from asset: AVAsset) async -> CMTimeRange {
         let startTime: CMTime
         let endTime: CMTime
         
@@ -268,7 +268,13 @@ internal class VideoSequenceBuilder {
         if let endUs = clip.endUs {
             endTime = CMTime(value: endUs, timescale: 1_000_000)
         } else {
-            endTime = asset.duration
+            let assetDuration: CMTime
+            if #available(macOS 13.0, *) {
+                assetDuration = (try? await asset.load(.duration)) ?? .zero
+            } else {
+                assetDuration = asset.duration
+            }
+            endTime = assetDuration
         }
         
         let duration = CMTimeSubtract(endTime, startTime)

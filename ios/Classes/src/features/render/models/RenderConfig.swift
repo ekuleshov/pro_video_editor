@@ -1,19 +1,5 @@
 import Foundation
-
-/// Represents a video clip segment with optional trimming.
-///
-/// This struct defines a portion of a video file that should be included in the render,
-/// with optional start and end timestamps for precise trimming.
-struct VideoClip {
-    /// Absolute path to the video file
-    let inputPath: String
-    
-    /// Start time in microseconds (nil = from beginning)
-    let startUs: Int64?
-    
-    /// End time in microseconds (nil = until end)
-    let endUs: Int64?
-}
+import Flutter
 
 /// Configuration model for video rendering operations.
 ///
@@ -72,12 +58,6 @@ struct RenderConfig {
     /// Playback speed multiplier (e.g., 2.0 = 2x speed)
     let playbackSpeed: Float?
     
-    /// Start time for trimming in microseconds (nil = from beginning)
-    let startUs: Int64?
-    
-    /// End time for trimming in microseconds (nil = until end)
-    let endUs: Int64?
-    
     /// List of 4x4 color transformation matrices
     let colorMatrixList: [[Double]]
     
@@ -134,9 +114,17 @@ struct RenderConfig {
             }
         }
         
+        // Convert imageBytes from Flutter (FlutterStandardTypedData) to Data
+        let imageData: Data?
+        if let flutterData = args["imageBytes"] as? FlutterStandardTypedData {
+            imageData = flutterData.data
+        } else {
+            imageData = args["imageBytes"] as? Data
+        }
+        
         return RenderConfig(
             videoClips: videoClips,
-            imageData: args["imageBytes"] as? Data,
+            imageData: imageData,
             inputFormat: args["inputFormat"] as? String ?? "mp4",
             outputFormat: args["outputFormat"] as? String ?? "mp4",
             outputPath: args["outputPath"] as? String,
@@ -152,8 +140,6 @@ struct RenderConfig {
             bitrate: args["bitrate"] as? Int,
             enableAudio: args["enableAudio"] as? Bool ?? true,
             playbackSpeed: (args["playbackSpeed"] as? NSNumber)?.floatValue,
-            startUs: (args["startUs"] as? NSNumber)?.int64Value,
-            endUs: (args["endUs"] as? NSNumber)?.int64Value,
             colorMatrixList: colorMatrixList,
             blur: (args["blur"] as? NSNumber)?.doubleValue,
             customAudioPath: args["customAudioPath"] as? String,

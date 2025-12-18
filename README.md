@@ -145,7 +145,7 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 | `Cancel export task`       | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Blur background`          | 🧪      | 🧪  | 🧪     | ❌      | ❌     | 🚫   |
 | `Custom Audio Tracks`      | 🧪      | ❌  | ❌     | ❌      | ❌     | 🚫   |
-| `Merge Videos`             | ✅      | ❌  | ❌     | ❌      | ❌     | 🚫   |
+| `Merge Videos`             | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Censor-Layers "Pixelate"` | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
 
 

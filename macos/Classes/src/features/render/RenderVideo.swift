@@ -18,7 +18,7 @@ class RenderVideo {
     static let queue = DispatchQueue(label: "RenderVideoQueue")
 
     // MARK: - Public Methods
-    
+
     /// Starts an asynchronous video render job using RenderConfig.
     ///
     /// This method configures and starts an AVFoundation export session to process
@@ -42,11 +42,12 @@ class RenderVideo {
         queue.async(group: nil, qos: .default, flags: []) {
             let renderTask = Task {
                 guard !config.videoClips.isEmpty else {
-                    onError(NSError(
-                        domain: "RenderVideo", 
-                        code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "Video clips cannot be empty"]
-                    ))
+                    onError(
+                        NSError(
+                            domain: "RenderVideo",
+                            code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: "Video clips cannot be empty"]
+                        ))
                     return
                 }
                 var outputURL: URL!
@@ -69,7 +70,7 @@ class RenderVideo {
                     } else {
                         outputURL = temporaryURL(for: config.outputFormat)
                     }
-                    
+
                     print("")
                     print("🎬 ===== RENDER CONFIG =====")
                     print("   Video clips: \(config.videoClips.count)")
@@ -82,32 +83,33 @@ class RenderVideo {
 
                     // Create configuration for video effects
                     var effectsConfig = VideoCompositorConfig()
-                    
+
                     // Use composition helper to merge multiple video clips
-                    let (composition, videoComposition, renderSize, audioMix) = try await applyComposition(
-                        videoClips: config.videoClips,
-                        videoEffects: effectsConfig,
-                        enableAudio: config.enableAudio,
-                        customAudioPath: config.customAudioPath,
-                        originalAudioVolume: config.originalAudioVolume,
-                        customAudioVolume: config.customAudioVolume
-                    )
-                    
+                    let (composition, videoComposition, renderSize, audioMix) =
+                        try await applyComposition(
+                            videoClips: config.videoClips,
+                            videoEffects: effectsConfig,
+                            enableAudio: config.enableAudio,
+                            customAudioPath: config.customAudioPath,
+                            originalAudioVolume: config.originalAudioVolume,
+                            customAudioVolume: config.customAudioVolume
+                        )
+
                     // Apply playback speed to the entire composition
                     applyPlaybackSpeed(composition: composition, speed: config.playbackSpeed)
-                    
+
                     // Get the first video track for orientation info
                     let firstClipURL = URL(fileURLWithPath: config.videoClips[0].inputPath)
                     let firstAsset = AVURLAsset(url: firstClipURL)
                     let videoTrack = try await loadVideoTrack(from: firstAsset)
-                    
+
                     let preferredTransform: CGAffineTransform
                     if #available(macOS 15.0, *) {
                         preferredTransform = try await videoTrack.load(.preferredTransform)
                     } else {
                         preferredTransform = videoTrack.preferredTransform
                     }
-                    
+
                     let videoRotationDegrees = extractRotationFromTransform(preferredTransform)
                     effectsConfig.videoRotationDegrees = videoRotationDegrees
                     effectsConfig.shouldApplyOrientationCorrection = abs(videoRotationDegrees) > 1.0
@@ -126,7 +128,8 @@ class RenderVideo {
                     applyFlip(config: &effectsConfig, flipX: config.flipX, flipY: config.flipY)
                     applyScale(config: &effectsConfig, scaleX: config.scaleX, scaleY: config.scaleY)
                     applyColorMatrix(
-                        config: &effectsConfig, to: videoComposition, matrixList: config.colorMatrixList)
+                        config: &effectsConfig, to: videoComposition,
+                        matrixList: config.colorMatrixList)
                     applyBlur(config: &effectsConfig, sigma: config.blur)
                     applyImageLayer(config: &effectsConfig, imageData: config.imageData)
 
@@ -215,13 +218,6 @@ class RenderVideo {
         return "\(prefix)_\(timestamp).\(ext)"
     }
 
-    private static func writeInputVideo(_ data: Data, format: String) throws -> URL {
-        let filename = uniqueFilename(prefix: "input", extension: format)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try data.write(to: url)
-        return url
-    }
-
     private static func temporaryURL(for format: String) -> URL {
         let filename = uniqueFilename(prefix: "output", extension: format)
         return FileManager.default.temporaryDirectory.appendingPathComponent(filename)
@@ -246,79 +242,6 @@ class RenderVideo {
         }
     }
 
-    private static func insertVideoTrack(
-        into composition: AVMutableComposition,
-        from videoTrack: AVAssetTrack,
-        timeRange: CMTimeRange
-    ) throws -> AVMutableCompositionTrack {
-        guard
-            let track = composition.addMutableTrack(
-                withMediaType: .video,
-                preferredTrackID: kCMPersistentTrackID_Invalid
-            )
-        else {
-            throw NSError(
-                domain: "RenderVideo", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to create video track"])
-        }
-        try track.insertTimeRange(timeRange, of: videoTrack, at: .zero)
-        return track
-    }
-
-    private static func createVideoComposition(
-        asset: AVAsset,
-        track: AVCompositionTrack,
-        duration: CMTime
-    ) async throws -> (AVMutableVideoComposition, CGSize, CGAffineTransform) {
-        // Get the original video track to extract properties
-        let originalVideoTracks: [AVAssetTrack]
-        if #available(macOS 12.0, *) {
-            originalVideoTracks = try await asset.loadTracks(withMediaType: .video)
-        } else {
-            originalVideoTracks = asset.tracks(withMediaType: .video)
-        }
-
-        guard let originalVideoTrack = originalVideoTracks.first else {
-            throw NSError(
-                domain: "RenderVideo", code: 150,
-                userInfo: [NSLocalizedDescriptionKey: "No original video track found"])
-        }
-
-        // Get video properties
-        let naturalSize: CGSize
-        let nominalFrameRate: Float
-        let preferredTransform: CGAffineTransform
-
-        if #available(macOS 15.0, *) {
-            naturalSize = try await originalVideoTrack.load(.naturalSize)
-            nominalFrameRate = try await originalVideoTrack.load(.nominalFrameRate)
-            preferredTransform = try await originalVideoTrack.load(.preferredTransform)
-        } else {
-            naturalSize = originalVideoTrack.naturalSize
-            nominalFrameRate = originalVideoTrack.nominalFrameRate
-            preferredTransform = originalVideoTrack.preferredTransform
-        }
-
-        // Calculate display size after applying transform (handles rotation)
-        let displaySize = naturalSize.applying(preferredTransform)
-        let correctedSize = CGSize(width: abs(displaySize.width), height: abs(displaySize.height))
-
-        let composition = AVMutableVideoComposition()
-        composition.frameDuration = CMTime(value: 1, timescale: Int32(max(30, nominalFrameRate)))
-        composition.renderSize = correctedSize
-
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
-        instruction.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
-
-        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-
-        instruction.layerInstructions = [layerInstruction]
-        composition.instructions = [instruction]
-
-        return (composition, correctedSize, preferredTransform)
-    }
-
     private static func extractRotationFromTransform(_ transform: CGAffineTransform) -> Double {
         let rotationAngle = atan2(transform.b, transform.a)
         return rotationAngle * 180 / Double.pi
@@ -340,13 +263,13 @@ class RenderVideo {
         export.outputURL = outputURL
         export.outputFileType = mapFormatToMimeType(format: outputFormat)
         export.videoComposition = videoComposition
-        
+
         // Apply audio mix if available
         if let audioMix = audioMix {
             export.audioMix = audioMix
             print("🔊 Audio mix applied to export session")
         }
-        
+
         return export
     }
 
@@ -364,10 +287,10 @@ class RenderVideo {
                     }
                 }
             }
-            
+
             // Start export using new async API (replaces deprecated exportAsynchronously)
             try await export.export(to: export.outputURL!, as: export.outputFileType!)
-            
+
             // Ensure progress monitoring completes
             try await progressTask.value
         } else {

@@ -26,7 +26,7 @@ class AudioHelperService {
   Future<void> initialize() {
     return _audioPlayer.setAudioContext(
       const AudioContext(
-        android: const AudioContextAndroid(
+        android: AudioContextAndroid(
           isSpeakerphoneOn: false,
           stayAwake: false,
           contentType: AndroidContentType.music,
@@ -35,7 +35,7 @@ class AudioHelperService {
         ),
         iOS: AudioContextIOS(
           category: AVAudioSessionCategory.playback,
-          options: const [
+          options: [
             AVAudioSessionOptions.mixWithOthers,
             AVAudioSessionOptions.duckOthers,
           ],

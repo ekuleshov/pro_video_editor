@@ -243,7 +243,34 @@ class VideoSequenceBuilder(
             editedMediaItems
         }
 
-        return EditedMediaItemSequence(finalVideoItems)
+        // Check if first clip has no audio but later clips do
+        val firstClipHasAudio = if (enableAudio && videoClips.isNotEmpty()) {
+            MediaInfoExtractor.getAudioChannelCount(videoClips[0].inputPath)?.let { it > 0 } ?: false
+        } else {
+            true // If audio disabled, doesn't matter
+        }
+
+        val laterClipHasAudio = if (enableAudio && videoClips.size > 1) {
+            videoClips.drop(1).any { clip ->
+                MediaInfoExtractor.getAudioChannelCount(clip.inputPath)?.let { it > 0 } ?: false
+            }
+        } else {
+            falseS
+        }
+
+        val needsForceAudioTrack = !firstClipHasAudio && laterClipHasAudio
+
+        if (needsForceAudioTrack) {
+            Log.w(
+                RENDER_TAG,
+                "First clip has no audio but later clips do - using experimentalSetForceAudioTrack"
+            )
+        }
+
+        return EditedMediaItemSequence.Builder(finalVideoItems)
+            .setIsLooping(false)
+            .experimentalSetForceAudioTrack(needsForceAudioTrack)
+            .build()
     }
 
     /**

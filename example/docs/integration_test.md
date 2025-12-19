@@ -21,6 +21,9 @@ specification itself changes.
 | C | `test_c.mp4` | Frame rate conversion |
 | D | `test_d.mp4` | Missing audio handling |
 | E | `test_e.mp4` | Codec fallback / re-encode |
+| F | `test_f.mp4` | Audio codec and bitrate |
+| 4K-A | `test_4k_a.mp4` | Large file / memory stress |
+| 4K-B | `test_4k_b.mp4` | Large file / memory stress |
 
 ---
 
@@ -140,6 +143,46 @@ specification itself changes.
 - High bitrate audio handling
 - Proper audio re-encoding when mixing codecs
 - No audio sync issues with different codecs
+
+---
+
+### Test 4K-A — Large File Handling (Part 1)
+
+**Purpose**
+- Validate memory management with large 4K files
+- Test performance under high data throughput
+
+**Configuration**
+- 3840×2160 (4K UHD)
+- 60 fps
+- H.264 High
+- File size: ~61.4 MB
+
+**Tests**
+- Multiple large file merges
+- Memory efficiency during processing
+- Output file integrity
+- No memory leaks or crashes
+
+---
+
+### Test 4K-B — Large File Handling (Part 2)
+
+**Purpose**
+- Complement 4K-A for extended stress testing
+- Validate consistency across multiple large merges
+
+**Configuration**
+- 3840×2160 (4K UHD)
+- 30 fps
+- H.264 High
+- File size: ~49.4 MB
+
+**Tests**
+- Combined with 4K-A for ~1GB total output
+- Repeated merge operations (10+ loops)
+- File-based output for large results
+- Duration accuracy at scale
 
 ---
 

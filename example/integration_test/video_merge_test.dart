@@ -20,9 +20,8 @@ void main() {
   const testDPath = 'assets/tests/test_d.mp4'; // 1920×1080, 30fps, no audio
   const testEPath = 'assets/tests/test_e.mp4'; // 1920×1080, 30fps, HEVC
   const testFPath = 'assets/tests/test_f.mp4'; // AC3 Dolby Digital, 448kbps
-  const test4kAPath = 'assets/tests/test_4k_a.mp4'; // 4K video, ~120MB
-  const test4kBPath = 'assets/tests/test_4k_b.mp4'; // 4K video, ~120MB
-  const test4kCPath = 'assets/tests/test_4k_c.mp4'; // 4K video, ~120MB
+  const test4kAPath = 'assets/tests/test_4k_a.mp4'; // 4K video, ~61.43MB
+  const test4kBPath = 'assets/tests/test_4k_b.mp4'; // 4K video, ~49.3MB
 
   // Tolerance for duration comparison (in seconds)
   const durationTolerance = 0.2;
@@ -40,7 +39,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA1),
             VideoSegment(video: videoA2),
           ],
@@ -77,7 +76,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA1),
             VideoSegment(video: videoA2),
             VideoSegment(video: videoA3),
@@ -113,7 +112,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(
               video: videoA,
               startTime: trimStart,
@@ -155,7 +154,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA),
             VideoSegment(video: videoB),
           ],
@@ -192,7 +191,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoB),
             VideoSegment(video: videoA),
           ],
@@ -227,7 +226,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA1),
             VideoSegment(video: videoB),
             VideoSegment(video: videoA2),
@@ -261,7 +260,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA),
             VideoSegment(video: videoC),
           ],
@@ -293,7 +292,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoC),
             VideoSegment(video: videoA),
           ],
@@ -327,7 +326,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA1),
             VideoSegment(video: videoC),
             VideoSegment(video: videoA2),
@@ -362,7 +361,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA),
             VideoSegment(video: videoD),
           ],
@@ -395,7 +394,7 @@ void main() {
 
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoD),
             VideoSegment(video: videoA),
           ],
@@ -424,7 +423,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoD1),
             VideoSegment(video: videoD2),
           ],
@@ -455,7 +454,7 @@ void main() {
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
           enableAudio: false,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA1),
             VideoSegment(video: videoA2),
           ],
@@ -489,7 +488,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA1),
             VideoSegment(video: videoD),
             VideoSegment(video: videoA2),
@@ -522,7 +521,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA),
             VideoSegment(video: videoF),
           ],
@@ -554,7 +553,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoF),
             VideoSegment(video: videoA),
           ],
@@ -588,7 +587,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA),
             VideoSegment(video: videoE),
           ],
@@ -620,7 +619,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoE),
             VideoSegment(video: videoA),
           ],
@@ -649,7 +648,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoE1),
             VideoSegment(video: videoE2),
           ],
@@ -697,7 +696,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA),
             VideoSegment(video: videoB),
             VideoSegment(video: videoC),
@@ -742,7 +741,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA),
             VideoSegment(
               video: videoB,
@@ -791,7 +790,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoB),
             VideoSegment(video: videoA),
             VideoSegment(video: videoC),
@@ -824,7 +823,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA1),
             VideoSegment(video: videoA2),
           ],
@@ -847,7 +846,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mov,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoA1),
             VideoSegment(video: videoA2),
           ],
@@ -876,7 +875,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(
               video: videoA1,
               startTime: trimStart,
@@ -901,7 +900,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: List.generate(
+          videoSegments: List.generate(
             repeatCount,
             (_) => VideoSegment(video: EditorVideo.asset(testAPath)),
           ),
@@ -921,33 +920,27 @@ void main() {
       );
     });
 
-    testWidgets('Merge large 4K files (>1GB total)', (tester) async {
+    testWidgets('Merge large 4K files (~1GB total)', (tester) async {
       final video4kA = EditorVideo.asset(test4kAPath);
       final video4kB = EditorVideo.asset(test4kBPath);
-      final video4kC = EditorVideo.asset(test4kCPath);
+
+      const loopCount = 10;
 
       final metadata4kA = await ProVideoEditor.instance.getMetadata(video4kA);
       final metadata4kB = await ProVideoEditor.instance.getMetadata(video4kB);
-      final metadata4kC = await ProVideoEditor.instance.getMetadata(video4kC);
 
       final expectedDuration =
-          (metadata4kA.duration + metadata4kB.duration + metadata4kC.duration) *
-              3;
+          (metadata4kA.duration + metadata4kB.duration) * loopCount;
 
       final outputPath = await ProVideoEditor.instance.renderVideoToFile(
         '${Directory.systemTemp.path}/test_4k_merge.mp4',
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
-            VideoSegment(video: video4kA),
-            VideoSegment(video: video4kB),
-            VideoSegment(video: video4kC),
-            VideoSegment(video: video4kA),
-            VideoSegment(video: video4kB),
-            VideoSegment(video: video4kC),
-            VideoSegment(video: video4kA),
-            VideoSegment(video: video4kB),
-            VideoSegment(video: video4kC),
+          videoSegments: [
+            for (int i = 0; i < loopCount; i++) ...[
+              VideoSegment(video: video4kA),
+              VideoSegment(video: video4kB),
+            ]
           ],
         ),
       );
@@ -979,7 +972,7 @@ void main() {
 
       final task = VideoRenderData(
         outputFormat: VideoOutputFormat.mp4,
-        videoClips: [
+        videoSegments: [
           VideoSegment(video: videoA1),
           VideoSegment(video: videoA2),
           VideoSegment(video: videoA3),
@@ -1026,7 +1019,7 @@ void main() {
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
-          videoClips: [
+          videoSegments: [
             VideoSegment(video: videoB),
             VideoSegment(video: videoA),
           ],

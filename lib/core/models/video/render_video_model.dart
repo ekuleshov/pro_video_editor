@@ -9,15 +9,15 @@ import 'package:pro_video_editor/pro_video_editor.dart';
 class VideoRenderData {
   /// Creates a [VideoRenderData] with the given parameters.
   ///
-  /// **Important:** You must provide either [video] OR [videoClips], but not
+  /// **Important:** You must provide either [video] OR [videoSegments], but not
   /// both.
   /// - Use [video] for a single video with optional [startTime] and [endTime]
-  /// - Use [videoClips] for concatenating multiple videos, each with their
+  /// - Use [videoSegments] for concatenating multiple videos, each with their
   ///   own trim settings
   VideoRenderData({
     this.outputFormat = VideoOutputFormat.mp4,
     this.video,
-    this.videoClips,
+    this.videoSegments,
     this.imageBytes,
     this.transform,
     this.enableAudio = true,
@@ -34,12 +34,12 @@ class VideoRenderData {
     String? id,
   })  : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         assert(
-          (video != null) != (videoClips != null),
-          'You must provide either video OR videoClips, but not both',
+          (video != null) != (videoSegments != null),
+          'You must provide either video OR videoSegments, but not both',
         ),
         assert(
-          videoClips == null || videoClips.isNotEmpty,
-          'videoClips must not be empty if provided',
+          videoSegments == null || videoSegments.isNotEmpty,
+          'videoSegments must not be empty if provided',
         ),
         assert(
           startTime == null || endTime == null || startTime < endTime,
@@ -139,9 +139,10 @@ class VideoRenderData {
   /// or asset bundle. It provides convenience methods for identifying the
   /// source type and safely retrieving video bytes.
   ///
-  /// **Note:** Either [video] or [videoClips] must be provided, but not both.
+  /// **Note:** Either [video] or [videoSegments] must be provided, but not
+  /// both.
   /// Use this field for a single video. For concatenating multiple videos,
-  /// use [videoClips] instead.
+  /// use [videoSegments] instead.
   final EditorVideo? video;
 
   /// A list of video clips to be concatenated into a single output video.
@@ -149,13 +150,14 @@ class VideoRenderData {
   /// Each clip can have its own start and end time for trimming. The clips
   /// will be joined in the order they appear in the list.
   ///
-  /// **Note:** Either [video] or [videoClips] must be provided, but not both.
+  /// **Note:** Either [video] or [videoSegments] must be provided, but not
+  /// both.
   /// Use this field for concatenating multiple videos. For a single video,
   /// use [video] instead.
   ///
   /// **Example:**
   /// ```dart
-  /// videoClips: [
+  /// videoSegments: [
   ///   VideoClipModel(
   ///     video: EditorVideo.file('video1.mp4'),
   ///     startTime: Duration(seconds: 0),
@@ -168,7 +170,7 @@ class VideoRenderData {
   ///   ),
   /// ]
   /// ```
-  final List<VideoSegment>? videoClips;
+  final List<VideoSegment>? videoSegments;
 
   /// A transparent image which will overlay the video.
   final Uint8List? imageBytes;
@@ -270,7 +272,7 @@ class VideoRenderData {
   /// need to determine the output format based on the input video.
   ///
   /// The method checks in this order:
-  /// 1. First clip in `videoClips` if present
+  /// 1. First segment in `videoSegments` if present
   /// 2. Single `video` if present
   /// 3. Defaults to 'mp4' if neither is found
   ///
@@ -288,9 +290,9 @@ class VideoRenderData {
   Future<String> _getFirstVideoExtension() async {
     String? filePath;
 
-    // Try to get from videoClips first
-    if (videoClips != null && videoClips!.isNotEmpty) {
-      filePath = await videoClips!.first.video.safeFilePath();
+    // Try to get from videoSegments first
+    if (videoSegments != null && videoSegments!.isNotEmpty) {
+      filePath = await videoSegments!.first.video.safeFilePath();
     }
     // Otherwise try single video
     else if (video != null) {
@@ -329,14 +331,14 @@ class VideoRenderData {
     }
 
     // Convert video clips to map format
-    List<Map<String, dynamic>>? videoClipsMaps;
-    if (videoClips != null) {
-      videoClipsMaps = await Future.wait(
-        videoClips!.map((clip) => clip.toAsyncMap()),
+    List<Map<String, dynamic>>? videoSegmentsMaps;
+    if (videoSegments != null) {
+      videoSegmentsMaps = await Future.wait(
+        videoSegments!.map((clip) => clip.toAsyncMap()),
       );
     } else if (video != null) {
       // Single video: convert to single clip format
-      videoClipsMaps = [
+      videoSegmentsMaps = [
         {
           'inputPath': await video!.safeFilePath(),
           'startUs': startTime?.inMicroseconds,
@@ -349,7 +351,7 @@ class VideoRenderData {
       ...transform.toMap(),
       'id': id,
       'inputFormat': await _getFirstVideoExtension(),
-      'videoClips': videoClipsMaps,
+      'videoClips': videoSegmentsMaps,
       'imageBytes': imageBytes,
       'enableAudio': enableAudio,
       'playbackSpeed': playbackSpeed,
@@ -370,7 +372,7 @@ class VideoRenderData {
     String? id,
     VideoOutputFormat? outputFormat,
     EditorVideo? video,
-    List<VideoSegment>? videoClips,
+    List<VideoSegment>? videoSegments,
     Uint8List? imageBytes,
     ExportTransform? transform,
     bool? enableAudio,
@@ -389,7 +391,7 @@ class VideoRenderData {
       id: id ?? this.id,
       outputFormat: outputFormat ?? this.outputFormat,
       video: video ?? this.video,
-      videoClips: videoClips ?? this.videoClips,
+      videoSegments: videoSegments ?? this.videoSegments,
       imageBytes: imageBytes ?? this.imageBytes,
       transform: transform ?? this.transform,
       enableAudio: enableAudio ?? this.enableAudio,

@@ -225,7 +225,7 @@ var customData = RenderVideoModel.withQualityPreset(
 /// Each clip can have its own trim settings (startTime/endTime)
 
 var data = RenderVideoModel(
-    videoClips: [
+    videoSegments: [
         VideoSegment(
             video: EditorVideo.file(File('/path/to/video1.mp4')),
             startTime: Duration(seconds: 0),
@@ -246,7 +246,7 @@ var data = RenderVideoModel(
 
 Uint8List result = await ProVideoEditor.instance.renderVideo(data);
 
-/// Note: You must use either 'video' (single video) OR 'videoClips' (multiple videos),
+/// Note: You must use either 'video' (single video) OR 'videoSegments' (multiple videos),
 /// but not both. The clips will be joined in the order they appear in the list.
 ```
 

@@ -425,7 +425,7 @@ class _VideoEditorBasicExamplePageState
       updatedFile.path,
       VideoRenderData(
         id: _taskId,
-        videoClips: clips.map(
+        videoSegments: clips.map(
           (el) {
             final clip = el.clip;
             return VideoSegment(

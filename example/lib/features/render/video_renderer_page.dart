@@ -318,7 +318,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _concatenateVideos() async {
     var data = VideoRenderData(
-      videoClips: [
+      videoSegments: [
         VideoSegment(
           video: _video,
           startTime: const Duration(seconds: 0),
@@ -344,7 +344,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     final imageBytes = await _captureLayerContent();
     var data = VideoRenderData(
       imageBytes: imageBytes,
-      videoClips: [
+      videoSegments: [
         VideoSegment(
           video: _video,
           startTime: const Duration(seconds: 0),

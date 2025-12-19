@@ -864,6 +864,17 @@ void main() {
   });
 
   group('Video Merging - Edge Cases', () {
+    // Output file path for large 4K test
+    final test4kOutputPath = '${Directory.systemTemp.path}/test_4k_merge.mp4';
+
+    tearDownAll(() {
+      // Cleanup large test output files
+      final outputFile = File(test4kOutputPath);
+      if (outputFile.existsSync()) {
+        outputFile.deleteSync();
+      }
+    });
+
     testWidgets('Merge with very short trim duration', (tester) async {
       final videoA1 = EditorVideo.asset(testAPath);
       final videoA2 = EditorVideo.asset(testAPath);
@@ -933,7 +944,7 @@ void main() {
           (metadata4kA.duration + metadata4kB.duration) * loopCount;
 
       final outputPath = await ProVideoEditor.instance.renderVideoToFile(
-        '${Directory.systemTemp.path}/test_4k_merge.mp4',
+        test4kOutputPath,
         VideoRenderData(
           outputFormat: VideoOutputFormat.mp4,
           videoSegments: [

@@ -1,6 +1,4 @@
 # TODO - FIX-Tests
-- Android
- - [ ] Test: Merge video without audio (D) and video with audio (A)
  
 - macOS
  - [ ] Test: Merge multiple videos without audio (D + D)

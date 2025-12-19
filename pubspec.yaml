@@ -62,4 +62,4 @@ flutter:
         pluginClass: ProVideoEditorPluginCApi
       web:
         pluginClass: ProVideoEditorWeb
-        fileName: pro_video_editor_web.dart
+        fileName: core/platform/web_method_channel.dart

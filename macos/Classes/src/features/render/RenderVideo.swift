@@ -287,10 +287,15 @@ class RenderVideo {
         export.outputFileType = fileType
         export.videoComposition = videoComposition
 
+        // Check if composition has audio tracks
+        let hasAudioTracks = (composition as? AVMutableComposition)?.tracks(withMediaType: .audio).isEmpty == false
+        
         // Apply audio mix if available
-        if let audioMix = audioMix {
+        if let audioMix = audioMix, hasAudioTracks {
             export.audioMix = audioMix
             print("🔊 Audio mix applied to export session")
+        } else if !hasAudioTracks {
+            print("ℹ️ No audio tracks in composition - exporting video only")
         }
 
         return export

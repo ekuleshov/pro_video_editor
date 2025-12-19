@@ -228,21 +228,21 @@ internal class VideoSequenceBuilder {
         print("   Max render size: \(maxRenderSize.width) x \(maxRenderSize.height)")
         print("   Max frame rate: \(maxFrameRate) fps")
         print("   Clip instructions: \(clipInstructions.count)")
-        print("   🔊 AUDIO TRACKS: \(originalAudioTracks.count)")
-        for (idx, track) in originalAudioTracks.enumerated() {
-            print("      Track \(idx): ID=\(track.trackID), Segments=\(track.segments.count)")
-            for (segIdx, segment) in track.segments.enumerated() {
-                let timeMapping = segment as AVCompositionTrackSegment
-                print("         Segment \(segIdx): \(String(format: "%.2f", timeMapping.timeMapping.target.start.seconds))s - \(String(format: "%.2f", (timeMapping.timeMapping.target.start + timeMapping.timeMapping.target.duration).seconds))s (duration: \(String(format: "%.2f", timeMapping.timeMapping.target.duration.seconds))s)")
+        
+        // Handle shared audio track - add to result if it has segments, otherwise remove from composition
+        if let audioTrack = sharedAudioTrack {
+            if !audioTrack.segments.isEmpty {
+                originalAudioTracks.append(audioTrack)
+            } else {
+                print("   ⚠️ Shared audio track has no segments - removing from composition")
+                composition.removeTrack(audioTrack)
             }
+        } else {
+            print("   🔊 AUDIO TRACKS: 0 (no audio track created)")
         }
+        
         print("=====================================")
         print("")
-        
-        // Add the shared audio track to the result if it exists
-        if let audioTrack = sharedAudioTrack {
-            originalAudioTracks.append(audioTrack)
-        }
         
         return VideoSequenceResult(
             videoTrack: compositionVideoTrack,

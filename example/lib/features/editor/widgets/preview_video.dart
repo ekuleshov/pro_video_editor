@@ -122,9 +122,8 @@ class _PreviewVideoState extends State<PreviewVideo> {
             width = height * aspectRatio;
           }
           return Center(
-            child: SizedBox(
-              width: width,
-              height: height,
+            child: AspectRatio(
+              aspectRatio: aspectRatio,
               child: Hero(
                 tag: const ProImageEditorConfigs().heroTag,
                 child: Video(

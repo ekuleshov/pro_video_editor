@@ -13,9 +13,6 @@ struct RenderConfig {
     /// Optional image data for image-to-video conversion
     let imageData: Data?
     
-    /// Input format of the source video (e.g., "mp4", "mov")
-    let inputFormat: String
-    
     /// Output format for the rendered video (e.g., "mp4", "mov")
     let outputFormat: String
     
@@ -125,7 +122,6 @@ struct RenderConfig {
         return RenderConfig(
             videoClips: videoClips,
             imageData: imageData,
-            inputFormat: args["inputFormat"] as? String ?? "mp4",
             outputFormat: args["outputFormat"] as? String ?? "mp4",
             outputPath: args["outputPath"] as? String,
             rotateTurns: args["rotateTurns"] as? Int,

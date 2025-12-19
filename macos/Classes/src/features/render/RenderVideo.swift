@@ -66,7 +66,21 @@ class RenderVideo {
 
                 do {
                     if let outputPath = config.outputPath {
-                        outputURL = URL(fileURLWithPath: outputPath)
+                        // Ensure file extension matches the requested format
+                        let url = URL(fileURLWithPath: outputPath)
+                        let pathExtension = url.pathExtension.lowercased()
+                        let requestedFormat = config.outputFormat.lowercased()
+                        
+                        if pathExtension != requestedFormat {
+                            print("⚠️ WARNING: Output path extension '.\(pathExtension)' doesn't match requested format '.\(requestedFormat)'")
+                            print("⚠️ Correcting file extension to match format...")
+                            
+                            // Replace extension with correct format
+                            let pathWithoutExtension = url.deletingPathExtension()
+                            outputURL = pathWithoutExtension.appendingPathExtension(requestedFormat)
+                        } else {
+                            outputURL = url
+                        }
                     } else {
                         outputURL = temporaryURL(for: config.outputFormat)
                     }
@@ -74,7 +88,9 @@ class RenderVideo {
                     print("")
                     print("🎬 ===== RENDER CONFIG =====")
                     print("   Video clips: \(config.videoClips.count)")
-                    print("   🔊 Enable Audio: \(config.enableAudio)")
+                    print("   � Output format: \(config.outputFormat)")
+                    print("   📹 Output path: \(outputURL.path)")
+                    print("   �🔊 Enable Audio: \(config.enableAudio)")
                     print("   🔊 Original audio volume: \(config.originalAudioVolume ?? 1.0)")
                     print("   🔊 Custom audio path: \(config.customAudioPath ?? "none")")
                     print("   🔊 Custom audio volume: \(config.customAudioVolume ?? 1.0)")
@@ -260,8 +276,15 @@ class RenderVideo {
                 domain: "RenderVideo", code: 3,
                 userInfo: [NSLocalizedDescriptionKey: "Export session creation failed"])
         }
+        
+        let fileType = mapFormatToMimeType(format: outputFormat)
+        print("📹 Export session setup:")
+        print("   - Requested format: \(outputFormat)")
+        print("   - AVFileType: \(fileType.rawValue)")
+        print("   - Output URL: \(outputURL.path)")
+        
         export.outputURL = outputURL
-        export.outputFileType = mapFormatToMimeType(format: outputFormat)
+        export.outputFileType = fileType
         export.videoComposition = videoComposition
 
         // Apply audio mix if available

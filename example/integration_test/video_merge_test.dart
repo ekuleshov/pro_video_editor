@@ -816,6 +816,18 @@ void main() {
   });
 
   group('Video Merging - Output Formats', () {
+    final tempFiles = <String>[];
+
+    tearDownAll(() {
+      // Cleanup all temporary test files
+      for (final path in tempFiles) {
+        final file = File(path);
+        if (file.existsSync()) {
+          file.deleteSync();
+        }
+      }
+    });
+
     testWidgets('Merge videos to MP4 format', (tester) async {
       final videoA1 = EditorVideo.asset(testAPath);
       final videoA2 = EditorVideo.asset(testAPath);
@@ -841,9 +853,14 @@ void main() {
 
     testWidgets('Merge videos to MOV format (Apple)', (tester) async {
       final videoA1 = EditorVideo.asset(testAPath);
-      final videoA2 = EditorVideo.asset(testAPath);
+      final videoA2 = EditorVideo.asset(testBPath);
 
-      final result = await ProVideoEditor.instance.renderVideo(
+      final outputPath =
+          '${Directory.systemTemp.path}/test_merge_${DateTime.now().millisecondsSinceEpoch}.mov';
+      tempFiles.add(outputPath);
+
+      await ProVideoEditor.instance.renderVideoToFile(
+        outputPath,
         VideoRenderData(
           outputFormat: VideoOutputFormat.mov,
           videoSegments: [
@@ -853,13 +870,15 @@ void main() {
         ),
       );
 
-      expect(result, isNotNull);
+      final outputFile = File(outputPath);
+      expect(outputFile.existsSync(), isTrue);
 
       final outputMeta = await ProVideoEditor.instance.getMetadata(
-        EditorVideo.memory(result),
+        EditorVideo.file(outputPath),
       );
 
-      expect(outputMeta.extension, equals('mov'));
+      expect(outputMeta.extension, anyOf(equals('mov'), equals('quicktime')),
+          reason: 'MOV format can be reported as either "mov" or "quicktime"');
     }, skip: !isIOS && !isMacOS);
   });
 
@@ -972,8 +991,8 @@ void main() {
         reason: 'Duration should match sum of input durations',
       );
       expect(outputMeta.extension, equals('mp4'));
-    });
-  }, skip: !enable4kTests);
+    }, skip: !enable4kTests);
+  });
 
   group('Video Merging - Progress Reporting', () {
     testWidgets('Merge emits progress updates', (tester) async {

@@ -255,7 +255,7 @@ class VideoSequenceBuilder(
                 MediaInfoExtractor.getAudioChannelCount(clip.inputPath)?.let { it > 0 } ?: false
             }
         } else {
-            falseS
+            false
         }
 
         val needsForceAudioTrack = !firstClipHasAudio && laterClipHasAudio

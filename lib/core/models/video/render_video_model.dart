@@ -32,39 +32,39 @@ class VideoRenderData {
     this.originalAudioVolume,
     this.customAudioVolume,
     String? id,
-  }) : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
-       assert(
-         (video != null) != (videoSegments != null),
-         'You must provide either video OR videoSegments, but not both',
-       ),
-       assert(
-         videoSegments == null || videoSegments.isNotEmpty,
-         'videoSegments must not be empty if provided',
-       ),
-       assert(
-         startTime == null || endTime == null || startTime < endTime,
-         'startTime must be before endTime',
-       ),
-       assert(
-         blur == null || blur >= 0,
-         '[blur] must be greater than or equal to 0',
-       ),
-       assert(
-         playbackSpeed == null || playbackSpeed > 0,
-         '[playbackSpeed] must be greater than 0',
-       ),
-       assert(
-         bitrate == null || bitrate > 0,
-         '[bitrate] must be greater than 0',
-       ),
-       assert(
-         originalAudioVolume == null || originalAudioVolume >= 0,
-         '[originalAudioVolume] must be greater than or equal to 0',
-       ),
-       assert(
-         customAudioVolume == null || customAudioVolume >= 0,
-         '[customAudioVolume] must be greater than or equal to 0',
-       );
+  })  : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        assert(
+          (video != null) != (videoSegments != null),
+          'You must provide either video OR videoSegments, but not both',
+        ),
+        assert(
+          videoSegments == null || videoSegments.isNotEmpty,
+          'videoSegments must not be empty if provided',
+        ),
+        assert(
+          startTime == null || endTime == null || startTime < endTime,
+          'startTime must be before endTime',
+        ),
+        assert(
+          blur == null || blur >= 0,
+          '[blur] must be greater than or equal to 0',
+        ),
+        assert(
+          playbackSpeed == null || playbackSpeed > 0,
+          '[playbackSpeed] must be greater than 0',
+        ),
+        assert(
+          bitrate == null || bitrate > 0,
+          '[bitrate] must be greater than 0',
+        ),
+        assert(
+          originalAudioVolume == null || originalAudioVolume >= 0,
+          '[originalAudioVolume] must be greater than or equal to 0',
+        ),
+        assert(
+          customAudioVolume == null || customAudioVolume >= 0,
+          '[customAudioVolume] must be greater than or equal to 0',
+        );
 
   /// Creates a [VideoRenderData] with a predefined quality preset.
   ///
@@ -264,51 +264,6 @@ class VideoRenderData {
   /// is specific to the current video's identifier.
   Stream<ProgressModel> get progressStream {
     return ProVideoEditor.instance.progressStreamById(id);
-  }
-
-  /// Extracts the file extension from the video or first video clip.
-  ///
-  /// This is a convenience method for platform channel implementations that
-  /// need to determine the output format based on the input video.
-  ///
-  /// The method checks in this order:
-  /// 1. First segment in `videoSegments` if present
-  /// 2. Single `video` if present
-  /// 3. Defaults to 'mp4' if neither is found
-  ///
-  /// Returns the file extension (without dot), e.g., 'mp4', 'mov'.
-  ///
-  /// Example:
-  /// ```dart
-  /// final model = RenderVideoModel(
-  ///   video: EditorVideo.file('path/to/video.mov'),
-  ///   outputFormat: VideoOutputFormat.mov,
-  /// );
-  /// final ext = await model.getVideoExtension();
-  /// // ext: 'mov'
-  /// ```
-  Future<String> _getFirstVideoExtension() async {
-    String? filePath;
-
-    // Try to get from videoSegments first
-    if (videoSegments != null && videoSegments!.isNotEmpty) {
-      filePath = await videoSegments!.first.video.safeFilePath();
-    }
-    // Otherwise try single video
-    else if (video != null) {
-      filePath = await video!.safeFilePath();
-    }
-
-    return filePath != null ? _getFileExtension(filePath) : 'mp4';
-  }
-
-  /// Helper method to extract file extension from a file path.
-  static String _getFileExtension(String path) {
-    final lastDot = path.lastIndexOf('.');
-    if (lastDot == -1 || lastDot == path.length - 1) {
-      return 'mp4'; // default
-    }
-    return path.substring(lastDot + 1).toLowerCase();
   }
 
   /// Converts the model into a serializable map.

@@ -76,7 +76,7 @@ class AudioSequenceBuilder(
         // Create audio items with looping
         val audioItems = createLoopedAudioItems(audioFile, audioDurationUs, audioEffects)
 
-        return EditedMediaItemSequence(audioItems)
+        return EditedMediaItemSequence.Builder(audioItems).build()
     }
 
     /**

@@ -283,7 +283,7 @@ void main() {
     testWidgets('cancel renderVideo throws RenderCanceledException', (_) async {
       final taskId = 'cancel-test-${DateTime.now().millisecondsSinceEpoch}';
 
-      final task = RenderVideoModel(
+      final task = VideoRenderData(
         id: taskId,
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
@@ -314,7 +314,7 @@ void main() {
       final tempDir = await Directory.systemTemp.createTemp('render_test_');
       final outputPath = '${tempDir.path}/cancelled_video.mp4';
 
-      final task = RenderVideoModel(
+      final task = VideoRenderData(
         id: taskId,
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,
@@ -345,7 +345,7 @@ void main() {
           'cancel-progress-test-${DateTime.now().millisecondsSinceEpoch}';
       final List<double> progressValues = [];
 
-      final task = RenderVideoModel(
+      final task = VideoRenderData(
         id: taskId,
         video: inputVideo,
         outputFormat: VideoOutputFormat.mp4,

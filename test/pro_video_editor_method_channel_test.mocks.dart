@@ -53,9 +53,9 @@ class _FakeSize_1 extends _i1.SmartFake implements _i3.Size {
         );
 }
 
-class _FakeRenderVideoModel_2 extends _i1.SmartFake
+class _FakeVideoRenderData_2 extends _i1.SmartFake
     implements _i4.VideoRenderData {
-  _FakeRenderVideoModel_2(
+  _FakeVideoRenderData_2(
     Object parent,
     Invocation parentInvocation,
   ) : super(
@@ -322,11 +322,11 @@ class MockKeyFramesConfigs extends _i1.Mock implements _i4.KeyFramesConfigs {
       ) as Map<String, dynamic>);
 }
 
-/// A class which mocks [RenderVideoModel].
+/// A class which mocks [VideoRenderData].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockRenderVideoModel extends _i1.Mock implements _i4.VideoRenderData {
-  MockRenderVideoModel() {
+class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
+  MockVideoRenderData() {
     _i1.throwOnMissingStub(this);
   }
 
@@ -417,7 +417,7 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.VideoRenderData {
             #customAudioVolume: customAudioVolume,
           },
         ),
-        returnValue: _FakeRenderVideoModel_2(
+        returnValue: _FakeVideoRenderData_2(
           this,
           Invocation.method(
             #copyWith,

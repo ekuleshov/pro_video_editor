@@ -74,7 +74,7 @@ class VideoRenderData {
   ///
   /// Example:
   /// ```dart
-  /// var model = RenderVideoModel.withQualityPreset(
+  /// var model = VideoRenderData.withQualityPreset(
   ///   video: EditorVideo.asset('assets/my-video.mp4'),
   ///   qualityPreset: VideoQualityPreset.p1080,
   ///   outputFormat: VideoOutputFormat.mp4,

@@ -167,7 +167,7 @@ No additional setup required.
 
 #### Basic Example
 ```dart
-var data = RenderVideoModel(
+var data = VideoRenderData(
     video: EditorVideo.asset('assets/my-video.mp4'),
     // video: EditorVideo.file(File('/path/to/video.mp4')),
     // video: EditorVideo.network('https://example.com/video.mp4'),
@@ -201,8 +201,7 @@ StreamBuilder<ProgressModel>(
 ```dart
 /// Use quality presets for simplified video export configuration
 /// Available presets: ultra4K, k4, p1080High, p1080, p720High, p720, p480, low, custom
-
-var data = RenderVideoModel.withQualityPreset(
+var data = VideoRenderData.withQualityPreset(
     video: EditorVideo.asset('assets/my-video.mp4'),
     qualityPreset: VideoQualityPreset.p1080,  // 1080p at 8 Mbps
     startTime: const Duration(seconds: 5),
@@ -212,7 +211,7 @@ var data = RenderVideoModel.withQualityPreset(
 Uint8List result = await ProVideoEditor.instance.renderVideo(data);
 
 /// Override the preset's bitrate if needed
-var customData = RenderVideoModel.withQualityPreset(
+var customData = VideoRenderData.withQualityPreset(
     video: EditorVideo.asset('assets/my-video.mp4'),
     qualityPreset: VideoQualityPreset.p720,
     bitrateOverride: 5000000,  // 5 Mbps instead of default 3 Mbps
@@ -223,8 +222,7 @@ var customData = RenderVideoModel.withQualityPreset(
 ```dart
 /// Concatenate multiple video clips into a single output video
 /// Each clip can have its own trim settings (startTime/endTime)
-
-var data = RenderVideoModel(
+var data = VideoRenderData(
     videoSegments: [
         VideoSegment(
             video: EditorVideo.file(File('/path/to/video1.mp4')),
@@ -261,7 +259,7 @@ On **Windows, Linux, and Web**, `cancel` is not wired up yet, so callers should 
 When you cancel a render started with `renderVideoToFile`, the returned `Future` completes with a **`RenderCanceledException`**. If your UI is awaiting that future directly (instead of using `unawaited`), make sure to catch this exception so you can reset any loading state cleanly rather than treating it as an error.
 
 ```dart
-final renderModel = RenderVideoModel(
+final renderModel = VideoRenderData(
   video: EditorVideo.asset('assets/sample.mp4'),
 );
 
@@ -292,7 +290,7 @@ if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
 #### Advanced Example
 ```dart
 /// Every option except videoBytes is optional.
-var task = RenderVideoModel(
+var task = VideoRenderData(
     id: 'my-special-task'
     video: EditorVideo.asset('assets/my-video.mp4'),
     imageBytes: imageBytes, /// A image "Layer" which will overlay the video.
@@ -302,10 +300,10 @@ var task = RenderVideoModel(
     endTime: const Duration(seconds: 20),
     blur: 10,
     bitrate: 5000000,
-    customAudioPath: customAudioPath,
     enableAudio: false,
     originalAudioVolume: 0.7, // Original audio at 70%
     customAudioVolume: 0.3, // Background music at 30%
+    customAudioPath: customAudioPath,
     transform: const ExportTransform(
         flipX: true,
         flipY: true,

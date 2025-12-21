@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pro_video_editor/pro_video_editor.dart';
 
 void main() {
-  group('RenderVideoModel.withQualityPreset', () {
+  group('VideoRenderData.withQualityPreset', () {
     final testVideo = EditorVideo.asset('test_video.mp4');
 
     test('creates model with 1080p quality preset', () {

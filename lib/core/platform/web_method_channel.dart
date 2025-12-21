@@ -13,9 +13,9 @@ import 'package:web/web.dart' as web;
 import '/core/models/thumbnail/key_frames_configs_model.dart';
 import '/core/models/thumbnail/thumbnail_configs_model.dart';
 import '/core/models/video/editor_video_model.dart';
-import '/core/models/video/render_video_model.dart';
 import '/core/models/video/video_metadata_model.dart';
 import '/core/services/web/web_manager.dart';
+import '../models/video/video_render_data_model.dart';
 import 'platform_interface.dart';
 
 /// Web platform implementation using JavaScript APIs.

@@ -10,9 +10,9 @@ import '/core/models/thumbnail/thumbnail_base_abstract.dart';
 import '/core/models/thumbnail/thumbnail_configs_model.dart';
 import '/core/models/video/editor_video_model.dart';
 import '/core/models/video/progress_model.dart';
-import '/core/models/video/render_video_model.dart';
 import '/core/models/video/video_metadata_model.dart';
 import '/core/platform/io/io_helper.dart';
+import '../models/video/video_render_data_model.dart';
 import 'platform_interface.dart';
 
 /// Native platform implementation using Flutter Method Channels.

@@ -14,6 +14,7 @@ class ThumbnailConfigs extends ThumbnailBase {
     super.outputFormat,
     super.boxFit,
     super.id,
+    super.jpegQuality,
     required this.timestamps,
   });
 
@@ -24,6 +25,7 @@ class ThumbnailConfigs extends ThumbnailBase {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'jpegQuality': jpegQuality,
       'boxFit': boxFit.name,
       'outputFormat': outputFormat.name,
       'outputWidth': outputSize.width.round(),

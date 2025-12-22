@@ -14,6 +14,7 @@ class KeyFramesConfigs extends ThumbnailBase {
     super.outputFormat,
     super.boxFit,
     super.id,
+    super.jpegQuality,
     int? maxOutputFrames,
   }) : maxOutputFrames = maxOutputFrames ??= double.infinity.toInt();
 
@@ -26,6 +27,7 @@ class KeyFramesConfigs extends ThumbnailBase {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'jpegQuality': jpegQuality,
       'boxFit': boxFit.name,
       'outputFormat': outputFormat.name,
       'outputWidth': outputSize.width.round(),

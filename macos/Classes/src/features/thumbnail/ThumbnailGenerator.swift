@@ -85,7 +85,7 @@ class ThumbnailGenerator {
                                 targetHeight: config.outputHeight,
                                 boxFit: config.boxFit
                             )
-                            let data = compressCGImage(resized, format: config.outputFormat)
+                            let data = compressCGImage(resized, format: config.outputFormat, jpegQuality: config.jpegQuality)
                             resultData[index] = data
 
                             let elapsed = Int((Date().timeIntervalSince1970 - start) * 1000)
@@ -166,13 +166,14 @@ class ThumbnailGenerator {
     ///
     /// Supported formats:
     /// - "png": Lossless compression
-    /// - "jpeg"/"jpg": Lossy compression at 90% quality
+    /// - "jpeg"/"jpg": Lossy compression with configurable quality
     ///
     /// - Parameters:
     ///   - cgImage: Source image to compress
     ///   - format: Output format ("png", "jpeg", or "jpg")
+    ///   - jpegQuality: JPEG compression quality (0-100). Only affects JPEG format.
     /// - Returns: Compressed image as Data
-    private static func compressCGImage(_ cgImage: CGImage, format: String) -> Data {
+    private static func compressCGImage(_ cgImage: CGImage, format: String, jpegQuality: Int) -> Data {
         let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
         let imageType: NSBitmapImageRep.FileType = {
             switch format.lowercased() {
@@ -184,7 +185,8 @@ class ThumbnailGenerator {
                 return .jpeg
             }
         }()
-        return bitmapRep.representation(using: imageType, properties: [.compressionFactor: 0.9])
+        let quality = CGFloat(jpegQuality) / 100.0
+        return bitmapRep.representation(using: imageType, properties: [.compressionFactor: quality])
             ?? Data()
     }
 

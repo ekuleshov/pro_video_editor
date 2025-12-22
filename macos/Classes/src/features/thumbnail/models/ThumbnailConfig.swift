@@ -20,6 +20,9 @@ internal struct ThumbnailConfig {
     /// Output image format: "jpeg", "png"
     let outputFormat: String
     
+    /// JPEG compression quality (0-100). Only affects JPEG format.
+    let jpegQuality: Int
+    
     /// Target thumbnail width in pixels
     let outputWidth: Int
     
@@ -50,6 +53,11 @@ internal struct ThumbnailConfig {
             return nil
         }
         
+        let jpegQuality = args["jpegQuality"] as? Int ?? 90
+        guard jpegQuality >= 0 && jpegQuality <= 100 else {
+            return nil
+        }
+        
         let rawTimestamps = args["timestamps"] as? [NSNumber] ?? []
         let timestampsUs = rawTimestamps.map { $0.int64Value }
         let maxOutputFrames = args["maxOutputFrames"] as? Int
@@ -65,6 +73,7 @@ internal struct ThumbnailConfig {
             fileExtension: extensionStr,
             boxFit: boxFit,
             outputFormat: outputFormat,
+            jpegQuality: jpegQuality,
             outputWidth: outputWidth,
             outputHeight: outputHeight,
             timestampsUs: timestampsUs,

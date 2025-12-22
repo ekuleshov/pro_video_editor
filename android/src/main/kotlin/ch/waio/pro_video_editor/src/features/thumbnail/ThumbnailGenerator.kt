@@ -61,7 +61,7 @@ class ThumbnailGenerator(private val context: Context) {
                 val result = when {
                     config.timestampsUs.isNotEmpty() -> {
                         getThumbnailsFromTimestamps(
-                            config.inputPath, config.outputFormat, config.boxFit,
+                            config.inputPath, config.outputFormat, config.jpegQuality, config.boxFit,
                             config.outputWidth, config.outputHeight, config.timestampsUs, onProgress
                         )
                     }
@@ -70,6 +70,7 @@ class ThumbnailGenerator(private val context: Context) {
                         getKeyFrames(
                             config.inputPath,
                             config.outputFormat,
+                            config.jpegQuality,
                             config.boxFit,
                             config.outputWidth,
                             config.outputHeight,
@@ -106,6 +107,7 @@ class ThumbnailGenerator(private val context: Context) {
     private suspend fun getThumbnailsFromTimestamps(
         inputPath: String,
         outputFormat: String,
+        jpegQuality: Int,
         boxFit: String,
         outputWidth: Int,
         outputHeight: Int,
@@ -132,7 +134,7 @@ class ThumbnailGenerator(private val context: Context) {
                     if (bitmap != null) {
                         val resized =
                             resizeBitmapKeepingAspect(bitmap, outputWidth, outputHeight, boxFit)
-                        val bytes = compressBitmap(resized, outputFormat)
+                        val bytes = compressBitmap(resized, outputFormat, jpegQuality)
                         thumbnails[index] = bytes
                         val duration = System.currentTimeMillis() - startTime
                         Log.d(
@@ -178,6 +180,7 @@ class ThumbnailGenerator(private val context: Context) {
     private suspend fun getKeyFrames(
         inputPath: String,
         outputFormat: String,
+        jpegQuality: Int,
         boxFit: String,
         outputWidth: Int,
         outputHeight: Int,
@@ -208,7 +211,7 @@ class ThumbnailGenerator(private val context: Context) {
                     if (bitmap != null) {
                         val resized =
                             resizeBitmapKeepingAspect(bitmap, outputWidth, outputHeight, boxFit)
-                        val bytes = compressBitmap(resized, outputFormat)
+                        val bytes = compressBitmap(resized, outputFormat, jpegQuality)
                         thumbnails[index] = bytes
                         val duration = System.currentTimeMillis() - startTime
                         Log.d(
@@ -330,20 +333,19 @@ class ThumbnailGenerator(private val context: Context) {
      * - "webp": Modern format, good compression
      * - "jpeg" (default): Lossy compression, smallest file size
      *
-     * Quality is fixed at 90% for lossy formats.
-     *
      * @param bitmap Source bitmap to compress
      * @param format Output format: "png", "webp", or "jpeg"
+     * @param jpegQuality JPEG compression quality (0-100). Only affects JPEG format.
      * @return Compressed image as byte array
      */
-    private fun compressBitmap(bitmap: Bitmap, format: String): ByteArray {
+    private fun compressBitmap(bitmap: Bitmap, format: String, jpegQuality: Int): ByteArray {
         val stream = ByteArrayOutputStream()
         val compressFormat = when (format.lowercase()) {
             "png" -> Bitmap.CompressFormat.PNG
             "webp" -> Bitmap.CompressFormat.WEBP
             else -> Bitmap.CompressFormat.JPEG
         }
-        bitmap.compress(compressFormat, 90, stream)
+        bitmap.compress(compressFormat, jpegQuality, stream)
         return stream.toByteArray()
     }
 }

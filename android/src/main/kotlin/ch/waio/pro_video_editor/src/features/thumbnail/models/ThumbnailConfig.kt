@@ -8,6 +8,7 @@ data class ThumbnailConfig(
     val extension: String,
     val boxFit: String,
     val outputFormat: String,
+    val jpegQuality: Int,
     val outputWidth: Int,
     val outputHeight: Int,
     val timestampsUs: List<Long>,
@@ -30,6 +31,8 @@ data class ThumbnailConfig(
                 ?: throw IllegalArgumentException("boxFit is required")
             val outputFormat = call.argument<String>("outputFormat")
                 ?: throw IllegalArgumentException("outputFormat is required")
+            val jpegQuality = call.argument<Number>("jpegQuality")?.toInt() ?: 90
+            require(jpegQuality in 0..100) { "jpegQuality must be between 0 and 100" }
             val outputWidth = call.argument<Number>("outputWidth")?.toInt()
                 ?: throw IllegalArgumentException("outputWidth is required")
             val outputHeight = call.argument<Number>("outputHeight")?.toInt()
@@ -49,6 +52,7 @@ data class ThumbnailConfig(
                 extension = extension,
                 boxFit = boxFit,
                 outputFormat = outputFormat,
+                jpegQuality = jpegQuality,
                 outputWidth = outputWidth,
                 outputHeight = outputHeight,
                 timestampsUs = timestampsUs,

@@ -14,10 +14,13 @@ abstract class ThumbnailBase {
   ThumbnailBase({
     required this.video,
     required this.outputSize,
+    this.jpegQuality = 90,
     this.outputFormat = ThumbnailFormat.jpeg,
     this.boxFit = ThumbnailBoxFit.cover,
     String? id,
-  }) : id = id ?? DateTime.now().microsecondsSinceEpoch.toString();
+  })  : assert(jpegQuality >= 0 && jpegQuality <= 100,
+            'jpegQuality must be between 0 and 100'),
+        id = id ?? DateTime.now().microsecondsSinceEpoch.toString();
 
   /// Unique ID for the task, useful when running multiple tasks at once.
   final String id;
@@ -27,6 +30,17 @@ abstract class ThumbnailBase {
 
   /// The desired size of each generated thumbnail.
   final Size outputSize;
+
+  /// The JPEG compression quality for thumbnail images.
+  ///
+  /// This value ranges from 0 to 100, where:
+  /// - 0: Maximum compression, lowest quality, smallest file size
+  /// - 100: Minimum compression, highest quality, largest file size
+  ///
+  /// A value of 90 is recommended as it provides a good balance between
+  /// quality and file size. This parameter only affects JPEG output format;
+  /// it has no effect on PNG or WebP formats.
+  final int jpegQuality;
 
   /// The format used for thumbnail images.
   ///

@@ -13,10 +13,10 @@ import 'package:pro_video_editor/pro_video_editor.dart';
 import 'package:pro_video_editor_example/shared/utils/render_cancel_capability.dart';
 import 'package:pro_video_editor_example/shared/widgets/video_renderer_progress.dart';
 
+import '/core/constants/example_constants.dart';
 import '/core/constants/example_filters.dart';
 import '/shared/utils/bytes_formatter.dart';
 import '/shared/widgets/filter_generator.dart';
-import '../../core/constants/example_constants.dart';
 
 /// A page that handles the video export workflow.
 ///

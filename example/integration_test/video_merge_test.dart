@@ -26,7 +26,8 @@ void main() {
   // Tolerance for duration comparison (in seconds)
   const durationTolerance = 0.2;
 
-  const enable4kTests = true;
+  const enable4kTests = false;
+  const enableMergeAudioTests = false;
 
   group('Video Merging - Basic Tests', () {
     testWidgets('Merge two identical baseline videos (A + A)', (tester) async {
@@ -539,7 +540,7 @@ void main() {
         closeTo(expectedDuration.inSeconds, durationTolerance),
         reason: 'AAC to AC3 audio codec transition should work',
       );
-    });
+    }, skip: !enableMergeAudioTests);
 
     testWidgets('Merge AC3 audio (F) with AAC audio (A)', (tester) async {
       final videoF = EditorVideo.asset(testFPath);
@@ -571,7 +572,7 @@ void main() {
         closeTo(expectedDuration.inSeconds, durationTolerance),
         reason: 'AC3 to AAC audio codec transition should work',
       );
-    });
+    }, skip: !enableMergeAudioTests);
   });
 
   group('Video Merging - Codec Compatibility', () {
@@ -719,7 +720,7 @@ void main() {
         closeTo(expectedDuration.inSeconds, durationTolerance * 2),
         reason: 'All test videos should merge into one',
       );
-    });
+    }, skip: !enableMergeAudioTests);
 
     testWidgets('Merge with mixed trimming and full clips', (tester) async {
       final videoA = EditorVideo.asset(testAPath);

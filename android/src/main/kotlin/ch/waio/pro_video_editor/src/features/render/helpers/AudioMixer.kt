@@ -16,7 +16,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
-/**
+// TODO: Improve performance!
+/** 
  * Mixes two audio tracks (video original + custom audio) into a single track.
  * Handles different sample rates and channel counts while preserving quality.
  */

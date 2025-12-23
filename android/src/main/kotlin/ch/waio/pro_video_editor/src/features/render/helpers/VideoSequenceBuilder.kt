@@ -13,20 +13,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
+import ch.waio.pro_video_editor.src.features.render.models.VideoClip
 import java.io.File
-
-/**
- * Represents a video clip segment with optional trimming.
- *
- * @property inputPath Absolute path to video file
- * @property startUs Start time in microseconds (null = from beginning)
- * @property endUs End time in microseconds (null = until end)
- */
-data class VideoClip(
-    val inputPath: String,
-    val startUs: Long?,
-    val endUs: Long?
-)
 
 /**
  * Builder class for creating video sequences with effects in video compositions.

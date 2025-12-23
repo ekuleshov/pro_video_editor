@@ -192,16 +192,15 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   ///
   /// The asset audio is first loaded and saved to a temporary file,
   /// then mixed with the original video audio during export.
-  /// FIXME: Not working on android
   Future<void> _customAudioMix() async {
     final customAudioFile =
-        await _writeAssetAudioToFile(kVideoEditorExampleAudio2Path);
+        await _writeAssetAudioToFile(kVideoEditorExampleAudio1Path);
 
     var data = VideoRenderData(
       video: _video,
       customAudioPath: customAudioFile.path,
-      originalAudioVolume: 0.7, // Original audio at 70%
-      customAudioVolume: 0.1, // Background music at 30%
+      originalAudioVolume: 0.9, // Original audio at 90%
+      customAudioVolume: 0.1, // Background music at 10%
     );
 
     await _renderVideo(data);
@@ -653,7 +652,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           onTap: _customAudioMix,
           leading: const Icon(Icons.music_note_outlined),
           title: const Text('Mix Custom Audio'),
-          subtitle: const Text('Original 70% + Custom 30%'),
+          subtitle: const Text('Original 90% + Custom 10%'),
         ),
         ListTile(
           onTap: _adjustOriginalVolume,

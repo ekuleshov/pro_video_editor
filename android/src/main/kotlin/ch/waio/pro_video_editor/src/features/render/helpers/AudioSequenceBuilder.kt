@@ -80,32 +80,6 @@ class AudioSequenceBuilder(
     }
 
     /**
-     * Checks if custom audio sample rate matches video audio.
-     *
-     * @param expectedSampleRate Expected sample rate (typically 48000 Hz for video)
-     * @return true if sample rates match or detection failed (assume safe)
-     */
-    fun checkSampleRateCompatibility(expectedSampleRate: Int = 48000): Boolean {
-        val customSampleRate = MediaInfoExtractor.getAudioSampleRate(audioPath)
-
-        if (customSampleRate == 0) {
-            return true // Cannot detect, assume safe
-        }
-
-        val compatible = customSampleRate == expectedSampleRate
-
-        if (!compatible) {
-            Log.e(RENDER_TAG, "ERROR: Cannot mix audio with different sample rates!")
-            Log.e(RENDER_TAG, "Expected: ${expectedSampleRate}Hz, Custom: ${customSampleRate}Hz")
-            Log.e(RENDER_TAG, "WORKAROUND: Original audio must be removed (replace mode)")
-        } else {
-            Log.d(RENDER_TAG, "Audio mixing is safe - sample rates match ($expectedSampleRate Hz)")
-        }
-
-        return compatible
-    }
-
-    /**
      * Builds audio processors for custom audio (channel mixing + volume).
      */
     private fun buildAudioProcessors(): List<AudioProcessor> {

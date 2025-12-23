@@ -113,37 +113,70 @@ class RenderVideo(private val context: Context) {
             })
             .build()
 
-        // Create composition and start transformation
-        val composition = applyComposition(
-            config = config,
-            videoEffects = videoEffects,
-            audioEffects = audioEffects
-        )
+        // Check if audio mixing is needed
+        val needsAudioMixing = config.customAudioPath != null && 
+                               config.customAudioPath.isNotEmpty() &&
+                               config.originalAudioVolume != null && 
+                               config.originalAudioVolume > 0.0f
+        
+        // Create composition in background thread to avoid blocking UI (audio mixing can take time)
+        Thread {
+            try {
+                val composition = applyComposition(
+                    context = context,
+                    config = config,
+                    videoEffects = videoEffects,
+                    audioEffects = audioEffects,
+                    onAudioMixProgress = if (needsAudioMixing) { progress ->
+                        // Map audio mixing progress to 0-10%
+                        mainHandler.post { onProgress(progress * 0.10) }
+                    } else null
+                )
 
-        if (composition != null) {
-            transformer.start(composition, outputFile.absolutePath)
-        } else {
-            onError(IllegalStateException("Failed to create composition"))
-            return RenderJobHandle { }
-        }
+                mainHandler.post {
+                    if (composition != null) {
+                        // Audio mixing complete (if it was needed)
+                        if (needsAudioMixing) {
+                            onProgress(0.10)
+                        }
+                        
+                        transformer.start(composition, outputFile.absolutePath)
+                        
+                        // Start progress tracking loop
+                        val progressHolder = ProgressHolder()
+                        mainHandler.post(object : Runnable {
+                            override fun run() {
+                                if (shouldStopPolling.get()) return
 
-        // Start progress tracking loop
-        val progressHolder = ProgressHolder()
-        mainHandler.post(object : Runnable {
-            override fun run() {
-                if (shouldStopPolling.get()) return
+                                val progressState = transformer.getProgress(progressHolder)
+                                if (progressHolder.progress >= 0) {
+                                    // Scale progress based on whether audio mixing happened
+                                    val scaledProgress = if (needsAudioMixing) {
+                                        // Scale transformer progress from 10-100%
+                                        0.10 + (progressHolder.progress / 100.0) * 0.90
+                                    } else {
+                                        // Use full 0-100% range
+                                        progressHolder.progress / 100.0
+                                    }
+                                    onProgress(scaledProgress)
+                                }
 
-                val progressState = transformer.getProgress(progressHolder)
-                if (progressHolder.progress >= 0) {
-                    onProgress(progressHolder.progress / 100.0)
+                                // Continue polling if transformation is active
+                                if (!shouldStopPolling.get() && progressState != Transformer.PROGRESS_STATE_NOT_STARTED) {
+                                    mainHandler.postDelayed(this, 200)
+                                }
+                            }
+                        })
+                    } else {
+                        onError(IllegalStateException("Failed to create composition"))
+                    }
                 }
-
-                // Continue polling if transformation is active
-                if (!shouldStopPolling.get() && progressState != Transformer.PROGRESS_STATE_NOT_STARTED) {
-                    mainHandler.postDelayed(this, 200)
+            } catch (e: Exception) {
+                mainHandler.post {
+                    onError(e)
                 }
             }
-        })
+        }.start()
 
         // Return cancellation handle
         return RenderJobHandle {

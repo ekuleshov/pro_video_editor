@@ -2,7 +2,6 @@ package ch.waio.pro_video_editor.src.features.render.models
 
 import PACKAGE_TAG
 import android.util.Log
-import ch.waio.pro_video_editor.src.features.render.helpers.VideoClip
 import io.flutter.plugin.common.MethodCall
 
 /**

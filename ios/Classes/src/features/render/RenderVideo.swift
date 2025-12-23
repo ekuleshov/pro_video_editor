@@ -188,24 +188,13 @@ class RenderVideo {
 
                     let preset = applyBitrate(requestedBitrate: config.bitrate)
 
-                    // Create audio mix with volume parameters
-                    var finalAudioMix: AVAudioMix?
-                    if let audioMix = audioMix {
-                        finalAudioMix = audioMix
-                    } else if config.enableAudio
-                        && (config.originalAudioVolume != nil || config.customAudioVolume != nil)
-                    {
-                        // Create audio mix if not already provided by composition
-                        finalAudioMix = audioMix
-                    }
-
                     let export = try prepareExportSession(
                         composition: composition,
                         videoComposition: videoComposition,
+                        audioMix: audioMix,
                         outputURL: outputURL,
                         outputFormat: config.outputFormat,
-                        preset: preset,
-                        audioMix: audioMix
+                        preset: preset
                     )
 
                     handle.attach(export: export)
@@ -277,10 +266,10 @@ class RenderVideo {
     private static func prepareExportSession(
         composition: AVAsset,
         videoComposition: AVVideoComposition,
+        audioMix: AVAudioMix?,
         outputURL: URL,
         outputFormat: String,
-        preset: String,
-        audioMix: AVAudioMix?
+        preset: String
     ) throws -> AVAssetExportSession {
         guard let export = AVAssetExportSession(asset: composition, presetName: preset) else {
             throw NSError(

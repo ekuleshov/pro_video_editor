@@ -84,33 +84,10 @@ internal class CompositionBuilder {
             .setEnableAudio(enableAudio)
             .setOriginalAudioVolume(originalAudioVolume)
         
-        // Check if we need to mix custom audio with original
-        let needsAudioMixing = customAudioPath != nil &&
-                               !(customAudioPath?.isEmpty ?? true) &&
-                               originalAudioVolume > 0.0
-        
-        // Check sample rate compatibility if mixing audio
-        var forceRemoveOriginalAudio = false
-        if needsAudioMixing, let customPath = customAudioPath {
-            let audioBuilder = AudioSequenceBuilder(
-                audioPath: customPath,
-                targetDuration: await videoBuilder.calculateTotalDuration()
-            )
-            let isCompatible = await audioBuilder.checkSampleRateCompatibility(videoClips: videoClips)
-            forceRemoveOriginalAudio = !isCompatible
-            
-            if forceRemoveOriginalAudio {
-                print("❌ Audio mixing DISABLED - sample rate mismatch detected")
-                print("❌ Only custom audio will be used (original audio removed)")
-            } else {
-                print("✅ Audio mixing ENABLED (original: \(originalAudioVolume)x, custom: \(customAudioVolume)x)")
-                print("✅ Sample rates are compatible - both audio tracks will be mixed")
-            }
-        }
-        
-        // Build video sequence (may force remove audio if incompatible)
-        if forceRemoveOriginalAudio {
-            _ = videoBuilder.setEnableAudio(false)
+        // Log audio mixing configuration
+        if customAudioPath != nil && !(customAudioPath?.isEmpty ?? true) && enableAudio && originalAudioVolume > 0.0 {
+            print("✅ Audio mixing ENABLED (original: \(originalAudioVolume)x, custom: \(customAudioVolume)x)")
+            print("✅ AVFoundation will handle sample rate conversion automatically")
         }
         
         let videoResult = try await videoBuilder.build(in: composition)
@@ -128,8 +105,12 @@ internal class CompositionBuilder {
         }
         
         // Create audio mix with volume parameters
+        // Always create audio mix when we have audio tracks to ensure volume control works
         var audioMix: AVAudioMix?
-        if enableAudio && !forceRemoveOriginalAudio && (originalAudioVolume != 1.0 || customAudioVolume != 1.0) {
+        let hasOriginalAudio = enableAudio && !videoResult.audioTracks.isEmpty
+        let hasCustomAudio = customAudioTrack != nil
+        
+        if hasOriginalAudio || hasCustomAudio {
             audioMix = createAudioMix(
                 originalTracks: videoResult.audioTracks,
                 customTrack: customAudioTrack,

@@ -2,8 +2,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
+import 'package:pro_video_editor/core/platform/native_method_channel.dart';
 import 'package:pro_video_editor/pro_video_editor.dart';
-import 'package:pro_video_editor/pro_video_editor_method_channel.dart';
 
 import 'pro_video_editor_method_channel_test.mocks.dart';
 
@@ -11,7 +11,7 @@ import 'pro_video_editor_method_channel_test.mocks.dart';
   EditorVideo,
   ThumbnailConfigs,
   KeyFramesConfigs,
-  RenderVideoModel,
+  VideoRenderData,
 ])
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -98,7 +98,7 @@ void main() {
   });
 
   test('renderVideo returns rendered video bytes', () async {
-    final mockModel = MockRenderVideoModel();
+    final mockModel = MockVideoRenderData();
 
     when(mockModel.video).thenReturn(mockVideo);
     when(mockModel.toAsyncMap()).thenAnswer((_) async => {
@@ -116,7 +116,7 @@ void main() {
       return null;
     });
 
-    final mockModel = MockRenderVideoModel();
+    final mockModel = MockVideoRenderData();
     final mockVideo = MockEditorVideo();
 
     when(mockModel.video).thenReturn(mockVideo);

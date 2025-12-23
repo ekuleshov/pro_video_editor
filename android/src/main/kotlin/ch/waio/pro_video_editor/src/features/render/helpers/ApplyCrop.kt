@@ -1,3 +1,6 @@
+package ch.waio.pro_video_editor.src.features.render.helpers
+
+import RENDER_TAG
 import android.util.Log
 import androidx.media3.common.Effect
 import androidx.media3.common.util.UnstableApi
@@ -5,6 +8,25 @@ import androidx.media3.effect.Crop
 import ch.waio.pro_video_editor.src.features.render.utils.getRotatedVideoDimensions
 import java.io.File
 
+/**
+ * Applies crop transformation to video.
+ *
+ * Handles complex cropping scenarios including:
+ * - Rotation-aware dimension swapping (90°/270° rotations)
+ * - Flip-aware coordinate adjustment
+ * - NDC (Normalized Device Coordinates) conversion for Media3
+ * - Default values (full frame if not specified)
+ *
+ * @param videoEffects List to add crop effect to
+ * @param inputFile Video file for dimension detection
+ * @param rotationDegrees Applied rotation (affects crop coordinates)
+ * @param flipX Whether video is flipped horizontally
+ * @param flipY Whether video is flipped vertically
+ * @param cropWidth Width of crop region (null = auto)
+ * @param cropHeight Height of crop region (null = auto)
+ * @param cropX Left position of crop region (null = 0)
+ * @param cropY Top position of crop region (null = 0)
+ */
 @UnstableApi
 fun applyCrop(
     videoEffects: MutableList<Effect>,
@@ -17,7 +39,7 @@ fun applyCrop(
     cropX: Int?,
     cropY: Int?,
 ) {
-    if (cropX == null && cropY == null && cropWidth == null && cropHeight == null) return;
+    if (cropX == null && cropY == null && cropWidth == null && cropHeight == null) return
 
     try {
         val (originalVideoWidth, originalVideoHeight, videoRotation) = getRotatedVideoDimensions(
@@ -70,7 +92,7 @@ fun applyCrop(
 
             Log.d(
                 RENDER_TAG,
-                "Applying crop: left=$leftNDC, right=$rightNDC, top=$topNDC, bottom=$bottomNDC"
+                "Applying crop: ${cropWidth}x$cropHeight at ($cropX,$cropY) -> NDC[L=$leftNDC, R=$rightNDC, T=$topNDC, B=$bottomNDC]"
             )
             videoEffects += Crop(leftNDC, rightNDC, bottomNDC, topNDC)
         } else {

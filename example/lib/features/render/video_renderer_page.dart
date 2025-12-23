@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
@@ -12,10 +13,10 @@ import 'package:pro_video_editor/pro_video_editor.dart';
 import 'package:pro_video_editor_example/shared/utils/render_cancel_capability.dart';
 import 'package:pro_video_editor_example/shared/widgets/video_renderer_progress.dart';
 
+import '/core/constants/example_constants.dart';
 import '/core/constants/example_filters.dart';
 import '/shared/utils/bytes_formatter.dart';
 import '/shared/widgets/filter_generator.dart';
-import '../../core/constants/example_constants.dart';
 
 /// A page that handles the video export workflow.
 ///
@@ -30,6 +31,8 @@ class VideoRendererPage extends StatefulWidget {
 }
 
 class _VideoRendererPageState extends State<VideoRendererPage> {
+  final _pve = ProVideoEditor.instance;
+
   late final _playerContent = Player();
   late final _controllerContent = VideoController(_playerContent);
   late final _playerPreview = Player();
@@ -58,7 +61,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     super.initState();
     _playerContent.open(
       Media('asset:///$kVideoEditorExampleAssetPath'),
-      play: true,
+      play: false,
     );
     _video = EditorVideo.asset(kVideoEditorExampleAssetPath);
   }
@@ -71,8 +74,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _rotate() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(
         rotateTurns: 1,
@@ -83,8 +85,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _flip() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(
         flipX: true,
@@ -95,8 +96,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _crop() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(
         x: 100,
@@ -110,8 +110,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _scale() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(scaleX: 0.2, scaleY: 0.2),
     );
@@ -120,8 +119,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _trim() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       startTime: const Duration(seconds: 7),
       endTime: const Duration(seconds: 20),
@@ -131,8 +129,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _changeSpeed() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       playbackSpeed: 2,
     );
@@ -141,8 +138,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _removeAudio() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       enableAudio: false,
     );
@@ -150,10 +146,89 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
+  Future<File> _writeAssetAudioToFile(String assetPath) async {
+    final ByteData data = await rootBundle.load(assetPath);
+    final buffer = data.buffer;
+
+    final directory = await getTemporaryDirectory();
+
+    // Extract just the filename from the asset path
+    final fileName = assetPath.split('/').last;
+    final file = File('${directory.path}/$fileName');
+
+    await file.writeAsBytes(
+      buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      flush: true,
+    );
+
+    return file;
+  }
+
+  /// Replace original audio with custom audio track.
+  ///
+  /// This example demonstrates how to replace the video's original audio
+  /// with a custom audio track from an asset file.
+  ///
+  /// The asset audio is first loaded and saved to a temporary file,
+  /// then the native code can access it via the file path.
+  Future<void> _customAudioReplace() async {
+    final customAudioFile =
+        await _writeAssetAudioToFile(kVideoEditorExampleAudio1Path);
+
+    var data = VideoRenderData(
+      video: _video,
+      customAudioPath: customAudioFile.path,
+      originalAudioVolume: 0.0, // Mute original audio
+      customAudioVolume: 1, // Full volume for custom audio
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Mix original audio with background music.
+  ///
+  /// This example shows how to blend the video's original audio with
+  /// a custom background music track at different volume levels.
+  ///
+  /// The asset audio is first loaded and saved to a temporary file,
+  /// then mixed with the original video audio during export.
+  Future<void> _customAudioMix() async {
+    final customAudioFile =
+        await _writeAssetAudioToFile(kVideoEditorExampleAudio1Path);
+
+    var data = VideoRenderData(
+      video: _video,
+      customAudioPath: customAudioFile.path,
+      originalAudioVolume: 0.9, // Original audio at 90%
+      customAudioVolume: 0.1, // Background music at 10%
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Adjust the volume of the original video audio.
+  ///
+  /// This example demonstrates how to reduce or amplify the video's
+  /// original audio without adding any custom audio track.
+  ///
+  /// **Volume Range:**
+  /// - `0.0`: Completely muted
+  /// - `0.5`: Half volume (50%)
+  /// - `1.0`: Original volume (100%)
+  /// - `1.5`: Amplified by 50%
+  /// - `2.0`: Doubled volume
+  Future<void> _adjustOriginalVolume() async {
+    var data = VideoRenderData(
+      video: _video,
+      originalAudioVolume: 0.2, // Reduce original audio to 20%
+    );
+
+    await _renderVideo(data);
+  }
+
   Future<void> _layers() async {
     final imageBytes = await _captureLayerContent();
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       imageBytes: imageBytes,
     );
@@ -162,8 +237,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _colorMatrix() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       colorMatrixList: kComplexFilterMatrix,
     );
@@ -172,8 +246,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _blur() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       blur: 5,
     );
@@ -183,8 +256,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _multipleChanges() async {
     final imageBytes = await _captureLayerContent();
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       transform: const ExportTransform(
         flipX: true,
@@ -199,8 +271,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _bitrate() async {
-    var data = RenderVideoModel(
-      outputFormat: VideoOutputFormat.mp4,
+    var data = VideoRenderData(
       video: _video,
       bitrate: 1000000,
     );
@@ -209,7 +280,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _generateMov() async {
-    var data = RenderVideoModel(
+    var data = VideoRenderData(
       outputFormat: VideoOutputFormat.mov,
       video: _video,
     );
@@ -218,7 +289,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _qualityPreset1080p() async {
-    var data = RenderVideoModel.withQualityPreset(
+    var data = VideoRenderData.withQualityPreset(
       video: _video,
       qualityPreset: VideoQualityPreset.p1080,
     );
@@ -227,7 +298,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _qualityPreset720p() async {
-    var data = RenderVideoModel.withQualityPreset(
+    var data = VideoRenderData.withQualityPreset(
       video: _video,
       qualityPreset: VideoQualityPreset.p720,
     );
@@ -236,7 +307,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _qualityPreset4K() async {
-    var data = RenderVideoModel.withQualityPreset(
+    var data = VideoRenderData.withQualityPreset(
       video: _video,
       qualityPreset: VideoQualityPreset.k4,
     );
@@ -244,7 +315,56 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
-  Future<void> _renderVideo(RenderVideoModel value) async {
+  Future<void> _concatenateVideos() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 0),
+          endTime: const Duration(seconds: 5),
+        ),
+        VideoSegment(
+          video: EditorVideo.asset(kVideoEditorExampleAssetWorldPath),
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 8),
+          endTime: const Duration(seconds: 12),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  Future<void> _concatenateWithTransforms() async {
+    final imageBytes = await _captureLayerContent();
+    var data = VideoRenderData(
+      imageBytes: imageBytes,
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 0),
+          endTime: const Duration(seconds: 5),
+        ),
+        VideoSegment(
+          video: EditorVideo.asset(kVideoEditorExampleAssetWorldPath),
+          startTime: const Duration(seconds: 7),
+          endTime: const Duration(seconds: 12),
+        ),
+      ],
+      transform: const ExportTransform(
+        rotateTurns: 2, // Rotate all clips 180°
+        flipX: true, // Flip all clips horizontally
+      ),
+    );
+
+    await _renderVideo(data);
+  }
+
+  Future<void> _renderVideo(VideoRenderData value) async {
     _taskId = DateTime.now().microsecondsSinceEpoch.toString();
     setState(() => _isExporting = true);
 
@@ -255,7 +375,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     String outputPath = '${directory.path}/my_video_$now.mp4';
 
     try {
-      await ProVideoEditor.instance.renderVideoToFile(
+      await _pve.renderVideoToFile(
         outputPath,
         value.copyWith(id: _taskId),
       );
@@ -268,7 +388,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
     _generationTime = sp.elapsed;
 
-    _outputMetadata = await ProVideoEditor.instance.getMetadata(
+    _outputMetadata = await _pve.getMetadata(
       EditorVideo.memory(result),
     );
 
@@ -283,7 +403,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Future<void> _cancelRender() async {
     if (!_supportsCancel) return;
     try {
-      await ProVideoEditor.instance.cancel(_taskId);
+      await _pve.cancel(_taskId);
       // Reset the state after canceling.
       setState(() {
         _isExporting = false;
@@ -388,12 +508,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
                             style: TextStyle(fontSize: 40),
                           ),
                         ),
-                        Center(
-                          child: Text(
-                            '🚀',
-                            style: TextStyle(fontSize: 48),
-                          ),
-                        ),
                         Positioned(
                           bottom: 10,
                           right: 10,
@@ -440,7 +554,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Widget _buildOptions() {
     if (_isExporting) {
       return VideoRendererProgressPanel(
-        progressStream: ProVideoEditor.instance.progressStreamById(_taskId),
+        progressStream: _pve.progressStreamById(_taskId),
         supportsCancel: _supportsCancel,
         onCancel: _supportsCancel ? _cancelRender : null,
       );
@@ -479,11 +593,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           title: const Text('Change playback speed'),
         ),
         ListTile(
-          onTap: _removeAudio,
-          leading: const Icon(Icons.volume_off_outlined),
-          title: const Text('Remove Audio'),
-        ),
-        ListTile(
           onTap: _layers,
           leading: const Icon(Icons.layers_outlined),
           title: const Text('Parse with layers'),
@@ -514,7 +623,44 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
             leading: const Icon(Icons.video_file_outlined),
             title: const Text('Output-Format "mov"'),
           ),
-        const Divider(height: 32),
+        ..._buildSectionTitle('Video Concatenation'),
+        ListTile(
+          onTap: _concatenateVideos,
+          leading: const Icon(Icons.video_library_outlined),
+          title: const Text('Concatenate Multiple Clips'),
+          subtitle: const Text('Combine 3 clips'),
+        ),
+        ListTile(
+          onTap: _concatenateWithTransforms,
+          leading: const Icon(Icons.join_full_outlined),
+          title: const Text('Concatenate with Transformations'),
+          subtitle: const Text('2 clips with rotation, flip, layers'),
+        ),
+        ..._buildSectionTitle('Audio'),
+        ListTile(
+          onTap: _removeAudio,
+          leading: const Icon(Icons.volume_off_outlined),
+          title: const Text('Remove Audio'),
+        ),
+        ListTile(
+          onTap: _customAudioReplace,
+          leading: const Icon(Icons.library_music_outlined),
+          title: const Text('Replace Audio with Custom Track'),
+          subtitle: const Text('Custom audio at 100%'),
+        ),
+        ListTile(
+          onTap: _customAudioMix,
+          leading: const Icon(Icons.music_note_outlined),
+          title: const Text('Mix Custom Audio'),
+          subtitle: const Text('Original 90% + Custom 10%'),
+        ),
+        ListTile(
+          onTap: _adjustOriginalVolume,
+          leading: const Icon(Icons.volume_down_outlined),
+          title: const Text('Adjust Original Volume'),
+          subtitle: const Text('Reduce to 20%'),
+        ),
+        ..._buildSectionTitle('Quality'),
         ListTile(
           onTap: _qualityPreset1080p,
           leading: const Icon(Icons.high_quality),
@@ -535,5 +681,21 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
         ),
       ],
     );
+  }
+
+  List<Widget> _buildSectionTitle(String title) {
+    return [
+      const Divider(height: 32),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      )
+    ];
   }
 }

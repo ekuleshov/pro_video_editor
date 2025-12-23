@@ -21,62 +21,11 @@ class VideoQualityConfig {
   /// For [VideoQualityPreset.custom], returns null resolution and a default
   /// bitrate of 8 Mbps.
   factory VideoQualityConfig.fromPreset(VideoQualityPreset preset) {
-    switch (preset) {
-      case VideoQualityPreset.ultra4K:
-        return VideoQualityConfig(
-          bitrate: 45000000, // 45 Mbps
-          resolution: const Size(3840, 2160),
-          preset: preset,
-        );
-      case VideoQualityPreset.k4:
-        return VideoQualityConfig(
-          bitrate: 35000000, // 35 Mbps
-          resolution: const Size(3840, 2160),
-          preset: preset,
-        );
-      case VideoQualityPreset.p1080High:
-        return VideoQualityConfig(
-          bitrate: 16000000, // 16 Mbps
-          resolution: const Size(1920, 1080),
-          preset: preset,
-        );
-      case VideoQualityPreset.p1080:
-        return VideoQualityConfig(
-          bitrate: 8000000, // 8 Mbps
-          resolution: const Size(1920, 1080),
-          preset: preset,
-        );
-      case VideoQualityPreset.p720High:
-        return VideoQualityConfig(
-          bitrate: 5000000, // 5 Mbps
-          resolution: const Size(1280, 720),
-          preset: preset,
-        );
-      case VideoQualityPreset.p720:
-        return VideoQualityConfig(
-          bitrate: 3000000, // 3 Mbps
-          resolution: const Size(1280, 720),
-          preset: preset,
-        );
-      case VideoQualityPreset.p480:
-        return VideoQualityConfig(
-          bitrate: 2500000, // 2.5 Mbps
-          resolution: const Size(854, 480),
-          preset: preset,
-        );
-      case VideoQualityPreset.low:
-        return VideoQualityConfig(
-          bitrate: 1000000, // 1 Mbps
-          resolution: const Size(640, 360),
-          preset: preset,
-        );
-      case VideoQualityPreset.custom:
-        return VideoQualityConfig(
-          bitrate: 8000000, // Default 8 Mbps
-          resolution: null, // Keep original resolution
-          preset: preset,
-        );
-    }
+    return VideoQualityConfig(
+      bitrate: preset.bitrate,
+      resolution: preset.resolution,
+      preset: preset,
+    );
   }
 
   /// Creates a custom configuration with specific bitrate and resolution.
@@ -121,7 +70,7 @@ class VideoQualityConfig {
 
   @override
   String toString() {
-    return 'VideoQualityConfig(preset: $preset, bitrate: '
+    return 'VideoQualityConfig(preset: ${preset.description}, bitrate: '
         '${bitrate ~/ 1000000}Mbps, resolution: '
         '${resolution?.width.toInt()}x${resolution?.height.toInt()})';
   }

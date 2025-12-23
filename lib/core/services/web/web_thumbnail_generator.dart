@@ -4,8 +4,8 @@ import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
-import '/core/models/thumbnail/key_frames_configs.model.dart';
-import '/core/models/thumbnail/thumbnail_configs.model.dart';
+import '/core/models/thumbnail/key_frames_configs_model.dart';
+import '/core/models/thumbnail/thumbnail_configs_model.dart';
 import '/core/utils/web_blob_utils.dart';
 import '/core/utils/web_canvas_utils.dart';
 

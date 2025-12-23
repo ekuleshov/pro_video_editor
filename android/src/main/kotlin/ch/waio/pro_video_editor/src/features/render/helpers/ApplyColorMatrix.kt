@@ -3,6 +3,16 @@ import androidx.media3.common.Effect
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.SingleColorLut
 
+/**
+ * Applies color matrix transformation using 3D LUT (Look-Up Table).
+ *
+ * Supports multiple color matrices that are combined via matrix multiplication.
+ * Each matrix must be 4x5 (20 elements) representing RGBA transformation.
+ * Uses 33x33x33 LUT size for optimal quality/performance balance.
+ *
+ * @param videoEffects List to add color effect to
+ * @param colorMatrixList List of 4x5 color matrices to apply
+ */
 @UnstableApi
 fun applyColorMatrix(
     videoEffects: MutableList<Effect>,
@@ -12,17 +22,32 @@ fun applyColorMatrix(
 
     val combinedMatrix = combineColorMatrices(colorMatrixList)
     if (combinedMatrix.size == 20) {
-        // Should be the best lutSize for that case.
-        val lutSize = 33
+        val lutSize = 33  // Optimal LUT size for quality/performance
+        Log.d(
+            RENDER_TAG,
+            "Applying color matrix: ${colorMatrixList.size} matrices combined, LUT size=${lutSize}x$lutSize"
+        )
         val lutData = generateLutFromColorMatrix(combinedMatrix, lutSize)
         val singleColorLut = SingleColorLut.createFromCube(lutData)
         videoEffects += singleColorLut
     } else {
-        Log.w(RENDER_TAG, "Color matrix must be 4x5 (20 elements), skipping LUT.")
+        Log.w(
+            RENDER_TAG,
+            "Invalid color matrix size: ${combinedMatrix.size} (expected 20 elements for 4x5 matrix)"
+        )
     }
 }
 
-// Function to generate 3D LUT data from a 4x5 color matrix
+/**
+ * Generates 3D LUT data from a 4x5 color matrix.
+ *
+ * Creates a cube of RGB values mapped through the color transformation.
+ * Each RGB input coordinate is transformed using the matrix and clamped to valid range.
+ *
+ * @param matrix 4x5 color transformation matrix (20 elements)
+ * @param size LUT cube dimension (typically 33 for 33x33x33 cube)
+ * @return 3D array of ARGB integer values
+ */
 private fun generateLutFromColorMatrix(matrix: List<Double>, size: Int): Array<Array<IntArray>> {
     val lut = Array(size) { Array(size) { IntArray(size) } }
     for (r in 0 until size) {
@@ -51,6 +76,15 @@ private fun generateLutFromColorMatrix(matrix: List<Double>, size: Int): Array<A
     return lut
 }
 
+/**
+ * Multiplies two 4x5 color matrices.
+ *
+ * Used to combine multiple color transformations into a single matrix.
+ *
+ * @param m1 First color matrix (20 elements)
+ * @param m2 Second color matrix (20 elements)
+ * @return Combined color matrix (20 elements)
+ */
 private fun multiplyColorMatrices(m1: List<Double>, m2: List<Double>): List<Double> {
     val result = MutableList(20) { 0.0 }
     for (i in 0..3) {
@@ -66,6 +100,12 @@ private fun multiplyColorMatrices(m1: List<Double>, m2: List<Double>): List<Doub
     return result
 }
 
+/**
+ * Combines multiple color matrices into one through sequential multiplication.
+ *
+ * @param matrices List of 4x5 color matrices to combine
+ * @return Single combined color matrix
+ */
 private fun combineColorMatrices(matrices: List<List<Double>>): List<Double> {
     if (matrices.isEmpty()) return listOf()
     var result = matrices[0]

@@ -1,5 +1,14 @@
 import CoreGraphics
 
+/// Applies horizontal and/or vertical flip to video frames.
+///
+/// Flipping is implemented by scaling with negative values (-1) in the video compositor.
+/// This creates a mirror effect along the specified axes.
+///
+/// - Parameters:
+///   - config: Video compositor configuration to modify.
+///   - flipX: If true, flip horizontally (mirror left-right).
+///   - flipY: If true, flip vertically (mirror top-bottom).
 func applyFlip(
   config: inout VideoCompositorConfig,
   flipX: Bool,
@@ -10,5 +19,6 @@ func applyFlip(
 
   if !flipX && !flipY { return }
 
-  print("[\(Tags.render)] Applying flip: flipX=\(flipX), flipY=\(flipY)")
+  let flipType = flipX && flipY ? "both axes" : flipX ? "horizontal" : "vertical"
+  print("[\(Tags.render)] 🔄 Applying flip: \(flipType)")
 }

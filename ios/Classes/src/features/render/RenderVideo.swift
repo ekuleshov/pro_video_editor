@@ -2,32 +2,37 @@ import AVFoundation
 import CoreImage
 import Foundation
 
+/// Service for rendering video with applied effects and transformations.
+///
+/// This class handles the complete video rendering pipeline using AVFoundation:
+/// - Supports multiple video clips concatenation
+/// - Applies visual effects (rotation, flip, crop, scale, color matrix, blur)
+/// - Manages audio mixing (original audio volume + custom audio track)
+/// - Supports playback speed adjustment
+/// - Provides progress tracking during rendering
+/// - Supports cancellation of active render jobs
+///
+/// All rendering operations are performed asynchronously on a dedicated queue.
 class RenderVideo {
     static let queue = DispatchQueue(label: "RenderVideoQueue")
 
+    // MARK: - Public Methods
+
+    /// Starts an asynchronous video render job using RenderConfig.
+    ///
+    /// This method configures and starts an AVFoundation export session to process
+    /// the video with the specified effects. The operation runs asynchronously and
+    /// provides callbacks for progress updates, completion, and errors.
+    ///
+    /// - Parameters:
+    ///   - config: Complete render configuration including input, output, and effects
+    ///   - onProgress: Callback invoked with progress updates (0.0 to 1.0)
+    ///   - onComplete: Callback invoked on success with output bytes (nil if saved to file)
+    ///   - onError: Callback invoked if rendering fails
+    /// - Returns: RenderJobHandle that can be used to cancel the render job
     @discardableResult
     static func render(
-        inputPath: String,
-        imageData: Data?,
-        inputFormat: String,
-        outputFormat: String,
-        outputPath: String?,
-        rotateTurns: Int?,
-        flipX: Bool,
-        flipY: Bool,
-        cropWidth: Int?,
-        cropHeight: Int?,
-        cropX: Int?,
-        cropY: Int?,
-        scaleX: Float?,
-        scaleY: Float?,
-        bitrate: Int?,
-        enableAudio: Bool,
-        playbackSpeed: Float?,
-        startUs: Int64?,
-        endUs: Int64?,
-        colorMatrixList: [[Double]],
-        blur: Double?,
+        config: RenderConfig,
         onProgress: @escaping (Double) -> Void,
         onComplete: @escaping (Data?) -> Void,
         onError: @escaping (Error) -> Void
@@ -35,11 +40,19 @@ class RenderVideo {
         let handle = RenderJobHandle()
         queue.async {
             let renderTask = Task {
-                var inputURL: URL!
+                guard !config.videoClips.isEmpty else {
+                    onError(
+                        NSError(
+                            domain: "RenderVideo",
+                            code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: "Video clips cannot be empty"]
+                        ))
+                    return
+                }
                 var outputURL: URL!
 
                 let finalize: () -> Void = {
-                    try? cleanup(outputPath == nil ? [outputURL] : [])
+                    try? cleanup(config.outputPath == nil ? [outputURL] : [])
                 }
 
                 let handleCompletion: (Result<Data?, Error>) -> Void = { result in
@@ -51,71 +64,98 @@ class RenderVideo {
                 }
 
                 do {
-                    inputURL = URL(fileURLWithPath: inputPath)
-                    if let outputPath = outputPath {
-                        outputURL = URL(fileURLWithPath: outputPath)
+                    if let outputPath = config.outputPath {
+                        // Ensure file extension matches the requested format
+                        let url = URL(fileURLWithPath: outputPath)
+                        let pathExtension = url.pathExtension.lowercased()
+                        let requestedFormat = config.outputFormat.lowercased()
+                        
+                        if pathExtension != requestedFormat {
+                            print("⚠️ WARNING: Output path extension '.\(pathExtension)' doesn't match requested format '.\(requestedFormat)'")
+                            print("⚠️ Correcting file extension to match format...")
+                            
+                            // Replace extension with correct format
+                            let pathWithoutExtension = url.deletingPathExtension()
+                            outputURL = pathWithoutExtension.appendingPathExtension(requestedFormat)
+                        } else {
+                            outputURL = url
+                        }
                     } else {
-                        outputURL = temporaryURL(for: outputFormat)
+                        outputURL = temporaryURL(for: config.outputFormat)
                     }
 
-                    let asset = AVURLAsset(url: inputURL)
-                    let composition = AVMutableComposition()
-                    var config = VideoCompositorConfig()
+                    print("")
+                    print("🎬 ===== RENDER CONFIG =====")
+                    print("   Video clips: \(config.videoClips.count)")
+                    print("   � Output format: \(config.outputFormat)")
+                    print("   📹 Output path: \(outputURL.path)")
+                    print("   �🔊 Enable Audio: \(config.enableAudio)")
+                    print("   🔊 Original audio volume: \(config.originalAudioVolume ?? 1.0)")
+                    print("   🔊 Custom audio path: \(config.customAudioPath ?? "none")")
+                    print("   🔊 Custom audio volume: \(config.customAudioVolume ?? 1.0)")
+                    print("===========================")
+                    print("")
 
-                    let videoTrack = try await loadVideoTrack(from: asset)
+                    // Create configuration for video effects
+                    var effectsConfig = VideoCompositorConfig()
 
-                    let timeRange = await applyTrim(asset: asset, startUs: startUs, endUs: endUs)
-
-                    let videoCompositionTrack = try insertVideoTrack(
-                        into: composition,
-                        from: videoTrack,
-                        timeRange: timeRange
-                    )
-
-                    // Apply audio track
-                    await applyAudio(
-                        from: asset, to: composition, timeRange: timeRange, enableAudio: enableAudio
-                    )
-                    applyPlaybackSpeed(composition: composition, speed: playbackSpeed)
-
-                    // Enhanced video composition with orientation handling
-                    let (videoComposition, correctedNaturalSize, preferredTransform) =
-                        try await createVideoComposition(
-                            asset: asset,
-                            track: videoCompositionTrack,
-                            duration: composition.duration
+                    // Use composition helper to merge multiple video clips
+                    let (composition, videoComposition, renderSize, audioMix) =
+                        try await applyComposition(
+                            videoClips: config.videoClips,
+                            videoEffects: effectsConfig,
+                            enableAudio: config.enableAudio,
+                            customAudioPath: config.customAudioPath,
+                            originalAudioVolume: config.originalAudioVolume,
+                            customAudioVolume: config.customAudioVolume
                         )
 
+                    // Apply playback speed to the entire composition
+                    applyPlaybackSpeed(composition: composition, speed: config.playbackSpeed)
+
+                    // Get the first video track for orientation info
+                    let firstClipURL = URL(fileURLWithPath: config.videoClips[0].inputPath)
+                    let firstAsset = AVURLAsset(url: firstClipURL)
+                    let videoTrack = try await loadVideoTrack(from: firstAsset)
+
+                    let preferredTransform: CGAffineTransform
+                    if #available(iOS 15.0, *) {
+                        preferredTransform = try await videoTrack.load(.preferredTransform)
+                    } else {
+                        preferredTransform = videoTrack.preferredTransform
+                    }
+
                     let videoRotationDegrees = extractRotationFromTransform(preferredTransform)
-                    config.videoRotationDegrees = videoRotationDegrees
-                    config.shouldApplyOrientationCorrection = abs(videoRotationDegrees) > 1.0
-                    config.originalNaturalSize = videoTrack.naturalSize
+                    effectsConfig.videoRotationDegrees = videoRotationDegrees
+                    effectsConfig.shouldApplyOrientationCorrection = abs(videoRotationDegrees) > 1.0
+                    effectsConfig.originalNaturalSize = videoTrack.naturalSize
 
                     let croppedSize = applyCrop(
-                        config: &config,
-                        naturalSize: correctedNaturalSize,
-                        rotateTurns: rotateTurns,
-                        cropX: cropX,
-                        cropY: cropY,
-                        cropWidth: cropWidth,
-                        cropHeight: cropHeight
+                        config: &effectsConfig,
+                        naturalSize: renderSize,
+                        rotateTurns: config.rotateTurns,
+                        cropX: config.cropX,
+                        cropY: config.cropY,
+                        cropWidth: config.cropWidth,
+                        cropHeight: config.cropHeight
                     )
 
-                    applyRotation(config: &config, rotateTurns: rotateTurns)
-                    applyFlip(config: &config, flipX: flipX, flipY: flipY)
-                    applyScale(config: &config, scaleX: scaleX, scaleY: scaleY)
+                    applyRotation(config: &effectsConfig, rotateTurns: config.rotateTurns)
+                    applyFlip(config: &effectsConfig, flipX: config.flipX, flipY: config.flipY)
+                    applyScale(config: &effectsConfig, scaleX: config.scaleX, scaleY: config.scaleY)
                     applyColorMatrix(
-                        config: &config, to: videoComposition, matrixList: colorMatrixList)
-                    applyBlur(config: &config, sigma: blur)
-                    applyImageLayer(config: &config, imageData: imageData)
+                        config: &effectsConfig, to: videoComposition,
+                        matrixList: config.colorMatrixList)
+                    applyBlur(config: &effectsConfig, sigma: config.blur)
+                    applyImageLayer(config: &effectsConfig, imageData: config.imageData)
 
                     var finalRenderSize = videoComposition.renderSize
 
                     // Only update renderSize if cropping was actually applied
-                    if cropWidth != nil || cropHeight != nil {
+                    if config.cropWidth != nil || config.cropHeight != nil {
                         finalRenderSize = croppedSize
                     } else {
-                        if let rotateTurns = rotateTurns {
+                        if let rotateTurns = config.rotateTurns {
                             let normalizedRotation = (rotateTurns % 4 + 4) % 4
                             if normalizedRotation == 1 || normalizedRotation == 3 {
                                 finalRenderSize = CGSize(
@@ -126,40 +166,42 @@ class RenderVideo {
                         }
                     }
 
-                    let effectiveScaleX = scaleX ?? 1.0
-                    let effectiveScaleY = scaleY ?? 1.0
+                    let effectiveScaleX = config.scaleX ?? 1.0
+                    let effectiveScaleY = config.scaleY ?? 1.0
 
                     if effectiveScaleX != 1.0 || effectiveScaleY != 1.0 {
                         finalRenderSize = CGSize(
                             width: finalRenderSize.width * CGFloat(effectiveScaleX),
                             height: finalRenderSize.height * CGFloat(effectiveScaleY)
                         )
-                    } else if config.scaleX != 1.0 || config.scaleY != 1.0 {
+                    } else if effectsConfig.scaleX != 1.0 || effectsConfig.scaleY != 1.0 {
                         finalRenderSize = CGSize(
-                            width: finalRenderSize.width * config.scaleX,
-                            height: finalRenderSize.height * config.scaleY
+                            width: finalRenderSize.width * effectsConfig.scaleX,
+                            height: finalRenderSize.height * effectsConfig.scaleY
                         )
                     }
 
                     videoComposition.renderSize = finalRenderSize
 
-                    let compositorClass = makeVideoCompositorSubclass(with: config)
+                    let compositorClass = makeVideoCompositorSubclass(with: effectsConfig)
                     videoComposition.customVideoCompositorClass = compositorClass
 
-                    let preset = applyBitrate(requestedBitrate: bitrate)
+                    let preset = applyBitrate(requestedBitrate: config.bitrate)
 
                     let export = try prepareExportSession(
                         composition: composition,
                         videoComposition: videoComposition,
+                        audioMix: audioMix,
                         outputURL: outputURL,
-                        outputFormat: outputFormat,
+                        outputFormat: config.outputFormat,
                         preset: preset
                     )
+
                     handle.attach(export: export)
 
                     try await monitorExportProgress(export, onProgress: onProgress)
 
-                    if outputPath != nil {
+                    if config.outputPath != nil {
                         handleCompletion(.success(nil))
                     } else {
                         let data = try Data(contentsOf: outputURL)
@@ -192,13 +234,6 @@ class RenderVideo {
         return "\(prefix)_\(timestamp).\(ext)"
     }
 
-    private static func writeInputVideo(_ data: Data, format: String) throws -> URL {
-        let filename = uniqueFilename(prefix: "input", extension: format)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try data.write(to: url)
-        return url
-    }
-
     private static func temporaryURL(for format: String) -> URL {
         let filename = uniqueFilename(prefix: "output", extension: format)
         return FileManager.default.temporaryDirectory.appendingPathComponent(filename)
@@ -223,79 +258,6 @@ class RenderVideo {
         }
     }
 
-    private static func insertVideoTrack(
-        into composition: AVMutableComposition,
-        from videoTrack: AVAssetTrack,
-        timeRange: CMTimeRange
-    ) throws -> AVMutableCompositionTrack {
-        guard
-            let track = composition.addMutableTrack(
-                withMediaType: .video,
-                preferredTrackID: kCMPersistentTrackID_Invalid
-            )
-        else {
-            throw NSError(
-                domain: "RenderVideo", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to create video track"])
-        }
-        try track.insertTimeRange(timeRange, of: videoTrack, at: .zero)
-        return track
-    }
-
-    private static func createVideoComposition(
-        asset: AVAsset,
-        track: AVCompositionTrack,
-        duration: CMTime
-    ) async throws -> (AVMutableVideoComposition, CGSize, CGAffineTransform) {
-        // Get the original video track to extract properties
-        let originalVideoTracks: [AVAssetTrack]
-        if #available(iOS 15.0, *) {
-            originalVideoTracks = try await asset.loadTracks(withMediaType: .video)
-        } else {
-            originalVideoTracks = asset.tracks(withMediaType: .video)
-        }
-
-        guard let originalVideoTrack = originalVideoTracks.first else {
-            throw NSError(
-                domain: "RenderVideo", code: 150,
-                userInfo: [NSLocalizedDescriptionKey: "No original video track found"])
-        }
-
-        // Get video properties
-        let naturalSize: CGSize
-        let nominalFrameRate: Float
-        let preferredTransform: CGAffineTransform
-
-        if #available(iOS 15.0, *) {
-            naturalSize = try await originalVideoTrack.load(.naturalSize)
-            nominalFrameRate = try await originalVideoTrack.load(.nominalFrameRate)
-            preferredTransform = try await originalVideoTrack.load(.preferredTransform)
-        } else {
-            naturalSize = originalVideoTrack.naturalSize
-            nominalFrameRate = originalVideoTrack.nominalFrameRate
-            preferredTransform = originalVideoTrack.preferredTransform
-        }
-
-        // Calculate display size after applying transform (handles rotation)
-        let displaySize = naturalSize.applying(preferredTransform)
-        let correctedSize = CGSize(width: abs(displaySize.width), height: abs(displaySize.height))
-
-        let composition = AVMutableVideoComposition()
-        composition.frameDuration = CMTime(value: 1, timescale: Int32(max(30, nominalFrameRate)))
-        composition.renderSize = correctedSize
-
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
-        instruction.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
-
-        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-
-        instruction.layerInstructions = [layerInstruction]
-        composition.instructions = [instruction]
-
-        return (composition, correctedSize, preferredTransform)
-    }
-
     private static func extractRotationFromTransform(_ transform: CGAffineTransform) -> Double {
         let rotationAngle = atan2(transform.b, transform.a)
         return rotationAngle * 180 / Double.pi
@@ -304,6 +266,7 @@ class RenderVideo {
     private static func prepareExportSession(
         composition: AVAsset,
         videoComposition: AVVideoComposition,
+        audioMix: AVAudioMix?,
         outputURL: URL,
         outputFormat: String,
         preset: String
@@ -313,9 +276,28 @@ class RenderVideo {
                 domain: "RenderVideo", code: 3,
                 userInfo: [NSLocalizedDescriptionKey: "Export session creation failed"])
         }
+        
+        let fileType = mapFormatToMimeType(format: outputFormat)
+        print("📹 Export session setup:")
+        print("   - Requested format: \(outputFormat)")
+        print("   - AVFileType: \(fileType.rawValue)")
+        print("   - Output URL: \(outputURL.path)")
+        
         export.outputURL = outputURL
-        export.outputFileType = mapFormatToMimeType(format: outputFormat)
+        export.outputFileType = fileType
         export.videoComposition = videoComposition
+
+        // Check if composition has audio tracks
+        let hasAudioTracks = (composition as? AVMutableComposition)?.tracks(withMediaType: .audio).isEmpty == false
+        
+        // Apply audio mix if available
+        if let audioMix = audioMix, hasAudioTracks {
+            export.audioMix = audioMix
+            print("🔊 Audio mix applied to export session")
+        } else if !hasAudioTracks {
+            print("ℹ️ No audio tracks in composition - exporting video only")
+        }
+
         return export
     }
 
@@ -324,44 +306,42 @@ class RenderVideo {
         onProgress: @escaping (Double) -> Void
     ) async throws {
         let updateInterval: TimeInterval = 0.2
-        /*  if #available(macOS 15.0, *) {
-        
-             for try await state in export.states(updateInterval: updateInterval) {
-                 switch state {
-                 case .waiting:
-                     break
-                 case .pending:
-                     break
-                 case .exporting(let progress):
-                     onProgress(progress.fractionCompleted)
-                 @unknown default:
-                     throw NSError(
-                         domain: "RenderVideo", code: 6,
-                         userInfo: [NSLocalizedDescriptionKey: "Unknown export state encountered"]
-                     )
-                 }
-             }
-         } else { */
-        let intervalNs = UInt64(updateInterval * 1_000_000_000)
-        export.exportAsynchronously {}
-        while export.status == .waiting || export.status == .exporting {
-            if export.status == .exporting {
-                let normalizedProgress = min(max(export.progress, 0), 1.0)
-                onProgress(Double(normalizedProgress))
+        if #available(iOS 18.0, *) {
+            // Monitor progress in background using new async API
+            let progressTask = Task {
+                for try await state in export.states(updateInterval: updateInterval) {
+                    if case .exporting(let progress) = state {
+                        onProgress(progress.fractionCompleted)
+                    }
+                }
             }
-            try await Task.sleep(nanoseconds: intervalNs)
-        }
 
-        guard export.status == .completed else {
-            throw export.error
-                ?? NSError(
-                    domain: "RenderVideo", code: 4,
-                    userInfo: [
-                        NSLocalizedDescriptionKey:
-                            "Export failed with status \(export.status.rawValue)"
-                    ])
+            // Start export using new async API (replaces deprecated exportAsynchronously)
+            try await export.export(to: export.outputURL!, as: export.outputFileType!)
+
+            // Ensure progress monitoring completes
+            try await progressTask.value
+        } else {
+            let intervalNs = UInt64(updateInterval * 1_000_000_000)
+            export.exportAsynchronously {}
+            while export.status == .waiting || export.status == .exporting {
+                if export.status == .exporting {
+                    let normalizedProgress = min(max(export.progress, 0), 1.0)
+                    onProgress(Double(normalizedProgress))
+                }
+                try await Task.sleep(nanoseconds: intervalNs)
+            }
+
+            guard export.status == .completed else {
+                throw export.error
+                    ?? NSError(
+                        domain: "RenderVideo", code: 4,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Export failed with status \(export.status.rawValue)"
+                        ])
+            }
         }
-        /*  } */
     }
 
     private static func cleanup(_ urls: [URL]) throws {

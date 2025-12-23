@@ -2,11 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pro_video_editor/pro_video_editor.dart';
 
 void main() {
-  group('RenderVideoModel.withQualityPreset', () {
+  group('VideoRenderData.withQualityPreset', () {
     final testVideo = EditorVideo.asset('test_video.mp4');
 
     test('creates model with 1080p quality preset', () {
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.p1080,
       );
@@ -18,7 +18,7 @@ void main() {
     });
 
     test('creates model with 720p quality preset', () {
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.p720,
       );
@@ -30,7 +30,7 @@ void main() {
     });
 
     test('creates model with 4K quality preset', () {
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.k4,
       );
@@ -42,7 +42,7 @@ void main() {
     });
 
     test('allows bitrate override', () {
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.p1080,
         bitrateOverride: 12000000,
@@ -57,7 +57,7 @@ void main() {
         rotateTurns: 1,
       );
 
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.p1080,
         transform: customTransform,
@@ -69,7 +69,7 @@ void main() {
     });
 
     test('creates model with all optional parameters', () {
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.p720,
         outputFormat: VideoOutputFormat.mov,
@@ -93,7 +93,7 @@ void main() {
     });
 
     test('creates model with custom ID', () {
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.p1080,
         id: 'custom-task-id',
@@ -103,7 +103,7 @@ void main() {
     });
 
     test('creates model with low quality preset', () {
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.low,
       );
@@ -115,7 +115,7 @@ void main() {
     });
 
     test('creates model with ultra 4K preset', () {
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.ultra4K,
       );
@@ -127,7 +127,7 @@ void main() {
     });
 
     test('custom preset does not set transform', () {
-      final model = RenderVideoModel.withQualityPreset(
+      final model = VideoRenderData.withQualityPreset(
         video: testVideo,
         qualityPreset: VideoQualityPreset.custom,
       );

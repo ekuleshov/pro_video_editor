@@ -16,14 +16,16 @@ dependencies:
   intl: ^0.20.1
   cupertino_icons: ^1.0.8
 
-  pro_image_editor: ^11.6.0
+  pro_image_editor: ^12.0.0-beta.5
   
   google_fonts: ^6.3.2
   flutter_colorpicker: ^1.1.0
+  file_picker: ^10.2.1
   mime: ^2.0.0
 
   path_provider: ^2.1.5
   video_player: ^2.9.3
+  audioplayers: ^5.2.1
   # Optional multiplatform video player
   media_kit: ^1.1.11 # Primary package.
   media_kit_video: ^1.2.5 # For video rendering.
@@ -42,3 +44,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/tests/

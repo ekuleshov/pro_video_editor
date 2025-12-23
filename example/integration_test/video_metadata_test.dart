@@ -2,8 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:pro_video_editor/core/models/video/editor_video_model.dart';
-import 'package:pro_video_editor/pro_video_editor_platform_interface.dart';
+import 'package:pro_video_editor/pro_video_editor.dart';
 import 'package:pro_video_editor_example/core/constants/example_constants.dart';
 
 void main() {

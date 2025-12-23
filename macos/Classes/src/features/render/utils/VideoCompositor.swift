@@ -108,7 +108,41 @@ class VideoCompositor: NSObject, AVVideoCompositing {
             return
         }
         var outputImage = CIImage(cvPixelBuffer: sourceBuffer)
-
+        
+        // 1: Apply layer instruction transform first (video scaling/centering)
+        // This ensures all videos are properly sized before applying user effects. 
+        // Note that's only required on macOS and iOS
+        if let instruction = request.videoCompositionInstruction as? AVMutableVideoCompositionInstruction,
+           let layerInstruction = instruction.layerInstructions.first as? AVMutableVideoCompositionLayerInstruction {
+            
+            var startTransform = CGAffineTransform.identity
+            var endTransform = CGAffineTransform.identity
+            var timeRange = CMTimeRange.zero
+            
+            // Get the transform at the current composition time
+            let hasTransform = layerInstruction.getTransformRamp(
+                for: request.compositionTime,
+                start: &startTransform,
+                end: &endTransform,
+                timeRange: &timeRange
+            )
+            
+            if hasTransform && !startTransform.isIdentity {
+                outputImage = outputImage.transformed(by: startTransform)
+                
+                // Normalize position to origin
+                let transformedExtent = outputImage.extent
+                if transformedExtent.origin.x != 0 || transformedExtent.origin.y != 0 {
+                    let translation = CGAffineTransform(
+                        translationX: -transformedExtent.origin.x,
+                        y: -transformedExtent.origin.y
+                    )
+                    outputImage = outputImage.transformed(by: translation)
+                }
+            }
+        }
+        
+        // 2: Apply orientation correction if needed
         if shouldApplyOrientationCorrection {
             let correctionAngle: Double
 
@@ -140,7 +174,7 @@ class VideoCompositor: NSObject, AVVideoCompositing {
 
         var center = CGPoint(x: outputImage.extent.midX, y: outputImage.extent.midY)
 
-        // Transformations
+        // 3: Apply user-defined effects (crop, rotation, flip, scale)
         var transform = CGAffineTransform.identity
 
         // Cropping

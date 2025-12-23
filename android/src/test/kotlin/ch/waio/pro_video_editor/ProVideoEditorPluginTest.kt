@@ -24,4 +24,5 @@ internal class ProVideoEditorPluginTest {
 
     Mockito.verify(mockResult).success("Android " + android.os.Build.VERSION.RELEASE)
   }
+  // TODO(@hm21): Implement extended unit tests for video merging.
 }

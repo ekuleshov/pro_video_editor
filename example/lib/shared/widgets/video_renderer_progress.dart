@@ -32,6 +32,7 @@ class VideoRendererProgressPanel extends StatelessWidget {
           duration: const Duration(milliseconds: 300),
           builder: (context, animatedValue, _) {
             return Column(
+              mainAxisSize: MainAxisSize.min,
               spacing: 12,
               children: [
                 CircularProgressIndicator(

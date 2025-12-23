@@ -1,8 +1,25 @@
 import FlutterMacOS
 import Foundation
 
+/// ProVideoEditorPlugin - Main Flutter plugin for advanced video editing capabilities.
+///
+/// This plugin provides a comprehensive set of video processing features including:
+/// - Video rendering with effects (rotation, flip, scale, color adjustments, blur)
+/// - Video metadata extraction (dimensions, duration, bitrate, tags)
+/// - Thumbnail generation (timestamp-based or keyframe extraction)
+/// - Progress tracking via event channels
+/// - Cancellable operations for all long-running tasks
+///
+/// The plugin uses a feature-based architecture where each capability is handled
+/// by a dedicated service class (RenderVideo, VideoMetadata, ThumbnailGenerator).
+/// All operations are asynchronous with callback-based APIs to prevent blocking
+/// the Flutter UI thread.
+///
+/// Communication protocol:
+/// - Method channel: "pro_video_editor" for commands and responses
+/// - Event channel: "pro_video_editor_progress" for progress updates
 public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
-    private var eventSink: FlutterEventSink?
+    var eventSink: FlutterEventSink?
     private var activeRenderTasks: [String: RenderTask] = [:]
 
     public static func register(with registrar: FlutterPluginRegistrar) {
@@ -16,217 +33,220 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
         eventChannel.setStreamHandler(instance)
     }
 
-    let metadata = VideoMetadata()
-    let renderQueue = DispatchQueue(label: "RenderQueue")
-
+    /// Routes incoming method calls to appropriate handlers.
+    ///
+    /// Available methods:
+    /// - getPlatformVersion: Returns macOS version
+    /// - getMetadata: Extracts video metadata
+    /// - getThumbnails: Generates thumbnails
+    /// - renderVideo: Renders video with effects
+    /// - cancelTask: Cancels active render task
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "getPlatformVersion":
-            result("macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+            handleGetPlatformVersion(result: result)
 
         case "getMetadata":
-            guard let args = call.arguments as? [String: Any],
-                let inputPath = args["inputPath"] as? String,
-                let extensionStr = args["extension"] as? String
-            else {
-                result(
-                    FlutterError(
-                        code: "INVALID_ARGUMENTS", message: "Expected arguments missing",
-                        details: nil))
-                return
-            }
-
-            Task {
-                do {
-                    let meta = try await VideoMetadata.processVideo(
-                        inputPath: inputPath, ext: extensionStr)
-                    result(meta)
-                } catch {
-                    result(
-                        FlutterError(
-                            code: "METADATA_ERROR", message: error.localizedDescription,
-                            details: nil))
-                }
-            }
+            handleGetMetadata(call: call, result: result)
 
         case "getThumbnails":
-            guard let args = call.arguments as? [String: Any],
-                let id = args["id"] as? String,
-                let inputPath = args["inputPath"] as? String,
-                let extensionStr = args["extension"] as? String,
-                let boxFit = args["boxFit"] as? String,
-                let outputFormat = args["outputFormat"] as? String,
-                let outputWidth = args["outputWidth"] as? Int,
-                let outputHeight = args["outputHeight"] as? Int
-            else {
-                result(
-                    FlutterError(
-                        code: "INVALID_ARGUMENTS", message: "Missing parameters", details: nil))
-                return
-            }
-
-            let timestampsUs = (args["timestamps"] as? [NSNumber])?.map { $0.int64Value } ?? []
-            let maxOutputFrames = args["maxOutputFrames"] as? Int
-
-            postProgress(id: id, progress: 0.0)
-
-            Task {
-                let thumbnails = await ThumbnailGenerator.getThumbnails(
-                    inputPath: inputPath,
-                    extension: extensionStr,
-                    outputFormat: outputFormat,
-                    boxFit: boxFit,
-                    outputWidth: outputWidth,
-                    outputHeight: outputHeight,
-                    timestampsUs: timestampsUs,
-                    maxOutputFrames: maxOutputFrames,
-                    onProgress: { progress in
-                        self.postProgress(id: id, progress: progress)
-                    }
-                )
-                self.postProgress(id: id, progress: 1.0)
-                result(thumbnails)
-            }
+            handleGetThumbnails(call: call, result: result)
 
         case "renderVideo":
-            guard let args = call.arguments as? [String: Any],
-                let id = args["id"] as? String,
-                let inputPath = args["inputPath"] as? String
-            else {
-                result(
-                    FlutterError(
-                        code: "INVALID_ARGUMENTS", message: "Missing parameters", details: nil))
-                return
-            }
-
-            guard !id.isEmpty else {
-                result(
-                    FlutterError(
-                        code: "INVALID_ARGUMENTS", message: "Missing task id", details: nil))
-                return
-            }
-
-            if activeRenderTasks[id] != nil {
-                result(
-                    FlutterError(
-                        code: "TASK_ALREADY_RUNNING", message: "Task with id \(id) is already running",
-                        details: nil))
-                return
-            }
-
-            let inputFormat = args["inputFormat"] as? String ?? "mp4"
-            let outputFormat = args["outputFormat"] as? String ?? "mp4"
-            let outputPath = args["outputPath"] as? String
-            let imageBytes = (args["imageBytes"] as? FlutterStandardTypedData)?.data
-            let rotateTurns = args["rotateTurns"] as? Int
-            let cropWidth = args["cropWidth"] as? Int
-            let cropHeight = args["cropHeight"] as? Int
-            let cropX = args["cropX"] as? Int
-            let cropY = args["cropY"] as? Int
-            let scaleX = (args["scaleX"] as? NSNumber)?.floatValue
-            let scaleY = (args["scaleY"] as? NSNumber)?.floatValue
-            let flipX = args["flipX"] as? Bool ?? false
-            let flipY = args["flipY"] as? Bool ?? false
-            let blur = args["blur"] as? Double
-            let bitrate = args["bitrate"] as? Int
-            let enableAudio = args["enableAudio"] as? Bool ?? true
-            let playbackSpeed = (args["playbackSpeed"] as? NSNumber)?.floatValue
-            let startUs = args["startTime"] as? Int64
-            let endUs = args["endTime"] as? Int64
-            let colorMatrixList = args["colorMatrixList"] as? [[Double]] ?? []
-
-            postProgress(id: id, progress: 0.0)
-
-            let task = RenderTask(result: result)
-            activeRenderTasks[id] = task
-
-            let handle = RenderVideo.render(
-                inputPath: inputPath,
-                imageData: imageBytes,
-                inputFormat: inputFormat,
-                outputFormat: outputFormat,
-                outputPath: outputPath,
-                rotateTurns: rotateTurns,
-                flipX: flipX,
-                flipY: flipY,
-                cropWidth: cropWidth,
-                cropHeight: cropHeight,
-                cropX: cropX,
-                cropY: cropY,
-                scaleX: scaleX,
-                scaleY: scaleY,
-                bitrate: bitrate,
-                enableAudio: enableAudio,
-                playbackSpeed: playbackSpeed,
-                startUs: startUs,
-                endUs: endUs,
-                colorMatrixList: colorMatrixList,
-                blur: blur,
-                onProgress: { progress in
-                    self.postProgress(id: id, progress: progress)
-                },
-                onComplete: { outputData in
-                    DispatchQueue.main.async {
-                        self.postProgress(id: id, progress: 1.0)
-                        if let task = self.activeRenderTasks.removeValue(forKey: id) {
-                            task.sendSuccess(outputData)
-                        } else {
-                            result(outputData)
-                        }
-                    }
-                },
-                onError: { error in
-                    DispatchQueue.main.async {
-                        let task = self.activeRenderTasks.removeValue(forKey: id)
-                        let code = (task?.isCanceled == true) ? "CANCELED" : "RENDER_ERROR"
-                        let flutterError = FlutterError(
-                            code: code,
-                            message: error.localizedDescription,
-                            details: nil
-                        )
-                        if let task = task {
-                            task.sendError(flutterError)
-                        } else {
-                            result(flutterError)
-                        }
-                    }
-                }
-            )
-            task.attachHandle(handle)
+            handleRenderVideo(call: call, result: result)
 
         case "cancelTask":
-            guard let args = call.arguments as? [String: Any],
-                let id = args["id"] as? String
-            else {
-                result(
-                    FlutterError(
-                        code: "INVALID_ARGUMENTS", message: "Missing parameters", details: nil))
-                return
-            }
-
-            guard !id.isEmpty else {
-                result(
-                    FlutterError(
-                        code: "INVALID_ARGUMENTS", message: "Expected non-empty task id",
-                        details: nil))
-                return
-            }
-
-            guard let task = activeRenderTasks[id] else {
-                result(
-                    FlutterError(
-                        code: "TASK_NOT_FOUND", message: "No task found for id \(id)", details: nil))
-                return
-            }
-
-            task.cancel()
-            result(nil)
+            handleCancelTask(call: call, result: result)
 
         default:
             result(FlutterMethodNotImplemented)
         }
     }
 
+    // MARK: - Handler Methods
+
+    /// Returns the macOS platform version string.
+    private func handleGetPlatformVersion(result: FlutterResult) {
+        result("macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+    }
+
+    /// Extracts metadata from a video file asynchronously.
+    ///
+    /// Retrieves technical properties (duration, dimensions, bitrate)
+    /// and descriptive tags (title, artist, album, etc.).
+    private func handleGetMetadata(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let config = MetadataConfig.fromArguments(call.arguments as? [String: Any]) else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Expected arguments missing",
+                    details: nil))
+            return
+        }
+
+        Task {
+            do {
+                let meta = try await VideoMetadata.processVideo(
+                    inputPath: config.inputPath, ext: config.fileExtension)
+                result(meta)
+            } catch {
+                result(
+                    FlutterError(
+                        code: "METADATA_ERROR", message: error.localizedDescription,
+                        details: nil))
+            }
+        }
+    }
+
+    /// Generates thumbnail images from a video asynchronously.
+    ///
+    /// Supports timestamp-based or keyframe-based extraction.
+    /// Thumbnails are generated in parallel for optimal performance.
+    private func handleGetThumbnails(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let config = ThumbnailConfig.fromArguments(call.arguments as? [String: Any]) else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS",
+                    message: "Expected arguments missing or invalid", details: nil))
+            return
+        }
+
+        postProgress(id: config.id, progress: 0.0)
+
+        ThumbnailGenerator.getThumbnails(
+            config: config,
+            onProgress: { progress in
+                self.postProgress(id: config.id, progress: progress)
+            },
+            onComplete: { thumbnails in
+                self.postProgress(id: config.id, progress: 1.0)
+                result(thumbnails)
+            },
+            onError: { error in
+                result(
+                    FlutterError(
+                        code: "THUMBNAIL_ERROR", message: error.localizedDescription,
+                        details: nil))
+            }
+        )
+    }
+
+    /// Starts an asynchronous video render job with effects.
+    ///
+    /// Handles video concatenation, visual effects (rotation, flip,
+    /// scale, color, blur), audio processing, and output configuration.
+    /// Each job is tracked by unique ID and can be canceled.
+    private func handleRenderVideo(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+            let id = args["id"] as? String
+        else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Missing parameters", details: nil))
+            return
+        }
+
+        guard !id.isEmpty else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Missing task id", details: nil))
+            return
+        }
+
+        if activeRenderTasks[id] != nil {
+            result(
+                FlutterError(
+                    code: "TASK_ALREADY_RUNNING", message: "Task with id \(id) is already running",
+                    details: nil))
+            return
+        }
+
+        guard let config = RenderConfig.fromArguments(args) else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Invalid render configuration",
+                    details: nil))
+            return
+        }
+
+        postProgress(id: id, progress: 0.0)
+
+        let task = RenderTask(result: result)
+        activeRenderTasks[id] = task
+
+        let handle = RenderVideo.render(
+            config: config,
+            onProgress: { progress in
+                self.postProgress(id: id, progress: progress)
+            },
+            onComplete: { outputData in
+                DispatchQueue.main.async {
+                    self.postProgress(id: id, progress: 1.0)
+                    if let task = self.activeRenderTasks.removeValue(forKey: id) {
+                        task.sendSuccess(outputData)
+                    } else {
+                        result(outputData)
+                    }
+                }
+            },
+            onError: { error in
+                DispatchQueue.main.async {
+                    let task = self.activeRenderTasks.removeValue(forKey: id)
+                    let code = (task?.isCanceled == true) ? "CANCELED" : "RENDER_ERROR"
+                    let flutterError = FlutterError(
+                        code: code,
+                        message: error.localizedDescription,
+                        details: nil
+                    )
+                    if let task = task {
+                        task.sendError(flutterError)
+                    } else {
+                        result(flutterError)
+                    }
+                }
+            }
+        )
+        task.attachHandle(handle)
+    }
+
+    /// Cancels an active render task by ID.
+    ///
+    /// Marks task as canceled, triggers cancellation handler
+    /// (stops export session, cleans up files), and removes from tracking.
+    private func handleCancelTask(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+            let id = args["id"] as? String
+        else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Missing parameters", details: nil))
+            return
+        }
+
+        guard !id.isEmpty else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Expected non-empty task id",
+                    details: nil))
+            return
+        }
+
+        guard let task = activeRenderTasks[id] else {
+            result(
+                FlutterError(
+                    code: "TASK_NOT_FOUND", message: "No task found for id \(id)", details: nil))
+            return
+        }
+
+        task.cancel()
+        result(nil)
+    }
+
+    // MARK: - Helper Methods
+
+    /// Sends progress updates to Flutter via event channel.
+    ///
+    /// Progress events are sent on main thread with task ID
+    /// and progress value (0.0 to 1.0).
     private func postProgress(id: String, progress: Double) {
         DispatchQueue.main.async {
             self.eventSink?([
@@ -234,75 +254,5 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
                 "progress": progress,
             ])
         }
-    }
-}
-
-extension ProVideoEditorPlugin: FlutterStreamHandler {
-    public func onListen(
-        withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink
-    ) -> FlutterError? {
-        self.eventSink = events
-        return nil
-    }
-
-    public func onCancel(withArguments arguments: Any?) -> FlutterError? {
-        self.eventSink = nil
-        return nil
-    }
-}
-
-private final class RenderTask {
-    let result: FlutterResult
-    private var handle: RenderJobHandle?
-    private let lock = NSLock()
-    private var _isCanceled: Bool
-    private var resultConsumed: Bool
-
-    init(result: @escaping FlutterResult) {
-        self.result = result
-        self._isCanceled = false
-        self.resultConsumed = false
-    }
-
-    var isCanceled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return _isCanceled
-    }
-
-    func attachHandle(_ handle: RenderJobHandle) {
-        lock.lock()
-        let alreadyCanceled = _isCanceled
-        self.handle = handle
-        lock.unlock()
-        if alreadyCanceled {
-            handle.cancel()
-        }
-    }
-
-    func cancel() {
-        lock.lock()
-        _isCanceled = true
-        let currentHandle = handle
-        lock.unlock()
-        currentHandle?.cancel()
-    }
-
-    func sendSuccess(_ payload: Any?) {
-        takeResultHandler()?(payload)
-    }
-
-    func sendError(_ error: FlutterError) {
-        takeResultHandler()?(error)
-    }
-
-    private func takeResultHandler() -> FlutterResult? {
-        lock.lock()
-        defer { lock.unlock() }
-        if resultConsumed {
-            return nil
-        }
-        resultConsumed = true
-        return result
     }
 }

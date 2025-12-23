@@ -34,3 +34,5 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 build/
 /example/pubspec.lock
+/example/ios/Podfile.lock
+/example/macos/Podfile.lock

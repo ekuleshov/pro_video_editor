@@ -103,7 +103,7 @@ void main() {
       final string = config.toString();
 
       expect(string, contains('VideoQualityConfig'));
-      expect(string, contains('p1080'));
+      expect(string, contains('1080'));
       expect(string, contains('8Mbps'));
       expect(string, contains('1920x1080'));
     });

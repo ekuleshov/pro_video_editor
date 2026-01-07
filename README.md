@@ -146,6 +146,7 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 | `Blur background`          | 🧪      | 🧪  | 🧪     | ❌      | ❌     | 🚫   |
 | `Custom Audio Tracks`      | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Merge Videos`             | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
+| `Extract Audio`            | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Censor-Layers "Pixelate"` | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
 
 
@@ -246,6 +247,37 @@ Uint8List result = await ProVideoEditor.instance.renderVideo(data);
 
 /// Note: You must use either 'video' (single video) OR 'videoSegments' (multiple videos),
 /// but not both. The clips will be joined in the order they appear in the list.
+```
+
+#### Extract Audio Example
+
+Extract audio track from a video.
+Supports MP3, AAC, and M4A formats with optional trimming.
+```dart
+/// Extract with trimming
+var config = AudioExtractConfigs(
+    video: EditorVideo.asset('assets/video.mp4'),
+    format: AudioFormat.aac,
+    startTime: Duration(seconds: 10),
+    endTime: Duration(seconds: 30),
+    bitrate: 192000,  // 192 kbps
+);
+
+/// Save to file instead of returning as Uint8List
+final directory = await getTemporaryDirectory();
+String outputPath = '${directory.path}/extracted_audio.mp3';
+await ProVideoEditor.instance.extractAudioToFile(outputPath, config);
+/// Alternative read the Uint8List directly like below.
+/// Uint8List audioData = await ProVideoEditor.instance.extractAudio(audioConfig);
+
+/// Listen to progress
+StreamBuilder<ProgressModel>(
+    stream: ProVideoEditor.instance.progressStreamById(config.id),
+    builder: (context, snapshot) {
+      var progress = snapshot.data?.progress ?? 0;
+      return CircularProgressIndicator(value: progress);
+    }
+)
 ```
 
 #### Cancel an active render

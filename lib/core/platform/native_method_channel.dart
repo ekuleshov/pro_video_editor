@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mime/mime.dart';
 
+import '/core/models/audio/audio_extract_configs_model.dart';
 import '/core/models/exceptions/render_exceptions.dart';
 import '/core/models/thumbnail/key_frames_configs_model.dart';
 import '/core/models/thumbnail/thumbnail_base_abstract.dart';
@@ -96,6 +97,60 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   @override
   Future<List<Uint8List>> getKeyFrames(KeyFramesConfigs value) async {
     return await _extractThumbnails(value);
+  }
+
+  @override
+  Future<Uint8List> extractAudio(AudioExtractConfigs value) async {
+    try {
+      var inputPath = await value.video.safeFilePath();
+
+      final Uint8List? result = await methodChannel.invokeMethod<Uint8List>(
+        'extractAudio',
+        {
+          'inputPath': inputPath,
+          'extension': _getFileExtension(inputPath),
+          ...value.toMap(),
+        },
+      );
+
+      if (result == null) {
+        throw ArgumentError('Failed to extract audio from video');
+      }
+
+      return result;
+    } on PlatformException catch (error) {
+      if (error.code == renderCanceledErrorCode) {
+        throw const RenderCanceledException();
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<String> extractAudioToFile(
+    String filePath,
+    AudioExtractConfigs value,
+  ) async {
+    try {
+      var inputPath = await value.video.safeFilePath();
+
+      await methodChannel.invokeMethod<String>(
+        'extractAudio',
+        {
+          'inputPath': inputPath,
+          'extension': _getFileExtension(inputPath),
+          'outputPath': filePath,
+          ...value.toMap(),
+        },
+      );
+
+      return filePath;
+    } on PlatformException catch (error) {
+      if (error.code == renderCanceledErrorCode) {
+        throw const RenderCanceledException();
+      }
+      rethrow;
+    }
   }
 
   @override

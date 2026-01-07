@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import '/core/models/audio/audio_extract_configs_model.dart';
 import '/core/models/thumbnail/key_frames_configs_model.dart';
 import '/core/models/thumbnail/thumbnail_configs_model.dart';
 import '/core/models/video/editor_video_model.dart';
@@ -142,6 +143,96 @@ abstract class ProVideoEditor extends PlatformInterface {
   /// from [KeyFramesConfigs.id].
   Future<List<Uint8List>> getKeyFrames(KeyFramesConfigs value) {
     throw UnimplementedError('getKeyFrames() has not been implemented.');
+  }
+
+  /// Extracts audio from a video file.
+  ///
+  /// Extracts the audio track from the source video and converts it to the
+  /// specified audio format with the given quality settings.
+  ///
+  /// Supports:
+  /// - Multiple audio formats (MP3, AAC, WAV, M4A, OGG)
+  /// - Configurable bitrate for quality control
+  /// - Optional trimming (start/end time)
+  /// - Progress tracking via streams
+  ///
+  /// [value] Configuration containing:
+  /// - Video source ([EditorVideo])
+  /// - Output format ([AudioFormat])
+  /// - Bitrate in kbps (e.g., 128, 192, 320)
+  /// - Optional start and end times for trimming
+  /// - Task ID for progress tracking
+  ///
+  /// Returns the extracted audio as [Uint8List] in the specified format.
+  ///
+  /// **Note:** For large videos or when saving to disk, consider implementing
+  /// a file-based variant similar to [renderVideoToFile].
+  ///
+  /// Throws:
+  /// - [ArgumentError] if the video source is invalid
+  /// - [PlatformException] if audio extraction fails
+  /// - May throw if the video has no audio track
+  ///
+  /// Progress updates are emitted via [progressStreamById] using the task ID
+  /// from [AudioExtractConfigs.id].
+  ///
+  /// Example:
+  /// ```dart
+  /// final config = AudioExtractConfigs(
+  ///   video: EditorVideo.file('/path/to/video.mp4'),
+  ///   format: AudioFormat.mp3,
+  ///   bitrate: 192,
+  /// );
+  ///
+  /// // Listen to progress
+  /// ProVideoEditor.instance.progressStreamById(config.id).listen((progress) {
+  ///   print('Extraction progress: ${progress.progress * 100}%');
+  /// });
+  ///
+  /// final audioData = await ProVideoEditor.instance.extractAudio(config);
+  /// ```
+  Future<Uint8List> extractAudio(AudioExtractConfigs value) {
+    throw UnimplementedError('extractAudio() has not been implemented.');
+  }
+
+  /// Extracts audio from a video file and saves it directly to disk.
+  ///
+  /// Similar to [extractAudio] but writes the output directly to a file instead
+  /// of returning it in memory. **Recommended for production use** as it avoids
+  /// memory issues with large audio files.
+  ///
+  /// [filePath] Absolute path where the extracted audio will be saved.
+  /// The file extension should match the format specified in [value].
+  ///
+  /// [value] Complete extraction configuration including format and quality.
+  ///
+  /// Returns the [filePath] upon successful completion.
+  ///
+  /// Throws:
+  /// - [ArgumentError] if configuration or path is invalid
+  /// - [PlatformException] if extraction or file writing fails
+  ///
+  /// Progress updates are emitted via [progressStreamById] using the task ID
+  /// from [AudioExtractConfigs.id].
+  ///
+  /// Example:
+  /// ```dart
+  /// final config = AudioExtractConfigs(
+  ///   video: EditorVideo.file('/path/to/video.mp4'),
+  ///   format: AudioFormat.mp3,
+  ///   bitrate: 192,
+  /// );
+  ///
+  /// final outputPath = await ProVideoEditor.instance.extractAudioToFile(
+  ///   '/path/to/output.mp3',
+  ///   config,
+  /// );
+  /// ```
+  Future<String> extractAudioToFile(
+    String filePath,
+    AudioExtractConfigs value,
+  ) {
+    throw UnimplementedError('extractAudioToFile() has not been implemented.');
   }
 
   /// Renders a video with effects and returns the result in memory.

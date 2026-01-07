@@ -3,6 +3,9 @@ package ch.waio.pro_video_editor
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import ch.waio.pro_video_editor.src.features.audio.ExtractAudio
+import ch.waio.pro_video_editor.src.features.audio.models.AudioExtractConfig
+import ch.waio.pro_video_editor.src.features.audio.models.AudioExtractTask
 import ch.waio.pro_video_editor.src.features.metadata.Metadata
 import ch.waio.pro_video_editor.src.features.metadata.models.MetadataConfig
 import ch.waio.pro_video_editor.src.features.render.RenderVideo
@@ -44,9 +47,11 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var renderVideo: RenderVideo
     private lateinit var metadata: Metadata
     private lateinit var thumbnailGenerator: ThumbnailGenerator
+    private lateinit var extractAudio: ExtractAudio
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val activeRenderTasks = ConcurrentHashMap<String, RenderTask>()
+    private val activeAudioTasks = ConcurrentHashMap<String, AudioExtractTask>()
 
     /**
      * Called when the plugin is attached to a Flutter engine.
@@ -75,6 +80,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
         renderVideo = RenderVideo(flutterPluginBinding.applicationContext)
         metadata = Metadata(flutterPluginBinding.applicationContext)
         thumbnailGenerator = ThumbnailGenerator(flutterPluginBinding.applicationContext)
+        extractAudio = ExtractAudio(flutterPluginBinding.applicationContext)
     }
 
     /**
@@ -98,7 +104,8 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
      * - getMetadata: Extracts video metadata
      * - getThumbnails: Generates thumbnails
      * - renderVideo: Renders video with effects
-     * - cancelTask: Cancels active render task
+     * - extractAudio: Extracts audio from video
+     * - cancelTask: Cancels active render or audio extraction task
      */
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
@@ -106,6 +113,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
             "getMetadata" -> handleGetMetadata(call, result)
             "getThumbnails" -> handleGetThumbnails(call, result)
             "renderVideo" -> handleRenderVideo(call, result)
+            "extractAudio" -> handleExtractAudio(call, result)
             "cancelTask" -> handleCancelTask(call, result)
             else -> result.notImplemented()
         }
@@ -245,10 +253,78 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
     }
 
     /**
-     * Cancels an active render task by ID.
+     * Extracts audio from a video file asynchronously.
+     *
+     * Extracts the audio track and optionally trims it to
+     * the specified time range. Each job is tracked by unique ID
+     * and can be canceled.
+     */
+    private fun handleExtractAudio(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("id") ?: ""
+        if (id.isBlank()) {
+            result.error("INVALID_ARGUMENTS", "Task id is required and cannot be empty", null)
+            return
+        }
+
+        if (activeAudioTasks.containsKey(id)) {
+            result.error(
+                "TASK_ALREADY_EXISTS",
+                "An audio extraction task with id '$id' is already active",
+                null
+            )
+            return
+        }
+
+        postProgress(id, 0.0)
+
+        val task = AudioExtractTask(job = null, result = result)
+        activeAudioTasks[id] = task
+
+        try {
+            val config = AudioExtractConfig.fromMethodCall(call)
+
+            val jobHandle = extractAudio.extract(
+                config = config,
+                onProgress = { progress -> postProgress(id, progress) },
+                onComplete = { resultBytes ->
+                    mainHandler.post {
+                        postProgress(id, 1.0)
+                        val removedTask = activeAudioTasks.remove(id)
+                        removedTask?.sendSuccess(resultBytes)
+                    }
+                },
+                onError = { error ->
+                    Log.e("ExtractAudio", "Error extracting audio: ${error.message}")
+                    mainHandler.post {
+                        val removedTask = activeAudioTasks.remove(id)
+                        val code = if (removedTask?.canceled?.get() == true) {
+                            "CANCELED"
+                        } else {
+                            "EXTRACT_ERROR"
+                        }
+                        removedTask?.sendError(code, error.message)
+                    }
+                }
+            )
+
+            task.job = jobHandle
+            if (task.canceled.get()) {
+                jobHandle.cancel()
+            }
+        } catch (e: IllegalArgumentException) {
+            activeAudioTasks.remove(id)
+            result.error("INVALID_ARGUMENTS", e.message, null)
+        } catch (e: Exception) {
+            activeAudioTasks.remove(id)
+            result.error("EXTRACT_ERROR", "Failed to start audio extraction: ${e.message}", null)
+        }
+    }
+
+    /**
+     * Cancels an active render or audio extraction task by ID.
      *
      * Marks task as canceled, triggers cancellation handler
-     * (stops transformer, cleans up files), and removes from tracking.
+     * (stops transformer/extractor, cleans up files), and removes from tracking.
      */
     private fun handleCancelTask(call: MethodCall, result: MethodChannel.Result) {
         val id = call.argument<String>("id") ?: ""
@@ -257,16 +333,27 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
             return
         }
 
-        val task = activeRenderTasks[id]
-        if (task == null) {
-            result.error("TASK_NOT_FOUND", "No active render task found with id '$id'", null)
+        // Try to find task in render tasks
+        val renderTask = activeRenderTasks[id]
+        if (renderTask != null) {
+            renderTask.canceled.set(true)
+            renderTask.job?.cancel()
+            activeRenderTasks.remove(id)
+            result.success(true)
             return
         }
 
-        task.canceled.set(true)
-        task.job?.cancel()
-        activeRenderTasks.remove(id)
-        result.success(true)
+        // Try to find task in audio tasks
+        val audioTask = activeAudioTasks[id]
+        if (audioTask != null) {
+            audioTask.canceled.set(true)
+            audioTask.job?.cancel()
+            activeAudioTasks.remove(id)
+            result.success(true)
+            return
+        }
+
+        result.error("TASK_NOT_FOUND", "No active task found with id '$id'", null)
     }
 
     /**

@@ -1,6 +1,8 @@
 package ch.waio.pro_video_editor.src.features.metadata
 
 import android.content.Context
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import ch.waio.pro_video_editor.src.features.metadata.models.MetadataConfig
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +43,32 @@ class Metadata(private val context: Context) {
         scope.launch {
             try {
                 val result = processVideo(config)
+                onComplete(result)
+            } catch (e: Exception) {
+                onError(e)
+            }
+        }
+    }
+
+    /**
+     * Asynchronously checks if a video file has an audio track.
+     *
+     * This method runs on a background thread and quickly inspects the video
+     * to determine if it contains at least one audio track. This is useful to
+     * check before attempting audio extraction operations.
+     *
+     * @param config Configuration containing the video file path
+     * @param onComplete Callback invoked with result: true if audio track exists, false otherwise
+     * @param onError Callback invoked with exception if check fails
+     */
+    fun hasAudioTrack(
+        config: MetadataConfig,
+        onComplete: (Boolean) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        scope.launch {
+            try {
+                val result = checkAudioTrack(config)
                 onComplete(result)
             } catch (e: Exception) {
                 onError(e)
@@ -93,6 +121,16 @@ class Metadata(private val context: Context) {
                 }
             }
 
+            // Extract audio track duration if audio track exists
+            val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
+            if (hasAudio == "yes") {
+                // Extract actual audio track duration using MediaExtractor
+                val audioDuration = extractAudioDuration(tempFile.absolutePath)
+                if (audioDuration != null) {
+                    metadata["audioDuration"] = audioDuration
+                }
+            }
+
             // Define text metadata keys mapping
             // These values are returned as-is (String)
             val textMetadata = mapOf(
@@ -113,6 +151,69 @@ class Metadata(private val context: Context) {
         } finally {
             // Always release the retriever to free native resources
             retriever.release()
+        }
+    }
+
+    /**
+     * Internal method that checks if a video file has an audio track.
+     *
+     * Uses Android's MediaMetadataRetriever to check if the video contains
+     * at least one audio track by inspecting the "has-audio" metadata key.
+     *
+     * @param config Configuration containing the video file path
+     * @return true if the video has an audio track, false otherwise
+     * @throws Exception if the file cannot be accessed or check fails
+     */
+    private fun checkAudioTrack(config: MetadataConfig): Boolean {
+        val tempFile = File(config.inputPath)
+        val retriever = MediaMetadataRetriever()
+
+        try {
+            retriever.setDataSource(tempFile.absolutePath)
+
+            // Check if video has audio track
+            val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
+            return hasAudio == "yes"
+        } finally {
+            // Always release the retriever to free native resources
+            retriever.release()
+        }
+    }
+
+    /**
+     * Extracts the actual audio track duration using MediaExtractor.
+     *
+     * This method provides more accurate audio duration compared to the overall
+     * video duration, especially when the audio track is shorter than the video.
+     *
+     * @param filePath Absolute path to the video file
+     * @return Audio duration in milliseconds, or null if no audio track is found
+     */
+    private fun extractAudioDuration(filePath: String): Double? {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(filePath)
+            
+            // Find the audio track
+            for (i in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(i)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+                
+                if (mime.startsWith("audio/")) {
+                    // Extract duration from audio track format
+                    if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                        val durationUs = format.getLong(MediaFormat.KEY_DURATION)
+                        // Convert microseconds to milliseconds
+                        return durationUs / 1000.0
+                    }
+                }
+            }
+            
+            return null
+        } catch (e: Exception) {
+            return null
+        } finally {
+            extractor.release()
         }
     }
 

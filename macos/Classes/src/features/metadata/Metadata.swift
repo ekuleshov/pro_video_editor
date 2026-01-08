@@ -50,6 +50,23 @@ class VideoMetadata {
         }
         let durationMs = CMTimeGetSeconds(duration) * 1000.0
 
+        // MARK: - Audio Track Duration
+        
+        // Extract audio track duration if present
+        var audioDurationMs: Double? = nil
+        if #available(macOS 13.0, *) {
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            if let audioTrack = audioTracks.first {
+                let audioTimeRange = try await audioTrack.load(.timeRange)
+                audioDurationMs = CMTimeGetSeconds(audioTimeRange.duration) * 1000.0
+            }
+        } else {
+            // Fallback for macOS versions before 13.0
+            if let audioTrack = asset.tracks(withMediaType: .audio).first {
+                audioDurationMs = CMTimeGetSeconds(audioTrack.timeRange.duration) * 1000.0
+            }
+        }
+
         // MARK: - Video Track Properties
         
         // Initialize numeric properties with default values
@@ -150,7 +167,7 @@ class VideoMetadata {
         // MARK: - Return Metadata Dictionary
         
         // Compile all extracted metadata into a dictionary for Flutter
-        return [
+        var metadataDict: [String: Any] = [
             "fileSize": fileSize,                                   // File size in bytes
             "duration": durationMs,                                 // Duration in milliseconds
             "width": numericMetadata["width"] ?? 0,                 // Video width in pixels
@@ -164,6 +181,39 @@ class VideoMetadata {
             "albumArtist": textMetadata["albumArtist"] ?? "",       // Album artist metadata
             "date": dateStr,                                        // Creation date in ISO8601 format
         ]
+        
+        // Add audio duration if present
+        if let audioDuration = audioDurationMs {
+            metadataDict["audioDuration"] = audioDuration
+        }
+        
+        return metadataDict
+    }
+
+    // MARK: - Audio Track Check
+    
+    /// Asynchronously checks if a video file has an audio track.
+    ///
+    /// This method inspects the video file to determine if it contains at least
+    /// one audio track. This is useful to check before attempting audio extraction
+    /// operations to avoid errors.
+    ///
+    /// - Parameter inputPath: The absolute file path to the video file
+    /// - Returns: `true` if the video has at least one audio track, `false` otherwise
+    /// - Throws: Error if the file cannot be accessed or check fails
+    static func checkAudioTrack(inputPath: String) async throws -> Bool {
+        let tempFileURL = URL(fileURLWithPath: inputPath)
+        let asset = AVURLAsset(url: tempFileURL)
+        
+        // Check for audio tracks
+        if #available(macOS 13.0, *) {
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            return !audioTracks.isEmpty
+        } else {
+            // Fallback for macOS versions before 13.0
+            let audioTracks = asset.tracks(withMediaType: .audio)
+            return !audioTracks.isEmpty
+        }
     }
 
     // MARK: - Helper Methods

@@ -14,6 +14,7 @@ class VideoMetadata {
     required this.resolution,
     required this.rotation,
     required this.bitrate,
+    this.audioDuration,
     this.title = '',
     this.artist = '',
     this.author = '',
@@ -44,6 +45,9 @@ class VideoMetadata {
       originalResolution: originalResolution,
       rotation: rotation,
       bitrate: safeParseInt(value['bitrate']),
+      audioDuration: value['audioDuration'] != null
+          ? Duration(milliseconds: safeParseInt(value['audioDuration']))
+          : null,
       title: value['title'] ?? '',
       artist: value['artist'] ?? '',
       author: value['author'] ?? '',
@@ -113,6 +117,18 @@ class VideoMetadata {
   /// ```
   final Duration duration;
 
+  /// The duration of the audio track, if present.
+  ///
+  /// This value may differ from [duration] in cases where the audio track
+  /// is shorter than the video. If the video has no audio track, this will
+  /// be `null`.
+  ///
+  /// Example:
+  /// ```dart
+  /// Duration(seconds: 115) // Audio ends 5 seconds before video
+  /// ```
+  final Duration? audioDuration;
+
   /// The format of the video file, such as "mp4" or "avi".
   final String extension;
 
@@ -137,6 +153,7 @@ class VideoMetadata {
     Size? originalResolution,
     int? rotation,
     Duration? duration,
+    Duration? audioDuration,
     String? extension,
     int? bitrate,
   }) {
@@ -152,6 +169,7 @@ class VideoMetadata {
       originalResolution: originalResolution ?? this.originalResolution,
       rotation: rotation ?? this.rotation,
       duration: duration ?? this.duration,
+      audioDuration: audioDuration ?? this.audioDuration,
       extension: extension ?? this.extension,
       bitrate: bitrate ?? this.bitrate,
     );
@@ -173,6 +191,7 @@ class VideoMetadata {
         other.originalResolution == originalResolution &&
         other.rotation == rotation &&
         other.duration == duration &&
+        other.audioDuration == audioDuration &&
         other.extension == extension &&
         other.bitrate == bitrate;
   }
@@ -190,6 +209,7 @@ class VideoMetadata {
         originalResolution.hashCode ^
         rotation.hashCode ^
         duration.hashCode ^
+        audioDuration.hashCode ^
         extension.hashCode ^
         bitrate.hashCode;
   }

@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
+import 'package:pro_video_editor/core/models/audio/audio_extract_configs_model.dart';
 import 'package:pro_video_editor/core/models/video/progress_model.dart';
 import 'package:web/web.dart' as web;
 
@@ -60,6 +61,12 @@ class ProVideoEditorWeb extends ProVideoEditor {
   }
 
   @override
+  Future<bool> hasAudioTrack(EditorVideo value) {
+    throw UnimplementedError(
+        'hasAudioTrack() has not been implemented on web.');
+  }
+
+  @override
   Future<List<Uint8List>> getThumbnails(ThumbnailConfigs value) {
     return _manager.getThumbnails(
       value,
@@ -73,6 +80,20 @@ class ProVideoEditorWeb extends ProVideoEditor {
       value,
       onProgress: (progress) => _updateProgress(value.id, progress),
     );
+  }
+
+  @override
+  Future<Uint8List> extractAudio(AudioExtractConfigs value) {
+    throw UnimplementedError('extractAudio() has not been implemented on web.');
+  }
+
+  @override
+  Future<String> extractAudioToFile(
+    String filePath,
+    AudioExtractConfigs value,
+  ) {
+    throw UnimplementedError(
+        'extractAudioToFile() has not been implemented on web.');
   }
 
   @override

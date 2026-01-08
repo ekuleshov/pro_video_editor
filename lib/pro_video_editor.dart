@@ -1,5 +1,7 @@
 // ignore_for_file: directives_ordering
 
+export '/core/models/audio/audio_extract_configs_model.dart';
+export '/core/models/audio/audio_format_model.dart';
 export 'core/models/video/progress_model.dart';
 export 'core/models/video/editor_video_model.dart';
 export 'core/models/video/export_transform_model.dart';
@@ -9,6 +11,7 @@ export 'core/models/video/video_metadata_model.dart';
 export 'core/models/video/video_quality_preset.dart';
 export 'core/models/video/video_quality_config.dart';
 export 'core/models/exceptions/render_exceptions.dart';
+export 'core/models/exceptions/audio_exceptions.dart';
 export 'core/platform/platform_interface.dart';
 export 'shared/utils/converters.dart';
 

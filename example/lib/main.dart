@@ -5,6 +5,7 @@ import 'package:pro_video_editor/pro_video_editor.dart';
 import 'package:pro_video_editor_example/features/editor/pages/video_editor_basic_example_page.dart';
 import 'package:pro_video_editor_example/features/editor/pages/video_editor_grounded_example_page.dart';
 
+import 'features/audio/audio_extract_example_page.dart';
 import 'features/metadata/video_metadata_example_page.dart';
 import 'features/render/video_renderer_page.dart';
 import 'features/thumbnail/thumbnail_example_page.dart';
@@ -64,6 +65,11 @@ class _HomePageState extends State<HomePage> {
       icon: Icons.image_outlined,
       title: 'Thumbnails',
       pageBuilder: () => const ThumbnailExamplePage(),
+    ),
+    _ExampleListItem(
+      icon: Icons.audiotrack,
+      title: 'Audio Extraction',
+      pageBuilder: () => const AudioExtractExamplePage(),
     ),
     _ExampleListItem(
       icon: Icons.developer_board_outlined,

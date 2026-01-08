@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mime/mime.dart';
+import 'package:pro_video_editor/core/models/exceptions/audio_exceptions.dart';
 
+import '/core/models/audio/audio_extract_configs_model.dart';
 import '/core/models/exceptions/render_exceptions.dart';
 import '/core/models/thumbnail/key_frames_configs_model.dart';
 import '/core/models/thumbnail/thumbnail_base_abstract.dart';
@@ -35,6 +37,13 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   /// This is thrown as a [PlatformException] code and converted to
   /// [RenderCanceledException] for cleaner error handling.
   static const String renderCanceledErrorCode = 'CANCELED';
+
+  /// Error code used when a video has no audio track.
+  ///
+  /// This is thrown as a [PlatformException] code during audio extraction
+  /// operations and converted to [AudioNoTrackException] for cleaner
+  /// error handling.
+  static const String noAudioErrorCode = 'NO_AUDIO';
 
   /// Primary method channel for bidirectional communication with native code.
   ///
@@ -72,6 +81,21 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
     return VideoMetadata.fromMap(response, extension);
   }
 
+  @override
+  Future<bool> hasAudioTrack(EditorVideo value) async {
+    var inputPath = await value.safeFilePath();
+
+    final result = await methodChannel.invokeMethod<bool>(
+      'hasAudioTrack',
+      {
+        'inputPath': inputPath,
+        'extension': _getFileExtension(inputPath),
+      },
+    );
+
+    return result ?? false;
+  }
+
   Future<List<Uint8List>> _extractThumbnails(ThumbnailBase value) async {
     var inputPath = await value.video.safeFilePath();
 
@@ -96,6 +120,64 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   @override
   Future<List<Uint8List>> getKeyFrames(KeyFramesConfigs value) async {
     return await _extractThumbnails(value);
+  }
+
+  @override
+  Future<Uint8List> extractAudio(AudioExtractConfigs value) async {
+    try {
+      var inputPath = await value.video.safeFilePath();
+
+      final Uint8List? result = await methodChannel.invokeMethod<Uint8List>(
+        'extractAudio',
+        {
+          'inputPath': inputPath,
+          'extension': _getFileExtension(inputPath),
+          ...value.toMap(),
+        },
+      );
+
+      if (result == null) {
+        throw ArgumentError('Failed to extract audio from video');
+      }
+
+      return result;
+    } on PlatformException catch (error) {
+      if (error.code == noAudioErrorCode) {
+        throw const AudioNoTrackException();
+      } else if (error.code == renderCanceledErrorCode) {
+        throw const RenderCanceledException();
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<String> extractAudioToFile(
+    String filePath,
+    AudioExtractConfigs value,
+  ) async {
+    try {
+      var inputPath = await value.video.safeFilePath();
+
+      await methodChannel.invokeMethod<String>(
+        'extractAudio',
+        {
+          'inputPath': inputPath,
+          'extension': _getFileExtension(inputPath),
+          'outputPath': filePath,
+          ...value.toMap(),
+        },
+      );
+
+      return filePath;
+    } on PlatformException catch (error) {
+      if (error.code == noAudioErrorCode) {
+        throw const AudioNoTrackException();
+      } else if (error.code == renderCanceledErrorCode) {
+        throw const RenderCanceledException();
+      }
+      rethrow;
+    }
   }
 
   @override

@@ -254,9 +254,18 @@ Uint8List result = await ProVideoEditor.instance.renderVideo(data);
 Extract audio track from a video.
 Supports MP3, AAC, and M4A formats with optional trimming.
 ```dart
+/// Check if video has audio before extraction (recommended)
+final video = EditorVideo.asset('assets/video.mp4');
+bool hasAudio = await ProVideoEditor.instance.hasAudioTrack(video);
+
+if (!hasAudio) {
+    print('Video has no audio track');
+    return;
+}
+
 /// Extract with trimming
 var config = AudioExtractConfigs(
-    video: EditorVideo.asset('assets/video.mp4'),
+    video: video,
     format: AudioFormat.aac,
     startTime: Duration(seconds: 10),
     endTime: Duration(seconds: 30),
@@ -265,7 +274,12 @@ var config = AudioExtractConfigs(
 /// Save to file instead of returning as Uint8List
 final directory = await getTemporaryDirectory();
 String outputPath = '${directory.path}/extracted_audio.mp3';
-await ProVideoEditor.instance.extractAudioToFile(outputPath, config);
+
+try {
+    await ProVideoEditor.instance.extractAudioToFile(outputPath, config);
+} on AudioNoTrackException {
+    print('Video has no audio track');
+}
 /// Alternative read the Uint8List directly like below.
 /// Uint8List audioData = await ProVideoEditor.instance.extractAudio(audioConfig);
 

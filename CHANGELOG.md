@@ -1,3 +1,7 @@
+## 1.2.0
+- **FEAT**(android, iOS, macOS): Add `hasAudioTrack` method to check if a video contains an audio track before attempting extraction.
+- **FEAT**(android, iOS, macOS): Add `NO_AUDIO` error code and `AudioNoTrackException` for better error handling when videos have no audio track during extraction.
+
 ## 1.1.0
 - **FEAT**(android, iOS, macOS): Add audio extraction feature with `extractAudio` and `extractAudioToFile` methods. Supports MP3, AAC, and M4A formats with optional trimming and bitrate configuration.
 

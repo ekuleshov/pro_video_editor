@@ -1,3 +1,6 @@
+## 1.1.0
+- **FEAT**(android, iOS, macOS): Add audio extraction feature with `extractAudio` and `extractAudioToFile` methods. Supports MP3, AAC, and M4A formats with optional trimming and bitrate configuration.
+
 ## 1.0.0
 - **FEAT**(android, iOS, macOS): Add video concatenation with `videoClips` parameter for merging multiple videos.
 - **FEAT**(android, iOS, macOS): Add audio mixing with `customAudioPath`, `originalAudioVolume`, and `customAudioVolume` parameters for enhanced audio control.

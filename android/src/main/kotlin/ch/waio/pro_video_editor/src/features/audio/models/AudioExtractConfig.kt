@@ -8,7 +8,6 @@ import io.flutter.plugin.common.MethodCall
  * @property id Unique task identifier for progress tracking and cancellation
  * @property inputPath Absolute path to the source video file
  * @property format Output audio format (mp3, aac, wav, m4a, ogg)
- * @property bitrate Audio bitrate in kbps (e.g., 128, 192, 320)
  * @property startUs Optional start time in microseconds for trimming
  * @property endUs Optional end time in microseconds for trimming
  * @property outputPath Optional output file path (null = return bytes)
@@ -17,7 +16,6 @@ data class AudioExtractConfig(
     val id: String,
     val inputPath: String,
     val format: String,
-    val bitrate: Int,
     val startUs: Long?,
     val endUs: Long?,
     val outputPath: String?
@@ -37,7 +35,6 @@ data class AudioExtractConfig(
                 ?: throw IllegalArgumentException("inputPath is required")
             
             val format = call.argument<String>("format") ?: "mp3"
-            val bitrate = call.argument<Number>("bitrate")?.toInt() ?: 128
             val startUs = call.argument<Number>("startTime")?.toLong()
             val endUs = call.argument<Number>("endTime")?.toLong()
             val outputPath = call.argument<String>("outputPath")
@@ -46,7 +43,6 @@ data class AudioExtractConfig(
                 id = id,
                 inputPath = inputPath,
                 format = format,
-                bitrate = bitrate,
                 startUs = startUs,
                 endUs = endUs,
                 outputPath = outputPath

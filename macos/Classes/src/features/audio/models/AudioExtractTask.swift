@@ -1,4 +1,5 @@
 import Foundation
+import FlutterMacOS
 
 /// AudioExtractTask - Manages lifecycle and state of an audio extraction operation.
 ///
@@ -29,13 +30,13 @@ final class AudioExtractTask {
     return _isCanceled
   }
 
-  func attachHandle(_ handle: AudioExtractJobHandle) {
+  func attachHandle(_ handle: @escaping AudioExtractJobHandle) {
     lock.lock()
     let alreadyCanceled = _isCanceled
     self.handle = handle
     lock.unlock()
     if alreadyCanceled {
-      handle.cancel()
+      handle()
     }
   }
 
@@ -44,7 +45,7 @@ final class AudioExtractTask {
     _isCanceled = true
     let currentHandle = handle
     lock.unlock()
-    currentHandle?.cancel()
+    currentHandle?()
   }
 
   func sendSuccess(_ payload: Any?) {

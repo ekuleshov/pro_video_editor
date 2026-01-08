@@ -28,7 +28,6 @@ void main() {
         final config = AudioExtractConfigs(
           video: testVideo,
           format: format,
-          bitrate: 128,
         );
 
         final result = await ProVideoEditor.instance.extractAudioToFile(
@@ -65,7 +64,6 @@ void main() {
         final config = AudioExtractConfigs(
           video: testVideo,
           format: format,
-          bitrate: 128,
           startTime: const Duration(seconds: 5),
           endTime: const Duration(seconds: 10),
         );
@@ -107,7 +105,6 @@ void main() {
       final config = AudioExtractConfigs(
         video: testVideo,
         format: AudioFormat.mp3,
-        bitrate: 128,
       );
 
       final progressValues = <double>[];
@@ -151,7 +148,6 @@ void main() {
       final config = AudioExtractConfigs(
         video: testVideo,
         format: AudioFormat.mp3,
-        bitrate: 192,
       );
 
       // Start extraction
@@ -194,7 +190,6 @@ void main() {
       final lowConfig = AudioExtractConfigs(
         video: testVideo,
         format: AudioFormat.mp3,
-        bitrate: 64,
       );
       await ProVideoEditor.instance
           .extractAudioToFile(lowBitratePath, lowConfig);
@@ -207,7 +202,6 @@ void main() {
       final highConfig = AudioExtractConfigs(
         video: testVideo,
         format: AudioFormat.mp3,
-        bitrate: 320,
       );
       await ProVideoEditor.instance
           .extractAudioToFile(highBitratePath, highConfig);
@@ -241,7 +235,6 @@ void main() {
       final config = AudioExtractConfigs(
         video: testVideo,
         format: AudioFormat.mp3,
-        bitrate: 128,
         startTime: const Duration(seconds: 20),
         endTime: const Duration(seconds: 10),
       );

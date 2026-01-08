@@ -146,6 +146,7 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
 
       return filePath;
     } on PlatformException catch (error) {
+      debugPrint(error.toString());
       if (error.code == renderCanceledErrorCode) {
         throw const RenderCanceledException();
       }

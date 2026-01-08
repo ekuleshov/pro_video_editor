@@ -14,8 +14,6 @@ class AudioExtractConfigs {
   ///
   /// [video] The source video to extract audio from.
   /// [format] The desired output audio format (default: [AudioFormat.mp3]).
-  /// [bitrate] Audio bitrate in kbps (default: 128). Higher values = better
-  /// quality.
   /// [startTime] Optional start time for trimming. If null, starts from
   /// beginning.
   /// [endTime] Optional end time for trimming. If null, goes to video end.
@@ -23,7 +21,6 @@ class AudioExtractConfigs {
   AudioExtractConfigs({
     required this.video,
     this.format = AudioFormat.mp3,
-    this.bitrate = 128,
     this.startTime,
     this.endTime,
     String? id,
@@ -34,16 +31,6 @@ class AudioExtractConfigs {
 
   /// The output audio format.
   final AudioFormat format;
-
-  /// Audio bitrate in kilobits per second (kbps).
-  ///
-  /// Common values:
-  /// - 64 kbps: Low quality (voice)
-  /// - 128 kbps: Standard quality (default)
-  /// - 192 kbps: High quality
-  /// - 256 kbps: Very high quality
-  /// - 320 kbps: Maximum quality (MP3)
-  final int bitrate;
 
   /// Optional start time for trimming the audio.
   ///
@@ -68,7 +55,6 @@ class AudioExtractConfigs {
     return {
       'id': id,
       'format': format.name,
-      'bitrate': bitrate,
       'startTime': startTime?.inMicroseconds,
       'endTime': endTime?.inMicroseconds,
     };
@@ -78,7 +64,6 @@ class AudioExtractConfigs {
   AudioExtractConfigs copyWith({
     EditorVideo? video,
     AudioFormat? format,
-    int? bitrate,
     Duration? startTime,
     Duration? endTime,
     String? id,
@@ -86,7 +71,6 @@ class AudioExtractConfigs {
     return AudioExtractConfigs(
       video: video ?? this.video,
       format: format ?? this.format,
-      bitrate: bitrate ?? this.bitrate,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       id: id ?? this.id,
@@ -100,7 +84,6 @@ class AudioExtractConfigs {
     return other is AudioExtractConfigs &&
         other.video == video &&
         other.format == format &&
-        other.bitrate == bitrate &&
         other.startTime == startTime &&
         other.endTime == endTime &&
         other.id == id;
@@ -110,7 +93,6 @@ class AudioExtractConfigs {
   int get hashCode {
     return video.hashCode ^
         format.hashCode ^
-        bitrate.hashCode ^
         startTime.hashCode ^
         endTime.hashCode ^
         id.hashCode;
@@ -119,6 +101,6 @@ class AudioExtractConfigs {
   @override
   String toString() {
     return 'AudioExtractConfigs(video: $video, format: $format, '
-        'bitrate: $bitrate, startTime: $startTime, endTime: $endTime, id: $id)';
+        'startTime: $startTime, endTime: $endTime, id: $id)';
   }
 }

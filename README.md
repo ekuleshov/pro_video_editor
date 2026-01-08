@@ -260,7 +260,6 @@ var config = AudioExtractConfigs(
     format: AudioFormat.aac,
     startTime: Duration(seconds: 10),
     endTime: Duration(seconds: 30),
-    bitrate: 192000,  // 192 kbps
 );
 
 /// Save to file instead of returning as Uint8List

@@ -17,9 +17,6 @@ struct AudioExtractConfig {
     /// The desired output audio format (e.g., "mp3", "aac", "m4a")
     let format: String
     
-    /// The target audio bitrate in kbps (e.g., 128, 192, 320)
-    let bitrate: Int
-    
     /// Optional start time in microseconds for trimming
     let startUs: Int64?
     
@@ -42,7 +39,6 @@ struct AudioExtractConfig {
             return nil
         }
         
-        let bitrate = args["bitrate"] as? Int ?? 128
         let startUs = args["startTime"] as? Int64
         let endUs = args["endTime"] as? Int64
         let outputPath = args["outputPath"] as? String
@@ -52,7 +48,6 @@ struct AudioExtractConfig {
             inputPath: inputPath,
             fileExtension: extensionStr,
             format: format,
-            bitrate: bitrate,
             startUs: startUs,
             endUs: endUs,
             outputPath: outputPath
@@ -65,9 +60,10 @@ struct AudioExtractConfig {
     func getOutputExtension() -> String {
         switch format.lowercased() {
         case "mp3": return "mp3"
-        case "aac": return "aac"
+        case "aac": return "m4a"
         case "m4a": return "m4a"
-        default: return "m4a" // Default to M4A
+        case "caf": return "caf"
+        default: return "m4a"
         }
     }
     

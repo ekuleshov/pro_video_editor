@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pro_video_editor/pro_video_editor.dart';
@@ -24,7 +25,6 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
   String? _extractedAudioPath;
   bool _isExtracting = false;
   AudioFormat _selectedFormat = AudioFormat.mp3;
-  int _selectedBitrate = 192;
   final String _taskId = 'AudioExtractionTaskId';
 
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -36,6 +36,15 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
   void initState() {
     super.initState();
     _setupAudioPlayer();
+
+    // Set default format based on platform
+    if (!_isFormatSupported(_selectedFormat)) {
+      // Find first supported format
+      _selectedFormat = AudioFormat.values.firstWhere(
+        _isFormatSupported,
+        orElse: () => AudioFormat.m4a, // Fallback to M4A
+      );
+    }
   }
 
   @override
@@ -72,7 +81,7 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
 
     try {
       // Get output directory
-      final directory = await getApplicationDocumentsDirectory();
+      final directory = await getTemporaryDirectory();
       final outputPath =
           '${directory.path}/extracted_audio_${DateTime.now().millisecondsSinceEpoch}.${_selectedFormat.extension}';
 
@@ -80,7 +89,6 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
       final config = AudioExtractConfigs(
         video: EditorVideo.asset(kVideoEditorExampleAssetPath),
         format: _selectedFormat,
-        bitrate: _selectedBitrate,
         // Optional: Add trimming
         // startTime: Duration(seconds: 5),
         // endTime: Duration(seconds: 15),
@@ -155,6 +163,24 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
     return '$minutes:$seconds';
   }
 
+  /// Checks if an audio format is supported on the current platform.
+  bool _isFormatSupported(AudioFormat format) {
+    if (kIsWeb) return false; // Web not supported yet
+
+    switch (format) {
+      case AudioFormat.mp3:
+        // MP3 only supported on Android
+        return Platform.isAndroid;
+      case AudioFormat.aac:
+      case AudioFormat.m4a:
+        // AAC and M4A supported on all platforms
+        return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+      case AudioFormat.caf:
+        // CAF only supported on Apple platforms
+        return Platform.isIOS || Platform.isMacOS;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -177,56 +203,26 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
                   Wrap(
                     spacing: 8,
                     children: AudioFormat.values.map((format) {
-                      return ChoiceChip(
-                        label: Text(format.name.toUpperCase()),
-                        selected: _selectedFormat == format,
-                        onSelected: (selected) {
-                          if (selected) {
-                            setState(() {
-                              _selectedFormat = format;
-                            });
-                          }
-                        },
+                      final isSupported = _isFormatSupported(format);
+                      return Tooltip(
+                        message: isSupported
+                            ? 'Supported on this platform'
+                            : 'Not supported on ${Platform.operatingSystem}',
+                        child: ChoiceChip(
+                          label: Text(format.name.toUpperCase()),
+                          selected: _selectedFormat == format,
+                          onSelected: isSupported
+                              ? (selected) {
+                                  if (selected) {
+                                    setState(() {
+                                      _selectedFormat = format;
+                                    });
+                                  }
+                                }
+                              : null,
+                        ),
                       );
                     }).toList(),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Bitrate Selection
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Bitrate: $_selectedBitrate kbps',
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  Slider(
-                    value: _selectedBitrate.toDouble(),
-                    min: 64,
-                    max: 320,
-                    divisions: 8,
-                    label: '$_selectedBitrate kbps',
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedBitrate = value.toInt();
-                      });
-                    },
-                  ),
-                  const Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('64 kbps\n(Low)', textAlign: TextAlign.center),
-                      Text('192 kbps\n(Default)', textAlign: TextAlign.center),
-                      Text('320 kbps\n(High)', textAlign: TextAlign.center),
-                    ],
                   ),
                 ],
               ),

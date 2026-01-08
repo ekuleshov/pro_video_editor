@@ -115,7 +115,7 @@ void main() {
     (tester) async {
       // Use platform-specific format
       final format = Platform.isAndroid ? AudioFormat.mp3 : AudioFormat.m4a;
-      
+
       final directory = await getTemporaryDirectory();
       final outputPath =
           '${directory.path}/test_audio_progress_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';
@@ -161,7 +161,7 @@ void main() {
     (tester) async {
       // Use platform-specific format
       final format = Platform.isAndroid ? AudioFormat.mp3 : AudioFormat.m4a;
-      
+
       final directory = await getTemporaryDirectory();
       final outputPath =
           '${directory.path}/test_audio_cancel_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';
@@ -205,7 +205,7 @@ void main() {
     (tester) async {
       // Use platform-specific format
       final format = Platform.isAndroid ? AudioFormat.mp3 : AudioFormat.m4a;
-      
+
       final directory = await getTemporaryDirectory();
       final outputPath =
           '${directory.path}/test_audio_invalid_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';

@@ -32,6 +32,11 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
 
+  // Audio track check states
+  bool? _hasAudioTrack;
+  bool? _mutedVideoHasAudio;
+  bool _isCheckingAudio = false;
+
   @override
   void initState() {
     super.initState();
@@ -156,6 +161,54 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
     });
   }
 
+  Future<void> _checkAudioTrack() async {
+    setState(() {
+      _isCheckingAudio = true;
+      _hasAudioTrack = null;
+      _mutedVideoHasAudio = null;
+    });
+
+    try {
+      // Check if the demo video has audio
+      final videoWithAudio = EditorVideo.asset(kVideoEditorExampleAssetPath);
+      final hasAudio = await ProVideoEditor.instance.hasAudioTrack(videoWithAudio);
+
+      // Check if the muted video has audio
+      final mutedVideo = EditorVideo.asset('assets/demo_muted.mp4');
+      final mutedHasAudio = await ProVideoEditor.instance.hasAudioTrack(mutedVideo);
+
+      setState(() {
+        _hasAudioTrack = hasAudio;
+        _mutedVideoHasAudio = mutedHasAudio;
+        _isCheckingAudio = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Demo video has audio: $hasAudio\nMuted video has audio: $mutedHasAudio',
+            ),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isCheckingAudio = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error checking audio track: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final minutes = twoDigits(duration.inMinutes.remainder(60));
@@ -224,6 +277,101 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
                       );
                     }).toList(),
                   ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Audio Track Check Section
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Audio Track Detection',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Check if videos have audio tracks before extraction',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Check Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _isCheckingAudio ? null : _checkAudioTrack,
+                      icon: _isCheckingAudio
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.music_note),
+                      label: Text(
+                        _isCheckingAudio
+                            ? 'Checking...'
+                            : 'Check Audio Tracks',
+                      ),
+                    ),
+                  ),
+                  
+                  // Results
+                  if (_hasAudioTrack != null || _mutedVideoHasAudio != null) ...[
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    if (_hasAudioTrack != null) ...[
+                      Row(
+                        children: [
+                          Icon(
+                            _hasAudioTrack! ? Icons.check_circle : Icons.cancel,
+                            color: _hasAudioTrack! ? Colors.green : Colors.red,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text('Demo video (with audio):'),
+                          ),
+                          Text(
+                            _hasAudioTrack! ? 'Has audio' : 'No audio',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: _hasAudioTrack! ? Colors.green : Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    if (_mutedVideoHasAudio != null) ...[
+                      Row(
+                        children: [
+                          Icon(
+                            _mutedVideoHasAudio! ? Icons.check_circle : Icons.cancel,
+                            color: _mutedVideoHasAudio! ? Colors.green : Colors.red,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text('Muted video (no audio):'),
+                          ),
+                          Text(
+                            _mutedVideoHasAudio! ? 'Has audio' : 'No audio',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: _mutedVideoHasAudio! ? Colors.green : Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ],
               ),
             ),

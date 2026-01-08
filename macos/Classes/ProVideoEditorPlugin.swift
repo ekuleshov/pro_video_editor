@@ -51,6 +51,9 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
         case "getMetadata":
             handleGetMetadata(call: call, result: result)
 
+        case "hasAudioTrack":
+            handleHasAudioTrack(call: call, result: result)
+
         case "getThumbnails":
             handleGetThumbnails(call: call, result: result)
 
@@ -97,6 +100,32 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
                 result(
                     FlutterError(
                         code: "METADATA_ERROR", message: error.localizedDescription,
+                        details: nil))
+            }
+        }
+    }
+
+    /// Checks if a video file has an audio track.
+    ///
+    /// Quickly inspects the video to determine if it contains at least one audio track.
+    /// This is useful to check before attempting audio extraction operations.
+    private func handleHasAudioTrack(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let config = MetadataConfig.fromArguments(call.arguments as? [String: Any]) else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Expected arguments missing",
+                    details: nil))
+            return
+        }
+
+        Task {
+            do {
+                let hasAudio = try await VideoMetadata.checkAudioTrack(inputPath: config.inputPath)
+                result(hasAudio)
+            } catch {
+                result(
+                    FlutterError(
+                        code: "AUDIO_CHECK_ERROR", message: error.localizedDescription,
                         details: nil))
             }
         }
@@ -276,7 +305,14 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
             onError: { error in
                 DispatchQueue.main.async {
                     let task = self.activeAudioTasks.removeValue(forKey: id)
-                    let code = (task?.isCanceled == true) ? "CANCELED" : "EXTRACT_ERROR"
+                    let code: String
+                    if task?.isCanceled == true {
+                        code = "CANCELED"
+                    } else if error is NoAudioTrackException {
+                        code = "NO_AUDIO"
+                    } else {
+                        code = "EXTRACT_ERROR"
+                    }
                     let flutterError = FlutterError(
                         code: code,
                         message: error.localizedDescription,

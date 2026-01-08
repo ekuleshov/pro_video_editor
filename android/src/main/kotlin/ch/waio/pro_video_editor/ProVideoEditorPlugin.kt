@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import ch.waio.pro_video_editor.src.features.audio.ExtractAudio
+import ch.waio.pro_video_editor.src.features.audio.NoAudioTrackException
 import ch.waio.pro_video_editor.src.features.audio.models.AudioExtractConfig
 import ch.waio.pro_video_editor.src.features.audio.models.AudioExtractTask
 import ch.waio.pro_video_editor.src.features.metadata.Metadata
@@ -111,6 +112,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
         when (call.method) {
             "getPlatformVersion" -> handleGetPlatformVersion(result)
             "getMetadata" -> handleGetMetadata(call, result)
+            "hasAudioTrack" -> handleHasAudioTrack(call, result)
             "getThumbnails" -> handleGetThumbnails(call, result)
             "renderVideo" -> handleRenderVideo(call, result)
             "extractAudio" -> handleExtractAudio(call, result)
@@ -145,6 +147,33 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                 onError = { error ->
                     mainHandler.post {
                         result.error("METADATA_ERROR", error.message, null)
+                    }
+                }
+            )
+        } catch (e: IllegalArgumentException) {
+            result.error("INVALID_ARGUMENTS", e.message, null)
+        }
+    }
+
+    /**
+     * Checks if a video file has an audio track.
+     *
+     * Quickly inspects the video to determine if it contains at least one audio track.
+     * This is useful to check before attempting audio extraction operations.
+     */
+    private fun handleHasAudioTrack(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val config = MetadataConfig.fromMethodCall(call)
+            metadata.hasAudioTrack(
+                config = config,
+                onComplete = { hasAudio ->
+                    mainHandler.post {
+                        result.success(hasAudio)
+                    }
+                },
+                onError = { error ->
+                    mainHandler.post {
+                        result.error("AUDIO_CHECK_ERROR", error.message, null)
                     }
                 }
             )
@@ -297,10 +326,10 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                     Log.e("ExtractAudio", "Error extracting audio: ${error.message}")
                     mainHandler.post {
                         val removedTask = activeAudioTasks.remove(id)
-                        val code = if (removedTask?.canceled?.get() == true) {
-                            "CANCELED"
-                        } else {
-                            "EXTRACT_ERROR"
+                        val code = when {
+                            removedTask?.canceled?.get() == true -> "CANCELED"
+                            error is NoAudioTrackException -> "NO_AUDIO"
+                            else -> "EXTRACT_ERROR"
                         }
                         removedTask?.sendError(code, error.message)
                     }

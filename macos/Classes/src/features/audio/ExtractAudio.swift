@@ -2,6 +2,21 @@ import AVFoundation
 import Foundation
 import FlutterMacOS
 
+/// Exception thrown when no audio track is found in the video file.
+class NoAudioTrackException: NSError {
+    init() {
+        super.init(
+            domain: "ExtractAudio",
+            code: -2,
+            userInfo: [NSLocalizedDescriptionKey: "No audio track found in video"]
+        )
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
 /// Service for extracting audio from video files using AVFoundation.
 ///
 /// This class handles the audio extraction pipeline:
@@ -87,11 +102,7 @@ class ExtractAudio {
                 // Configure to export only audio tracks
                 let audioTracks = asset.tracks(withMediaType: .audio)
                 guard !audioTracks.isEmpty else {
-                    throw NSError(
-                        domain: "ExtractAudio",
-                        code: -2,
-                        userInfo: [NSLocalizedDescriptionKey: "No audio track found in video"]
-                    )
+                    throw NoAudioTrackException()
                 }
                 
                 // Apply time range if trimming is requested

@@ -166,6 +166,32 @@ class VideoMetadata {
         ]
     }
 
+    // MARK: - Audio Track Check
+    
+    /// Asynchronously checks if a video file has an audio track.
+    ///
+    /// This method inspects the video file to determine if it contains at least
+    /// one audio track. This is useful to check before attempting audio extraction
+    /// operations to avoid errors.
+    ///
+    /// - Parameter inputPath: The absolute file path to the video file
+    /// - Returns: `true` if the video has at least one audio track, `false` otherwise
+    /// - Throws: Error if the file cannot be accessed or check fails
+    static func checkAudioTrack(inputPath: String) async throws -> Bool {
+        let tempFileURL = URL(fileURLWithPath: inputPath)
+        let asset = AVURLAsset(url: tempFileURL)
+        
+        // Check for audio tracks
+        if #available(iOS 15.0, *) {
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            return !audioTracks.isEmpty
+        } else {
+            // Fallback for iOS versions before 15.0
+            let audioTracks = asset.tracks(withMediaType: .audio)
+            return !audioTracks.isEmpty
+        }
+    }
+
     // MARK: - Helper Methods
     
     /// Asynchronously loads a string value from metadata items by key.

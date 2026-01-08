@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mime/mime.dart';
+import 'package:pro_video_editor/core/models/exceptions/audio_exceptions.dart';
 
 import '/core/models/audio/audio_extract_configs_model.dart';
 import '/core/models/exceptions/render_exceptions.dart';
@@ -36,6 +37,13 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   /// This is thrown as a [PlatformException] code and converted to
   /// [RenderCanceledException] for cleaner error handling.
   static const String renderCanceledErrorCode = 'CANCELED';
+
+  /// Error code used when a video has no audio track.
+  ///
+  /// This is thrown as a [PlatformException] code during audio extraction
+  /// operations and converted to [AudioNoTrackException] for cleaner
+  /// error handling.
+  static const String noAudioErrorCode = 'NO_AUDIO';
 
   /// Primary method channel for bidirectional communication with native code.
   ///
@@ -71,6 +79,21 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
             {};
 
     return VideoMetadata.fromMap(response, extension);
+  }
+
+  @override
+  Future<bool> hasAudioTrack(EditorVideo value) async {
+    var inputPath = await value.safeFilePath();
+
+    final result = await methodChannel.invokeMethod<bool>(
+      'hasAudioTrack',
+      {
+        'inputPath': inputPath,
+        'extension': _getFileExtension(inputPath),
+      },
+    );
+
+    return result ?? false;
   }
 
   Future<List<Uint8List>> _extractThumbnails(ThumbnailBase value) async {
@@ -119,7 +142,9 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
 
       return result;
     } on PlatformException catch (error) {
-      if (error.code == renderCanceledErrorCode) {
+      if (error.code == noAudioErrorCode) {
+        throw const AudioNoTrackException();
+      } else if (error.code == renderCanceledErrorCode) {
         throw const RenderCanceledException();
       }
       rethrow;
@@ -146,8 +171,9 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
 
       return filePath;
     } on PlatformException catch (error) {
-      debugPrint(error.toString());
-      if (error.code == renderCanceledErrorCode) {
+      if (error.code == noAudioErrorCode) {
+        throw const AudioNoTrackException();
+      } else if (error.code == renderCanceledErrorCode) {
         throw const RenderCanceledException();
       }
       rethrow;

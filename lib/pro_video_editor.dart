@@ -11,6 +11,7 @@ export 'core/models/video/video_metadata_model.dart';
 export 'core/models/video/video_quality_preset.dart';
 export 'core/models/video/video_quality_config.dart';
 export 'core/models/exceptions/render_exceptions.dart';
+export 'core/models/exceptions/audio_exceptions.dart';
 export 'core/platform/platform_interface.dart';
 export 'shared/utils/converters.dart';
 

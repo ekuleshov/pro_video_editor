@@ -105,6 +105,40 @@ abstract class ProVideoEditor extends PlatformInterface {
     throw UnimplementedError('getMetadata() has not been implemented.');
   }
 
+  /// Checks if the given video has an audio track.
+  ///
+  /// This method allows you to verify the presence of an audio track before
+  /// attempting audio extraction, avoiding [AudioNoTrackException].
+  ///
+  /// [value] An [EditorVideo] instance that can reference:
+  /// - Local file path
+  /// - Network URL (http/https)
+  /// - Asset path
+  /// - Memory bytes (Uint8List)
+  ///
+  /// Returns `true` if the video contains at least one audio track,
+  /// `false` otherwise.
+  ///
+  /// Throws:
+  /// - [ArgumentError] if the video source is invalid
+  /// - [PlatformException] if native check fails
+  ///
+  /// Example:
+  /// ```dart
+  /// final video = EditorVideo.file('/path/to/video.mp4');
+  /// final hasAudio = await ProVideoEditor.instance.hasAudioTrack(video);
+  /// 
+  /// if (hasAudio) {
+  ///   // Safe to extract audio
+  ///   await ProVideoEditor.instance.extractAudio(config);
+  /// } else {
+  ///   print('Video has no audio track');
+  /// }
+  /// ```
+  Future<bool> hasAudioTrack(EditorVideo value) {
+    throw UnimplementedError('hasAudioTrack() has not been implemented.');
+  }
+
   /// Generates evenly distributed thumbnails from a video.
   ///
   /// Creates thumbnail images at regular intervals throughout the video

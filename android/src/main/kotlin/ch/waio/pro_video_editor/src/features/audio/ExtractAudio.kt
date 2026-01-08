@@ -15,6 +15,11 @@ import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
+ * Exception thrown when no audio track is found in the video file.
+ */
+class NoAudioTrackException(message: String) : Exception(message)
+
+/**
  * Service for extracting audio from video files.
  *
  * This class handles the audio extraction pipeline using Android MediaExtractor and MediaMuxer:
@@ -76,7 +81,7 @@ class ExtractAudio(private val context: Context) {
                 // Find audio track
                 val audioTrackIndex = findAudioTrack(extractor)
                 if (audioTrackIndex < 0) {
-                    throw IllegalArgumentException("No audio track found in video file")
+                    throw NoAudioTrackException("No audio track found in video file")
                 }
 
                 extractor.selectTrack(audioTrackIndex)

@@ -49,6 +49,32 @@ class Metadata(private val context: Context) {
     }
 
     /**
+     * Asynchronously checks if a video file has an audio track.
+     *
+     * This method runs on a background thread and quickly inspects the video
+     * to determine if it contains at least one audio track. This is useful to
+     * check before attempting audio extraction operations.
+     *
+     * @param config Configuration containing the video file path
+     * @param onComplete Callback invoked with result: true if audio track exists, false otherwise
+     * @param onError Callback invoked with exception if check fails
+     */
+    fun hasAudioTrack(
+        config: MetadataConfig,
+        onComplete: (Boolean) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        scope.launch {
+            try {
+                val result = checkAudioTrack(config)
+                onComplete(result)
+            } catch (e: Exception) {
+                onError(e)
+            }
+        }
+    }
+
+    /**
      * Internal method that performs the actual metadata extraction.
      *
      * Uses Android's MediaMetadataRetriever to extract both numeric and text-based
@@ -110,6 +136,32 @@ class Metadata(private val context: Context) {
             }
 
             return metadata
+        } finally {
+            // Always release the retriever to free native resources
+            retriever.release()
+        }
+    }
+
+    /**
+     * Internal method that checks if a video file has an audio track.
+     *
+     * Uses Android's MediaMetadataRetriever to check if the video contains
+     * at least one audio track by inspecting the "has-audio" metadata key.
+     *
+     * @param config Configuration containing the video file path
+     * @return true if the video has an audio track, false otherwise
+     * @throws Exception if the file cannot be accessed or check fails
+     */
+    private fun checkAudioTrack(config: MetadataConfig): Boolean {
+        val tempFile = File(config.inputPath)
+        val retriever = MediaMetadataRetriever()
+
+        try {
+            retriever.setDataSource(tempFile.absolutePath)
+
+            // Check if video has audio track
+            val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
+            return hasAudio == "yes"
         } finally {
             // Always release the retriever to free native resources
             retriever.release()

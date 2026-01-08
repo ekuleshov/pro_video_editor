@@ -61,6 +61,12 @@ class ProVideoEditorWeb extends ProVideoEditor {
   }
 
   @override
+  Future<bool> hasAudioTrack(EditorVideo value) {
+    throw UnimplementedError(
+        'hasAudioTrack() has not been implemented on web.');
+  }
+
+  @override
   Future<List<Uint8List>> getThumbnails(ThumbnailConfigs value) {
     return _manager.getThumbnails(
       value,

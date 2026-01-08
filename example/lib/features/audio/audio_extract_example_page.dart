@@ -171,11 +171,13 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
     try {
       // Check if the demo video has audio
       final videoWithAudio = EditorVideo.asset(kVideoEditorExampleAssetPath);
-      final hasAudio = await ProVideoEditor.instance.hasAudioTrack(videoWithAudio);
+      final hasAudio =
+          await ProVideoEditor.instance.hasAudioTrack(videoWithAudio);
 
       // Check if the muted video has audio
       final mutedVideo = EditorVideo.asset('assets/demo_muted.mp4');
-      final mutedHasAudio = await ProVideoEditor.instance.hasAudioTrack(mutedVideo);
+      final mutedHasAudio =
+          await ProVideoEditor.instance.hasAudioTrack(mutedVideo);
 
       setState(() {
         _hasAudioTrack = hasAudio;
@@ -300,7 +302,7 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // Check Button
                   SizedBox(
                     width: double.infinity,
@@ -314,15 +316,14 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
                             )
                           : const Icon(Icons.music_note),
                       label: Text(
-                        _isCheckingAudio
-                            ? 'Checking...'
-                            : 'Check Audio Tracks',
+                        _isCheckingAudio ? 'Checking...' : 'Check Audio Tracks',
                       ),
                     ),
                   ),
-                  
+
                   // Results
-                  if (_hasAudioTrack != null || _mutedVideoHasAudio != null) ...[
+                  if (_hasAudioTrack != null ||
+                      _mutedVideoHasAudio != null) ...[
                     const SizedBox(height: 16),
                     const Divider(),
                     const SizedBox(height: 8),
@@ -342,7 +343,8 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
                             _hasAudioTrack! ? 'Has audio' : 'No audio',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: _hasAudioTrack! ? Colors.green : Colors.red,
+                              color:
+                                  _hasAudioTrack! ? Colors.green : Colors.red,
                             ),
                           ),
                         ],
@@ -353,8 +355,12 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
                       Row(
                         children: [
                           Icon(
-                            _mutedVideoHasAudio! ? Icons.check_circle : Icons.cancel,
-                            color: _mutedVideoHasAudio! ? Colors.green : Colors.red,
+                            _mutedVideoHasAudio!
+                                ? Icons.check_circle
+                                : Icons.cancel,
+                            color: _mutedVideoHasAudio!
+                                ? Colors.green
+                                : Colors.red,
                             size: 20,
                           ),
                           const SizedBox(width: 8),
@@ -365,7 +371,9 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
                             _mutedVideoHasAudio! ? 'Has audio' : 'No audio',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: _mutedVideoHasAudio! ? Colors.green : Colors.red,
+                              color: _mutedVideoHasAudio!
+                                  ? Colors.green
+                                  : Colors.red,
                             ),
                           ),
                         ],

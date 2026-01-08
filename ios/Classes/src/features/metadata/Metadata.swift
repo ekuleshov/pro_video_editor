@@ -50,6 +50,23 @@ class VideoMetadata {
         }
         let durationMs = CMTimeGetSeconds(duration) * 1000.0
 
+        // MARK: - Audio Track Duration
+        
+        // Extract audio track duration if present
+        var audioDurationMs: Double? = nil
+        if #available(iOS 15.0, *) {
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            if let audioTrack = audioTracks.first {
+                let audioTimeRange = try await audioTrack.load(.timeRange)
+                audioDurationMs = CMTimeGetSeconds(audioTimeRange.duration) * 1000.0
+            }
+        } else {
+            // Fallback for iOS versions before 15.0
+            if let audioTrack = asset.tracks(withMediaType: .audio).first {
+                audioDurationMs = CMTimeGetSeconds(audioTrack.timeRange.duration) * 1000.0
+            }
+        }
+
         // MARK: - Video Track Properties
         
         // Initialize numeric properties with default values
@@ -150,7 +167,7 @@ class VideoMetadata {
         // MARK: - Return Metadata Dictionary
         
         // Compile all extracted metadata into a dictionary for Flutter
-        return [
+        var metadataDict: [String: Any] = [
             "fileSize": fileSize,                                   // File size in bytes
             "duration": durationMs,                                 // Duration in milliseconds
             "width": numericMetadata["width"] ?? 0,                 // Video width in pixels
@@ -164,6 +181,13 @@ class VideoMetadata {
             "albumArtist": textMetadata["albumArtist"] ?? "",       // Album artist metadata
             "date": dateStr,                                        // Creation date in ISO8601 format
         ]
+        
+        // Add audio duration if present
+        if let audioDuration = audioDurationMs {
+            metadataDict["audioDuration"] = audioDuration
+        }
+        
+        return metadataDict
     }
 
     // MARK: - Audio Track Check

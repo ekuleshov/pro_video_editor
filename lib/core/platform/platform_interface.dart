@@ -127,7 +127,7 @@ abstract class ProVideoEditor extends PlatformInterface {
   /// ```dart
   /// final video = EditorVideo.file('/path/to/video.mp4');
   /// final hasAudio = await ProVideoEditor.instance.hasAudioTrack(video);
-  /// 
+  ///
   /// if (hasAudio) {
   ///   // Safe to extract audio
   ///   await ProVideoEditor.instance.extractAudio(config);

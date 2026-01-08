@@ -65,6 +65,12 @@ class _VideoMetadataExamplePageState extends State<VideoMetadataExamplePage> {
         _buildMetadataRow('Resolution:', meta.resolution.toString()),
         _buildMetadataRow('Rotation:', '${meta.rotation}°'),
         _buildMetadataRow('Duration:', '${meta.duration.inSeconds}s'),
+        _buildMetadataRow(
+          'Audio Duration:',
+          meta.audioDuration != null
+              ? '${meta.audioDuration!.inSeconds}s'
+              : 'No audio track',
+        ),
         _buildMetadataRow('Bitrate:', _numberFormatter.format(meta.bitrate)),
         _buildMetadataRow('Date:', meta.date.toString()),
         _buildMetadataRow('Title:', meta.title),

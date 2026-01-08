@@ -1,6 +1,8 @@
 package ch.waio.pro_video_editor.src.features.metadata
 
 import android.content.Context
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import ch.waio.pro_video_editor.src.features.metadata.models.MetadataConfig
 import kotlinx.coroutines.CoroutineScope
@@ -119,6 +121,16 @@ class Metadata(private val context: Context) {
                 }
             }
 
+            // Extract audio track duration if audio track exists
+            val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
+            if (hasAudio == "yes") {
+                // Extract actual audio track duration using MediaExtractor
+                val audioDuration = extractAudioDuration(tempFile.absolutePath)
+                if (audioDuration != null) {
+                    metadata["audioDuration"] = audioDuration
+                }
+            }
+
             // Define text metadata keys mapping
             // These values are returned as-is (String)
             val textMetadata = mapOf(
@@ -165,6 +177,43 @@ class Metadata(private val context: Context) {
         } finally {
             // Always release the retriever to free native resources
             retriever.release()
+        }
+    }
+
+    /**
+     * Extracts the actual audio track duration using MediaExtractor.
+     *
+     * This method provides more accurate audio duration compared to the overall
+     * video duration, especially when the audio track is shorter than the video.
+     *
+     * @param filePath Absolute path to the video file
+     * @return Audio duration in milliseconds, or null if no audio track is found
+     */
+    private fun extractAudioDuration(filePath: String): Double? {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(filePath)
+            
+            // Find the audio track
+            for (i in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(i)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+                
+                if (mime.startsWith("audio/")) {
+                    // Extract duration from audio track format
+                    if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                        val durationUs = format.getLong(MediaFormat.KEY_DURATION)
+                        // Convert microseconds to milliseconds
+                        return durationUs / 1000.0
+                    }
+                }
+            }
+            
+            return null
+        } catch (e: Exception) {
+            return null
+        } finally {
+            extractor.release()
         }
     }
 

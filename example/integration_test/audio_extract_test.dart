@@ -17,6 +17,21 @@ void main() {
   // Audio extraction is not supported on Web, Windows, and Linux yet
   final skipPlatform = kIsWeb || isWindows || isLinux;
 
+  /// Helper to check if a format is supported on current platform
+  bool isFormatSupported(AudioFormat format) {
+    if (kIsWeb) return false;
+
+    switch (format) {
+      case AudioFormat.mp3:
+        return Platform.isAndroid; // MP3 only on Android
+      case AudioFormat.aac:
+      case AudioFormat.m4a:
+        return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+      case AudioFormat.caf:
+        return Platform.isIOS || Platform.isMacOS; // CAF only on Apple
+    }
+  }
+
   for (final format in AudioFormat.values) {
     testWidgets(
       'extractAudio with $format returns valid audio file',
@@ -50,7 +65,7 @@ void main() {
         // Clean up
         await file.delete();
       },
-      skip: skipPlatform,
+      skip: skipPlatform || !isFormatSupported(format),
     );
 
     testWidgets(
@@ -91,20 +106,23 @@ void main() {
         // Clean up
         await file.delete();
       },
-      skip: skipPlatform,
+      skip: skipPlatform || !isFormatSupported(format),
     );
   }
 
   testWidgets(
     'extractAudio emits progress updates',
     (tester) async {
+      // Use platform-specific format
+      final format = Platform.isAndroid ? AudioFormat.mp3 : AudioFormat.m4a;
+      
       final directory = await getTemporaryDirectory();
       final outputPath =
-          '${directory.path}/test_audio_progress_${DateTime.now().millisecondsSinceEpoch}.mp3';
+          '${directory.path}/test_audio_progress_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';
 
       final config = AudioExtractConfigs(
         video: testVideo,
-        format: AudioFormat.mp3,
+        format: format,
       );
 
       final progressValues = <double>[];
@@ -141,13 +159,16 @@ void main() {
   testWidgets(
     'extractAudio can be cancelled',
     (tester) async {
+      // Use platform-specific format
+      final format = Platform.isAndroid ? AudioFormat.mp3 : AudioFormat.m4a;
+      
       final directory = await getTemporaryDirectory();
       final outputPath =
-          '${directory.path}/test_audio_cancel_${DateTime.now().millisecondsSinceEpoch}.mp3';
+          '${directory.path}/test_audio_cancel_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';
 
       final config = AudioExtractConfigs(
         video: testVideo,
-        format: AudioFormat.mp3,
+        format: format,
       );
 
       // Start extraction
@@ -180,61 +201,19 @@ void main() {
   );
 
   testWidgets(
-    'extractAudio with different bitrates produces different file sizes',
-    (tester) async {
-      final directory = await getTemporaryDirectory();
-
-      // Extract with low bitrate
-      final lowBitratePath =
-          '${directory.path}/test_audio_low_${DateTime.now().millisecondsSinceEpoch}.mp3';
-      final lowConfig = AudioExtractConfigs(
-        video: testVideo,
-        format: AudioFormat.mp3,
-      );
-      await ProVideoEditor.instance
-          .extractAudioToFile(lowBitratePath, lowConfig);
-      final lowFile = File(lowBitratePath);
-      final lowSize = await lowFile.length();
-
-      // Extract with high bitrate
-      final highBitratePath =
-          '${directory.path}/test_audio_high_${DateTime.now().millisecondsSinceEpoch}.mp3';
-      final highConfig = AudioExtractConfigs(
-        video: testVideo,
-        format: AudioFormat.mp3,
-      );
-      await ProVideoEditor.instance
-          .extractAudioToFile(highBitratePath, highConfig);
-      final highFile = File(highBitratePath);
-      final highSize = await highFile.length();
-
-      // Higher bitrate should produce larger file
-      // Note: Due to remuxing without re-encoding, the actual file sizes
-      // might be similar since we're just copying the audio track.
-      // This test validates that both extractions complete successfully.
-      expect(lowSize, greaterThan(1000),
-          reason: 'Low bitrate file should have content');
-      expect(highSize, greaterThan(1000),
-          reason: 'High bitrate file should have content');
-
-      // Clean up
-      await lowFile.delete();
-      await highFile.delete();
-    },
-    skip: skipPlatform,
-  );
-
-  testWidgets(
     'extractAudio handles invalid time ranges gracefully',
     (tester) async {
+      // Use platform-specific format
+      final format = Platform.isAndroid ? AudioFormat.mp3 : AudioFormat.m4a;
+      
       final directory = await getTemporaryDirectory();
       final outputPath =
-          '${directory.path}/test_audio_invalid_${DateTime.now().millisecondsSinceEpoch}.mp3';
+          '${directory.path}/test_audio_invalid_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';
 
       // Try to extract with start time after end time
       final config = AudioExtractConfigs(
         video: testVideo,
-        format: AudioFormat.mp3,
+        format: format,
         startTime: const Duration(seconds: 20),
         endTime: const Duration(seconds: 10),
       );

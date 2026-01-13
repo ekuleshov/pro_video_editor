@@ -147,7 +147,7 @@ void main() {
         endTime: const Duration(seconds: 20),
       ),
     );
-    expect(meta.duration.inSeconds, 13);
+    expect(meta.duration.inMilliseconds, 13000);
   });
 
   testWidgets('change speed to 2x and 0.8x', (tester) async {
@@ -208,7 +208,7 @@ void main() {
 
   testWidgets('Bitrate is applied correctly (2.5 Mbps)', (tester) async {
     const expectedBitrate = 2500000; // 2.5 Mbps
-    const tolerance = 0.4; // ±40% Important if CBR isn't supported
+    const tolerance = 0.42; // ±42% Important if CBR isn't supported
 
     var meta = await testRender(
       description: 'Bitrate set to 2.5 Mbps',

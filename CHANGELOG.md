@@ -1,3 +1,6 @@
+## 1.2.2
+- **FIX**(trim): Improved global trim precision by adding frame compensation to prevent encoder overshoot.
+
 ## 1.2.1
 - **CHORE**: Adjusted code style to comply with lint rules.
 

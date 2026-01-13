@@ -105,6 +105,9 @@ void main() {
     });
 
     await action();
+
+    /// Give the stream time to emit the final progress value on iOS/macOS.
+    await Future<void>.delayed(const Duration(milliseconds: 100));
     await sub.cancel();
 
     reasonPrefix ??= 'Progress';

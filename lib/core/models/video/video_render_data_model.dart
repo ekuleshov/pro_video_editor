@@ -318,6 +318,11 @@ class VideoRenderData {
       'customAudioPath': customAudioPath,
       'originalAudioVolume': originalAudioVolume,
       'customAudioVolume': customAudioVolume,
+      // Global trim for entire composition (only for videoSegments,
+      // not single video). For single video, startTime/endTime are already
+      // applied to the clip itself
+      'startUs': videoSegments != null ? startTime?.inMicroseconds : null,
+      'endUs': videoSegments != null ? endTime?.inMicroseconds : null,
     };
   }
 

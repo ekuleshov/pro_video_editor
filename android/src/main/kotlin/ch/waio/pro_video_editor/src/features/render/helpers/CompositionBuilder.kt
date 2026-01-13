@@ -71,6 +71,7 @@ class CompositionBuilder(
             .setImageLayer(config.imageBytes, config.scaleX, config.scaleY)
             .setEnableAudio(config.enableAudio)
             .setOriginalAudioVolume(config.originalAudioVolume)
+            .setGlobalTrim(config.startUs, config.endUs)
 
         // Detect if audio normalization is needed
         val needsNormalization = videoBuilder.detectAudioNormalizationNeeded()

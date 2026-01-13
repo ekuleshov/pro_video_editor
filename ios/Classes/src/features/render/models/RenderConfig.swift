@@ -70,6 +70,12 @@ struct RenderConfig {
     /// Volume for custom audio track (0.0-1.0, nil = 1.0)
     let customAudioVolume: Float?
     
+    /// Global start time in microseconds for trimming the final composition
+    let startUs: Int64?
+    
+    /// Global end time in microseconds for trimming the final composition
+    let endUs: Int64?
+    
     /// Creates a RenderConfig from Flutter method call arguments.
     ///
     /// - Parameter arguments: Dictionary containing the method call arguments
@@ -140,7 +146,9 @@ struct RenderConfig {
             blur: (args["blur"] as? NSNumber)?.doubleValue,
             customAudioPath: args["customAudioPath"] as? String,
             originalAudioVolume: (args["originalAudioVolume"] as? NSNumber)?.floatValue,
-            customAudioVolume: (args["customAudioVolume"] as? NSNumber)?.floatValue
+            customAudioVolume: (args["customAudioVolume"] as? NSNumber)?.floatValue,
+            startUs: (args["startUs"] as? NSNumber)?.int64Value,
+            endUs: (args["endUs"] as? NSNumber)?.int64Value
         )
     }
 }

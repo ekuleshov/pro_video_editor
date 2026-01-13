@@ -339,10 +339,17 @@ class VideoSequenceBuilder(
         if (clip.startUs != null || clip.endUs != null) {
             val startMs = (clip.startUs ?: 0L) / 1000
             val endMs = clip.endUs?.div(1000) ?: C.TIME_END_OF_SOURCE
+            val expectedDurationMs = if (clip.endUs != null && clip.startUs != null) {
+                (clip.endUs - clip.startUs) / 1000
+            } else if (clip.endUs != null) {
+                clip.endUs / 1000
+            } else {
+                -1L
+            }
 
             Log.d(
                 RENDER_TAG,
-                "Applying trim to clip ${clip.inputPath}: start=$startMs ms, end=$endMs ms"
+                "Applying trim to clip ${clip.inputPath}: start=$startMs ms, end=$endMs ms, expectedDuration=$expectedDurationMs ms"
             )
 
             val clippingConfig = MediaItem.ClippingConfiguration.Builder()
@@ -478,7 +485,13 @@ class VideoSequenceBuilder(
                 if (clipEndInComposition > globalEnd) {
                     val offsetUs = clipEndInComposition - globalEnd
                     newEndInSource = clipEndInSource - offsetUs
-                    Log.d(RENDER_TAG, "Adjusting clip end by ${offsetUs / 1000}ms")
+                    
+                    // Subtract ~1 frame (33ms for 30fps) to ensure encoder doesn't overshoot
+                    // This compensates for encoder rounding to next frame/audio sample boundary
+                    val frameCompensationUs = 33333L // ~33ms = 1 frame at 30fps
+                    newEndInSource = maxOf(newStartInSource, newEndInSource - frameCompensationUs)
+                    
+                    Log.d(RENDER_TAG, "Adjusting clip end by ${offsetUs / 1000}ms (with frame compensation)")
                 }
 
                 // Only add if there's still content left
@@ -488,12 +501,21 @@ class VideoSequenceBuilder(
                         startUs = newStartInSource,
                         endUs = newEndInSource
                     ))
-                    Log.d(RENDER_TAG, "Added trimmed clip: start=${newStartInSource / 1000}ms, end=${newEndInSource / 1000}ms")
+                    val trimmedDuration = newEndInSource - newStartInSource
+                    Log.d(RENDER_TAG, "Added trimmed clip: start=${newStartInSource / 1000}ms, end=${newEndInSource / 1000}ms, duration=${trimmedDuration / 1000}ms")
                 }
             }
 
             compositionTimeUs += clipDurationUs
         }
+
+        // Log total duration after global trim
+        val totalTrimmedDuration = result.sumOf { clip ->
+            val start = clip.startUs ?: 0L
+            val end = clip.endUs ?: 0L
+            end - start
+        }
+        Log.d(RENDER_TAG, "Total duration after global trim: ${totalTrimmedDuration / 1000}ms (target: ${globalEndUs?.minus(globalStartUs ?: 0L)?.div(1000)}ms)")
 
         return result
     }

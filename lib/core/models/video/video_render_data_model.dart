@@ -318,6 +318,9 @@ class VideoRenderData {
       'customAudioPath': customAudioPath,
       'originalAudioVolume': originalAudioVolume,
       'customAudioVolume': customAudioVolume,
+      // Global trim for entire composition (applied after all clips are merged)
+      'startUs': startTime?.inMicroseconds,
+      'endUs': endTime?.inMicroseconds,
     };
   }
 

@@ -194,7 +194,9 @@ class RenderVideo {
                         audioMix: audioMix,
                         outputURL: outputURL,
                         outputFormat: config.outputFormat,
-                        preset: preset
+                        preset: preset,
+                        startUs: config.startUs,
+                        endUs: config.endUs
                     )
 
                     handle.attach(export: export)
@@ -269,7 +271,9 @@ class RenderVideo {
         audioMix: AVAudioMix?,
         outputURL: URL,
         outputFormat: String,
-        preset: String
+        preset: String,
+        startUs: Int64?,
+        endUs: Int64?
     ) throws -> AVAssetExportSession {
         guard let export = AVAssetExportSession(asset: composition, presetName: preset) else {
             throw NSError(
@@ -286,6 +290,22 @@ class RenderVideo {
         export.outputURL = outputURL
         export.outputFileType = fileType
         export.videoComposition = videoComposition
+        
+        // Apply global trim (timeRange) if startUs or endUs is provided
+        if startUs != nil || endUs != nil {
+            let compositionDuration = composition.duration
+            let startTime = startUs.map { CMTime(value: $0, timescale: 1_000_000) } ?? .zero
+            let endTime = endUs.map { CMTime(value: $0, timescale: 1_000_000) } ?? compositionDuration
+            let duration = CMTimeSubtract(endTime, startTime)
+            
+            // Ensure we don't exceed composition bounds
+            let clampedDuration = CMTimeMinimum(duration, CMTimeSubtract(compositionDuration, startTime))
+            
+            if CMTimeGetSeconds(clampedDuration) > 0 {
+                export.timeRange = CMTimeRange(start: startTime, duration: clampedDuration)
+                print("   - TimeRange applied: \(String(format: "%.2f", CMTimeGetSeconds(startTime)))s - \(String(format: "%.2f", CMTimeGetSeconds(CMTimeAdd(startTime, clampedDuration))))s")
+            }
+        }
 
         // Check if composition has audio tracks
         let hasAudioTracks = (composition as? AVMutableComposition)?.tracks(withMediaType: .audio).isEmpty == false

@@ -38,7 +38,11 @@ data class RenderConfig(
     val blur: Double? = null,
     val customAudioPath: String? = null,
     val originalAudioVolume: Float? = null,
-    val customAudioVolume: Float? = null
+    val customAudioVolume: Float? = null,
+    /** Global start time in microseconds for trimming the final composition */
+    val startUs: Long? = null,
+    /** Global end time in microseconds for trimming the final composition */
+    val endUs: Long? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -113,7 +117,9 @@ data class RenderConfig(
                 blur = call.argument<Number>("blur")?.toDouble(),
                 customAudioPath = call.argument<String?>("customAudioPath"),
                 originalAudioVolume = call.argument<Number?>("originalAudioVolume")?.toFloat(),
-                customAudioVolume = call.argument<Number?>("customAudioVolume")?.toFloat()
+                customAudioVolume = call.argument<Number?>("customAudioVolume")?.toFloat(),
+                startUs = call.argument<Number?>("startUs")?.toLong(),
+                endUs = call.argument<Number?>("endUs")?.toLong()
             )
         }
     }

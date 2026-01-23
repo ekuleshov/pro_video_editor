@@ -21,6 +21,10 @@ enum AudioFormat {
   /// CAF format - Core Audio Format, Apple's flexible container.
   /// Supported on: iOS, macOS (Apple only)
   caf,
+
+  /// WAV format - uncompressed audio, high quality, large file size.
+  /// Supported on: Android, iOS, macOS
+  wav,
 }
 
 /// Extension providing utility methods for [AudioFormat].
@@ -46,6 +50,8 @@ extension AudioFormatExtension on AudioFormat {
         return 'm4a';
       case AudioFormat.caf:
         return 'caf';
+      case AudioFormat.wav:
+        return 'wav';
     }
   }
 
@@ -60,6 +66,8 @@ extension AudioFormatExtension on AudioFormat {
         return 'audio/mp4';
       case AudioFormat.caf:
         return 'audio/x-caf';
+      case AudioFormat.wav:
+        return 'audio/wav';
     }
   }
 
@@ -74,6 +82,8 @@ extension AudioFormatExtension on AudioFormat {
         return 'm4a';
       case AudioFormat.caf:
         return 'caf';
+      case AudioFormat.wav:
+        return 'wav';
     }
   }
 }

@@ -230,6 +230,7 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
         return Platform.isAndroid;
       case AudioFormat.aac:
       case AudioFormat.m4a:
+      case AudioFormat.wav:
         // AAC and M4A supported on all platforms
         return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
       case AudioFormat.caf:

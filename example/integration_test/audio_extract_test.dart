@@ -26,6 +26,7 @@ void main() {
         return Platform.isAndroid; // MP3 only on Android
       case AudioFormat.aac:
       case AudioFormat.m4a:
+      case AudioFormat.wav:
         return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
       case AudioFormat.caf:
         return Platform.isIOS || Platform.isMacOS; // CAF only on Apple

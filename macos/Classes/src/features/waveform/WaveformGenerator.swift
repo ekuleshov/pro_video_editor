@@ -41,6 +41,37 @@ class WaveformGenerator {
                 let sourceURL = URL(fileURLWithPath: config.inputPath)
                 let asset = AVURLAsset(url: sourceURL)
                 
+                // Wait for tracks to be loaded
+                let semaphore = DispatchSemaphore(value: 0)
+                var loadError: Error?
+                
+                asset.loadValuesAsynchronously(forKeys: ["tracks", "duration", "playable"]) {
+                    var error: NSError?
+                    let tracksStatus = asset.statusOfValue(forKey: "tracks", error: &error)
+                    let durationStatus = asset.statusOfValue(forKey: "duration", error: nil)
+                    
+                    if tracksStatus == .failed {
+                        loadError = error ?? NSError(
+                            domain: "WaveformGenerator",
+                            code: -10,
+                            userInfo: [NSLocalizedDescriptionKey: "Failed to load tracks"]
+                        )
+                    } else if durationStatus == .failed {
+                        loadError = NSError(
+                            domain: "WaveformGenerator",
+                            code: -10,
+                            userInfo: [NSLocalizedDescriptionKey: "Failed to load duration"]
+                        )
+                    }
+                    semaphore.signal()
+                }
+                
+                semaphore.wait()
+                
+                if let error = loadError {
+                    throw error
+                }
+                
                 // Get audio track
                 let audioTracks = asset.tracks(withMediaType: .audio)
                 guard let audioTrack = audioTracks.first else {

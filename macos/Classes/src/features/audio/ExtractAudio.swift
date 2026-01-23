@@ -84,6 +84,30 @@ class ExtractAudio {
                 let sourceURL = URL(fileURLWithPath: config.inputPath)
                 let asset = AVURLAsset(url: sourceURL)
                 
+                // Wait for tracks to be loaded
+                let loadSemaphore = DispatchSemaphore(value: 0)
+                var loadError: Error?
+                
+                asset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) {
+                    let tracksStatus = asset.statusOfValue(forKey: "tracks", error: nil)
+                    let durationStatus = asset.statusOfValue(forKey: "duration", error: nil)
+                    
+                    if tracksStatus == .failed || durationStatus == .failed {
+                        loadError = NSError(
+                            domain: "ExtractAudio",
+                            code: -10,
+                            userInfo: [NSLocalizedDescriptionKey: "Failed to load asset properties"]
+                        )
+                    }
+                    loadSemaphore.signal()
+                }
+                
+                loadSemaphore.wait()
+                
+                if let error = loadError {
+                    throw error
+                }
+                
                 // Determine output file location
                 let outputURL: URL
                 if let outputPath = config.outputPath {
@@ -280,6 +304,30 @@ class ExtractAudio {
                 // Load source video asset
                 let sourceURL = URL(fileURLWithPath: config.inputPath)
                 let asset = AVURLAsset(url: sourceURL)
+                
+                // Wait for tracks to be loaded
+                let loadSemaphore = DispatchSemaphore(value: 0)
+                var loadError: Error?
+                
+                asset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) {
+                    let tracksStatus = asset.statusOfValue(forKey: "tracks", error: nil)
+                    let durationStatus = asset.statusOfValue(forKey: "duration", error: nil)
+                    
+                    if tracksStatus == .failed || durationStatus == .failed {
+                        loadError = NSError(
+                            domain: "ExtractAudio",
+                            code: -10,
+                            userInfo: [NSLocalizedDescriptionKey: "Failed to load asset properties"]
+                        )
+                    }
+                    loadSemaphore.signal()
+                }
+                
+                loadSemaphore.wait()
+                
+                if let error = loadError {
+                    throw error
+                }
                 
                 // Determine output file location
                 let outputURL: URL

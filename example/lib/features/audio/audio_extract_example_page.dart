@@ -228,7 +228,7 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
 
     try {
       final config = WaveformConfigs(
-        video: EditorVideo.asset(kVideoEditorExampleAudio1Path),
+        video: EditorVideo.asset('assets/tests/test_4k_a.mp4'),
         resolution: _selectedResolution,
         id: _waveformTaskId,
       );

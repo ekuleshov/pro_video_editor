@@ -109,6 +109,7 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 - 🔗 **Merge Videos**: Concatenate multiple video clips into a single output.
 - ⏩ **Playback Speed**: Adjust the playback speed of the video.
 - 🔇 **Mute Audio**: Remove or mute the audio track from the video.
+- 📊 **Waveform**: Generate audio waveform data for visualization, with support for streaming mode.
 
 #### 🔧 **Transformations**
 - ✂️ Crop by `x`, `y`, `width`, and `height`
@@ -147,6 +148,8 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 | `Custom Audio Tracks`      | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Merge Videos`             | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Extract Audio`            | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
+| `Waveform`                 | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
+| `Waveform Streaming`       | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Censor-Layers "Pixelate"` | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
 
 
@@ -291,6 +294,83 @@ StreamBuilder<ProgressModel>(
       return CircularProgressIndicator(value: progress);
     }
 )
+```
+
+#### Waveform Example
+
+Generate audio waveform data for visualization. Supports multiple resolutions and optional streaming mode for progressive UI updates.
+
+```dart
+/// Basic waveform generation
+var config = WaveformConfigs(
+    video: EditorVideo.asset('assets/video.mp4'),
+    resolution: WaveformResolution.medium, // low, medium, high, ultra
+);
+
+WaveformData waveform = await ProVideoEditor.instance.getWaveform(config);
+
+print('Samples: ${waveform.sampleCount}');
+print('Duration: ${waveform.duration}ms');
+print('Stereo: ${waveform.isStereo}');
+
+/// Use the built-in AudioWaveform widget for display
+AudioWaveform(
+    waveform: waveform,
+    style: WaveformStyle(
+        height: 100,
+        waveColor: Colors.blue,
+        backgroundColor: Colors.grey.shade900,
+    ),
+)
+
+/// Interactive waveform with seek support
+AudioWaveform.interactive(
+    waveform: waveform,
+    currentPosition: currentPosition,
+    onSeek: (position) => print('Seek to: $position'),
+    style: WaveformStyle(
+        height: 120,
+    ),
+)
+```
+
+**Streaming Waveform:**
+
+For long videos, use streaming mode to get progressive updates with animated bars:
+
+```dart
+/// The streaming widget handles everything internally - 
+/// just provide the config and it manages the stream subscription,
+/// chunk accumulation, and animated bar rendering automatically.
+AudioWaveform.streaming(
+    config: WaveformConfigs(
+        video: EditorVideo.asset('assets/long-video.mp4'),
+        resolution: WaveformResolution.high,
+    ),
+    style: WaveformStyle(
+        height: 80,
+        waveColor: Colors.greenAccent,
+        backgroundColor: Colors.black,
+    ),
+    onComplete: () {
+        print('Waveform generation complete!');
+    },
+)
+
+/// For manual stream handling (advanced usage):
+var config = WaveformConfigs(
+    video: EditorVideo.asset('assets/long-video.mp4'),
+    resolution: WaveformResolution.high,
+    chunkSize: 100, // Emit every 100 samples
+);
+
+await for (var chunk in ProVideoEditor.instance.getWaveformStream(config)) {
+    print('Progress: ${(chunk.progress * 100).toStringAsFixed(0)}%');
+    
+    if (chunk.isComplete) {
+        print('Waveform generation complete!');
+    }
+}
 ```
 
 #### Cancel an active render

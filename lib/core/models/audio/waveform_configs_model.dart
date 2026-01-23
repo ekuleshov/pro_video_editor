@@ -41,7 +41,10 @@ enum WaveformResolution {
 /// Specifies the audio source, desired resolution, and optional
 /// time range for partial waveform generation.
 ///
-/// Example:
+/// For streaming waveform generation, use [chunkSize] to control how many
+/// samples are emitted per chunk.
+///
+/// Example (non-streaming):
 /// ```dart
 /// final configs = WaveformConfigs(
 ///   video: EditorVideo.file('/path/to/video.mp4'),
@@ -52,6 +55,21 @@ enum WaveformResolution {
 ///
 /// final waveform = await ProVideoEditor.instance.getWaveform(configs);
 /// ```
+///
+/// Example (streaming):
+/// ```dart
+/// final configs = WaveformConfigs(
+///   video: EditorVideo.file('/path/to/video.mp4'),
+///   resolution: WaveformResolution.high,
+///   chunkSize: 100, // Emit every 100 samples
+/// );
+///
+/// await for (final chunk in
+/// ProVideoEditor.instance.getWaveformStream(configs)) {
+///   // Process chunk progressively
+///   updateWaveformDisplay(chunk);
+/// }
+/// ```
 class WaveformConfigs {
   /// Creates a [WaveformConfigs] instance.
   ///
@@ -60,11 +78,13 @@ class WaveformConfigs {
   /// [startTime] Optional start time for partial extraction.
   /// [endTime] Optional end time for partial extraction.
   /// [id] Unique task identifier for progress tracking.
+  /// [chunkSize] Number of samples per chunk for streaming mode (default: 100).
   WaveformConfigs({
     required this.video,
     this.resolution = WaveformResolution.medium,
     this.startTime,
     this.endTime,
+    this.chunkSize = 100,
     String? id,
   }) : id = id ?? DateTime.now().millisecondsSinceEpoch.toString();
 
@@ -93,6 +113,17 @@ class WaveformConfigs {
   /// waveform generation progress.
   final String id;
 
+  /// Number of samples per chunk for streaming mode.
+  ///
+  /// When using [ProVideoEditor.getWaveformStream], this determines how
+  /// many waveform samples are included in each emitted [WaveformChunk].
+  ///
+  /// Smaller values provide more frequent updates but increase overhead.
+  /// Larger values are more efficient but delay the first visual feedback.
+  ///
+  /// Default: 100 samples per chunk.
+  final int chunkSize;
+
   /// Converts this configuration to a map for platform channel communication.
   Map<String, dynamic> toMap() {
     return {
@@ -100,6 +131,7 @@ class WaveformConfigs {
       'samplesPerSecond': resolution.samplesPerSecond,
       'startTime': startTime?.inMicroseconds,
       'endTime': endTime?.inMicroseconds,
+      'chunkSize': chunkSize,
     };
   }
 
@@ -110,6 +142,7 @@ class WaveformConfigs {
     Duration? startTime,
     Duration? endTime,
     String? id,
+    int? chunkSize,
   }) {
     return WaveformConfigs(
       video: video ?? this.video,
@@ -117,6 +150,7 @@ class WaveformConfigs {
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       id: id ?? this.id,
+      chunkSize: chunkSize ?? this.chunkSize,
     );
   }
 
@@ -128,7 +162,8 @@ class WaveformConfigs {
         other.resolution == resolution &&
         other.startTime == startTime &&
         other.endTime == endTime &&
-        other.id == id;
+        other.id == id &&
+        other.chunkSize == chunkSize;
   }
 
   @override
@@ -137,6 +172,7 @@ class WaveformConfigs {
         resolution.hashCode ^
         startTime.hashCode ^
         endTime.hashCode ^
-        id.hashCode;
+        id.hashCode ^
+        chunkSize.hashCode;
   }
 }

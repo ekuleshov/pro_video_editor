@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -42,6 +43,11 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
   bool _isGeneratingWaveform = false;
   WaveformResolution _selectedResolution = WaveformResolution.medium;
   final String _waveformTaskId = 'WaveformGenerationTaskId';
+
+  // Streaming waveform states
+  bool _useStreamingMode = false;
+  WaveformConfigs? _streamingConfig;
+  bool _isStreamingComplete = false;
 
   @override
   void initState() {
@@ -221,14 +227,24 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
 
   /// Generates waveform data from the demo video.
   Future<void> _generateWaveform() async {
+    if (_useStreamingMode) {
+      _generateWaveformStreaming();
+    } else {
+      await _generateWaveformComplete();
+    }
+  }
+
+  /// Generates waveform data using the complete (non-streaming) method.
+  Future<void> _generateWaveformComplete() async {
     setState(() {
       _isGeneratingWaveform = true;
       _waveformData = null;
+      _streamingConfig = null;
     });
 
     try {
       final config = WaveformConfigs(
-        video: EditorVideo.asset(kVideoEditorExampleAudio1Path),
+        video: EditorVideo.asset('assets/tests/test_4k_b.mp4'),
         resolution: _selectedResolution,
         id: _waveformTaskId,
       );
@@ -265,6 +281,35 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
         );
       }
     }
+  }
+
+  /// Generates waveform data using the streaming method.
+  void _generateWaveformStreaming() {
+    setState(() {
+      _streamingConfig = null;
+      _waveformData = null;
+      _isStreamingComplete = false;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        _streamingConfig = WaveformConfigs(
+          video: EditorVideo.asset('assets/tests/test_4k_b.mp4'),
+          resolution: _selectedResolution,
+          id: 'StreamingWaveformTaskId',
+          chunkSize: 20, // Emit every 20 samples for smoother updates
+        );
+      });
+    });
+  }
+
+  /// Cancels streaming waveform generation.
+  void _cancelStreamingWaveform() {
+    ProVideoEditor.instance.cancel('StreamingWaveformTaskId');
+    setState(() {
+      _streamingConfig = null;
+      _isStreamingComplete = false;
+    });
   }
 
   /// Checks if an audio format is supported on the current platform.
@@ -327,13 +372,33 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
           const SizedBox(height: 16),
           _WaveformGenerationCard(
             isGeneratingWaveform: _isGeneratingWaveform,
+            useStreamingMode: _useStreamingMode,
             selectedResolution: _selectedResolution,
             waveformData: _waveformData,
             waveformTaskId: _waveformTaskId,
+            streamingConfig: _streamingConfig,
             onResolutionChanged: (resolution) => setState(() {
               _selectedResolution = resolution;
             }),
+            onStreamingModeChanged: (value) => setState(() {
+              _useStreamingMode = value;
+            }),
             onGenerateWaveform: _generateWaveform,
+            onCancelStreaming: _cancelStreamingWaveform,
+            isStreamingComplete: _isStreamingComplete,
+            onStreamingComplete: () {
+              setState(() {
+                _isStreamingComplete = true;
+              });
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Streaming waveform complete!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
           ),
         ],
       ),
@@ -616,19 +681,34 @@ class _AudioTrackResultRow extends StatelessWidget {
 class _WaveformGenerationCard extends StatelessWidget {
   const _WaveformGenerationCard({
     required this.isGeneratingWaveform,
+    required this.useStreamingMode,
     required this.selectedResolution,
     required this.waveformData,
     required this.waveformTaskId,
+    required this.streamingConfig,
     required this.onResolutionChanged,
+    required this.onStreamingModeChanged,
     required this.onGenerateWaveform,
+    required this.onCancelStreaming,
+    required this.onStreamingComplete,
+    required this.isStreamingComplete,
   });
 
   final bool isGeneratingWaveform;
+  final bool useStreamingMode;
   final WaveformResolution selectedResolution;
   final WaveformData? waveformData;
   final String waveformTaskId;
+  final WaveformConfigs? streamingConfig;
   final ValueChanged<WaveformResolution> onResolutionChanged;
+  final ValueChanged<bool> onStreamingModeChanged;
   final VoidCallback onGenerateWaveform;
+  final VoidCallback onCancelStreaming;
+  final VoidCallback onStreamingComplete;
+  final bool isStreamingComplete;
+
+  bool get _isProcessing =>
+      isGeneratingWaveform || (streamingConfig != null && !isStreamingComplete);
 
   @override
   Widget build(BuildContext context) {
@@ -662,42 +742,134 @@ class _WaveformGenerationCard extends StatelessWidget {
                     '(${resolution.samplesPerSecond}/s)',
                   ),
                   selected: selectedResolution == resolution,
-                  onSelected: (selected) {
-                    if (selected) onResolutionChanged(resolution);
-                  },
+                  onSelected: _isProcessing
+                      ? null
+                      : (selected) {
+                          if (selected) onResolutionChanged(resolution);
+                        },
                 );
               }).toList(),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: isGeneratingWaveform ? null : onGenerateWaveform,
-                icon: isGeneratingWaveform
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.waves),
-                label: Text(
-                  isGeneratingWaveform ? 'Generating...' : 'Generate Waveform',
-                ),
+            SwitchListTile(
+              title: const Text('Streaming Mode'),
+              subtitle: const Text(
+                'Progressive waveform updates',
+                style: TextStyle(fontSize: 12),
               ),
+              value: useStreamingMode,
+              onChanged: _isProcessing ? null : onStreamingModeChanged,
+              dense: true,
+              contentPadding: EdgeInsets.zero,
             ),
             if (isGeneratingWaveform) ...[
               const SizedBox(height: 8),
               _WaveformProgressIndicator(taskId: waveformTaskId),
             ],
-            if (waveformData != null) ...[
-              const SizedBox(height: 16),
-              const Divider(),
+            // Show streaming waveform widget
+            if (streamingConfig != null) ...[
               const SizedBox(height: 8),
+              _StreamingWaveformPreview(
+                config: streamingConfig!,
+                onComplete: onStreamingComplete,
+              ),
+            ] else if (waveformData != null) ...[
+              const SizedBox(height: 16),
               _WaveformDisplay(waveformData: waveformData!),
             ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _isProcessing ? null : onGenerateWaveform,
+                    icon: _isProcessing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.waves),
+                    label: Text(
+                      _isProcessing
+                          ? (streamingConfig != null
+                              ? 'Streaming...'
+                              : 'Generating...')
+                          : (useStreamingMode
+                              ? 'Stream Waveform'
+                              : 'Generate Waveform'),
+                    ),
+                  ),
+                ),
+                if (streamingConfig != null && !isStreamingComplete) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: onCancelStreaming,
+                    icon: const Icon(Icons.cancel),
+                    tooltip: 'Cancel',
+                    color: Colors.red,
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Displays streaming waveform preview using the simplified API.
+class _StreamingWaveformPreview extends StatefulWidget {
+  const _StreamingWaveformPreview({
+    required this.config,
+    required this.onComplete,
+  });
+
+  final WaveformConfigs config;
+  final VoidCallback onComplete;
+
+  @override
+  State<_StreamingWaveformPreview> createState() =>
+      _StreamingWaveformPreviewState();
+}
+
+class _StreamingWaveformPreviewState extends State<_StreamingWaveformPreview> {
+  Duration _currentPosition = Duration.zero;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Streaming waveform...',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 8),
+        // The widget now manages the stream internally!
+        AudioWaveform.streaming(
+          config: widget.config,
+          showPositionIndicator: true,
+          currentPosition: _currentPosition,
+          onSeek: (value) {
+            _currentPosition = value;
+            setState(() {});
+          },
+          onComplete: widget.onComplete,
+          style: WaveformStyle(
+            height: 120,
+            playedOverlayColor: Colors.black38,
+            waveColor: Colors.greenAccent,
+            positionIndicatorColor: Colors.white,
+            backgroundColor: Colors.grey.shade900,
+            barWidth: 3.0,
+            barSpacing: 1.0,
+            minBarHeight: 2.0,
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -738,7 +910,7 @@ class _WaveformDisplay extends StatefulWidget {
 }
 
 class _WaveformDisplayState extends State<_WaveformDisplay> {
-  int currentPosition = 0;
+  Duration currentPosition = Duration.zero;
 
   @override
   Widget build(BuildContext context) {
@@ -759,10 +931,9 @@ class _WaveformDisplayState extends State<_WaveformDisplay> {
             setState(() {});
           },
           waveform: widget.waveformData,
-          height: 120,
           style: WaveformStyle(
+            height: 120,
             waveColor: Colors.greenAccent,
-            secondaryWaveColor: Colors.green,
             backgroundColor: Colors.grey.shade900,
             barWidth: 3.0,
             barSpacing: 1.0,

@@ -25,6 +25,7 @@ import kotlin.math.max
  * - Supports stereo and mono audio
  * - Provides progress tracking during generation
  * - Supports cancellation of active jobs
+ * - Supports streaming mode for progressive UI updates
  *
  * Architecture:
  * - Uses MediaExtractor to demux audio track
@@ -40,19 +41,23 @@ class WaveformGenerator(private val context: Context) {
     }
 
     /**
-     * Generates waveform data from a video file asynchronously.
+     * Generates waveform data from a video file asynchronously with streaming support.
      *
      * @param config Complete waveform configuration
      * @param onProgress Callback invoked with progress updates (0.0 to 1.0)
-     * @param onComplete Callback invoked on success with waveform data map
+     * @param onChunk Callback invoked for each chunk of waveform data (streaming mode)
+     * @param onComplete Callback invoked on success with waveform data map (non-streaming mode)
      * @param onError Callback invoked if generation fails
+     * @param streaming Whether to emit chunks progressively (true) or wait for complete result (false)
      * @return WaveformJobHandle for cancellation
      */
     fun generate(
         config: WaveformConfig,
         onProgress: (Double) -> Unit,
+        onChunk: ((Map<String, Any?>) -> Unit)? = null,
         onComplete: (Map<String, Any?>) -> Unit,
-        onError: (Throwable) -> Unit
+        onError: (Throwable) -> Unit,
+        streaming: Boolean = false
     ): WaveformJobHandle {
         val shouldStop = AtomicBoolean(false)
         val mainHandler = Handler(Looper.getMainLooper())
@@ -194,13 +199,40 @@ class WaveformGenerator(private val context: Context) {
                                             leftPeaks[currentSampleIndex] = accumulatedLeftPeak
                                             rightPeaks?.set(currentSampleIndex, accumulatedRightPeak)
                                             currentSampleIndex++
+                                            
+                                            // Streaming mode: emit chunk when chunkSize is reached
+                                            if (streaming && onChunk != null && 
+                                                (currentSampleIndex % config.chunkSize == 0 || 
+                                                 currentSampleIndex == totalSamples)) {
+                                                val chunkStartIndex = currentSampleIndex - config.chunkSize
+                                                    .coerceAtMost(currentSampleIndex)
+                                                val chunkEndIndex = currentSampleIndex
+                                                val actualChunkStart = chunkStartIndex.coerceAtLeast(0)
+                                                
+                                                val chunkLeftPeaks = leftPeaks.copyOfRange(actualChunkStart, chunkEndIndex)
+                                                val chunkRightPeaks = rightPeaks?.copyOfRange(actualChunkStart, chunkEndIndex)
+                                                
+                                                val progress = currentSampleIndex.toDouble() / totalSamples
+                                                val chunk = buildChunkMap(
+                                                    id = config.id,
+                                                    leftPeaks = chunkLeftPeaks,
+                                                    rightPeaks = chunkRightPeaks,
+                                                    startIndex = actualChunkStart,
+                                                    progress = progress.coerceIn(0.0, 1.0),
+                                                    sampleRate = sampleRate,
+                                                    totalDuration = durationMs,
+                                                    samplesPerSecond = config.samplesPerSecond,
+                                                    isComplete = false
+                                                )
+                                                mainHandler.post { onChunk(chunk) }
+                                            }
                                         }
                                         accumulatedLeftPeak = 0f
                                         accumulatedRightPeak = 0f
                                         samplesInCurrentBlock = 0
 
-                                        // Update progress periodically
-                                        if (currentSampleIndex % 100 == 0) {
+                                        // Update progress periodically (non-streaming mode)
+                                        if (!streaming && currentSampleIndex % 100 == 0) {
                                             val progress = currentSampleIndex.toDouble() / totalSamples
                                             mainHandler.post { onProgress(progress.coerceIn(0.0, 1.0)) }
                                         }
@@ -248,21 +280,60 @@ class WaveformGenerator(private val context: Context) {
                     }
                 }
 
-                // Build result map
-                val result = mutableMapOf<String, Any?>(
-                    "leftChannel" to finalLeftPeaks.toList(),
-                    "sampleRate" to sampleRate,
-                    "duration" to durationMs,
-                    "samplesPerSecond" to config.samplesPerSecond
-                )
+                if (streaming && onChunk != null) {
+                    // Streaming mode: emit final chunk with remaining samples
+                    val lastEmittedIndex = (currentSampleIndex / config.chunkSize) * config.chunkSize
+                    if (lastEmittedIndex < currentSampleIndex) {
+                        val remainingLeftPeaks = finalLeftPeaks.copyOfRange(lastEmittedIndex, currentSampleIndex)
+                        val remainingRightPeaks = finalRightPeaks?.copyOfRange(lastEmittedIndex, currentSampleIndex)
+                        
+                        val finalChunk = buildChunkMap(
+                            id = config.id,
+                            leftPeaks = remainingLeftPeaks,
+                            rightPeaks = remainingRightPeaks,
+                            startIndex = lastEmittedIndex,
+                            progress = 1.0,
+                            sampleRate = sampleRate,
+                            totalDuration = durationMs,
+                            samplesPerSecond = config.samplesPerSecond,
+                            isComplete = true
+                        )
+                        mainHandler.post { onChunk(finalChunk) }
+                    } else {
+                        // Just mark the last chunk as complete
+                        val completeChunk = buildChunkMap(
+                            id = config.id,
+                            leftPeaks = floatArrayOf(),
+                            rightPeaks = if (rightPeaks != null) floatArrayOf() else null,
+                            startIndex = currentSampleIndex,
+                            progress = 1.0,
+                            sampleRate = sampleRate,
+                            totalDuration = durationMs,
+                            samplesPerSecond = config.samplesPerSecond,
+                            isComplete = true
+                        )
+                        mainHandler.post { onChunk(completeChunk) }
+                    }
+                    
+                    // Also call onComplete for cleanup
+                    mainHandler.post { onComplete(emptyMap()) }
+                } else {
+                    // Non-streaming mode: return complete result
+                    val result = mutableMapOf<String, Any?>(
+                        "leftChannel" to finalLeftPeaks.toList(),
+                        "sampleRate" to sampleRate,
+                        "duration" to durationMs,
+                        "samplesPerSecond" to config.samplesPerSecond
+                    )
 
-                if (finalRightPeaks != null) {
-                    result["rightChannel"] = finalRightPeaks.toList()
-                }
+                    if (finalRightPeaks != null) {
+                        result["rightChannel"] = finalRightPeaks.toList()
+                    }
 
-                mainHandler.post {
-                    onProgress(1.0)
-                    onComplete(result)
+                    mainHandler.post {
+                        onProgress(1.0)
+                        onComplete(result)
+                    }
                 }
 
             } catch (e: Exception) {
@@ -286,6 +357,38 @@ class WaveformGenerator(private val context: Context) {
         return WaveformJobHandle {
             shouldStop.set(true)
         }
+    }
+
+    /**
+     * Builds a map representing a waveform chunk for streaming.
+     */
+    private fun buildChunkMap(
+        id: String,
+        leftPeaks: FloatArray,
+        rightPeaks: FloatArray?,
+        startIndex: Int,
+        progress: Double,
+        sampleRate: Int,
+        totalDuration: Int,
+        samplesPerSecond: Int,
+        isComplete: Boolean
+    ): Map<String, Any?> {
+        val result = mutableMapOf<String, Any?>(
+            "id" to id,
+            "leftChannel" to leftPeaks.toList(),
+            "startIndex" to startIndex,
+            "progress" to progress,
+            "sampleRate" to sampleRate,
+            "totalDuration" to totalDuration,
+            "samplesPerSecond" to samplesPerSecond,
+            "isComplete" to isComplete
+        )
+        
+        if (rightPeaks != null) {
+            result["rightChannel"] = rightPeaks.toList()
+        }
+        
+        return result
     }
 
     /**

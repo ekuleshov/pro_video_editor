@@ -11,6 +11,7 @@ import io.flutter.plugin.common.MethodCall
  * @property samplesPerSecond Number of waveform samples per second of audio
  * @property startUs Optional start time in microseconds for partial extraction
  * @property endUs Optional end time in microseconds for partial extraction
+ * @property chunkSize Number of samples per chunk for streaming mode
  */
 data class WaveformConfig(
     val id: String,
@@ -18,7 +19,8 @@ data class WaveformConfig(
     val fileExtension: String,
     val samplesPerSecond: Int,
     val startUs: Long?,
-    val endUs: Long?
+    val endUs: Long?,
+    val chunkSize: Int = 100
 ) {
     companion object {
         /**
@@ -38,6 +40,7 @@ data class WaveformConfig(
             val samplesPerSecond = call.argument<Int>("samplesPerSecond") ?: 50
             val startUs = call.argument<Number>("startTime")?.toLong()
             val endUs = call.argument<Number>("endTime")?.toLong()
+            val chunkSize = call.argument<Int>("chunkSize") ?: 100
 
             return WaveformConfig(
                 id = id,
@@ -45,7 +48,8 @@ data class WaveformConfig(
                 fileExtension = fileExtension,
                 samplesPerSecond = samplesPerSecond,
                 startUs = startUs,
-                endUs = endUs
+                endUs = endUs,
+                chunkSize = chunkSize
             )
         }
     }

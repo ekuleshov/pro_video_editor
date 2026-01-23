@@ -59,6 +59,10 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
     private val activeAudioTasks = ConcurrentHashMap<String, AudioExtractTask>()
     private val activeWaveformTasks = ConcurrentHashMap<String, WaveformTask>()
 
+    /// Event channel for streaming waveform chunks
+    private lateinit var waveformStreamChannel: EventChannel
+    private var waveformStreamSink: EventChannel.EventSink? = null
+
     /**
      * Called when the plugin is attached to a Flutter engine.
      *
@@ -71,6 +75,8 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
         methodChannel = MethodChannel(flutterPluginBinding.binaryMessenger, "pro_video_editor")
         eventChannel =
             EventChannel(flutterPluginBinding.binaryMessenger, "pro_video_editor_progress")
+        waveformStreamChannel =
+            EventChannel(flutterPluginBinding.binaryMessenger, "pro_video_editor_waveform_stream")
 
         methodChannel.setMethodCallHandler(this)
         eventChannel.setStreamHandler(object : EventChannel.StreamHandler {
@@ -80,6 +86,16 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
 
             override fun onCancel(arguments: Any?) {
                 eventSink = null
+            }
+        })
+        
+        waveformStreamChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                waveformStreamSink = events
+            }
+
+            override fun onCancel(arguments: Any?) {
+                waveformStreamSink = null
             }
         })
 
@@ -101,6 +117,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
+        waveformStreamChannel.setStreamHandler(null)
     }
 
     /**
@@ -112,6 +129,8 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
      * - getThumbnails: Generates thumbnails
      * - renderVideo: Renders video with effects
      * - extractAudio: Extracts audio from video
+     * - getWaveform: Generates complete waveform data
+     * - startWaveformStream: Starts streaming waveform generation
      * - cancelTask: Cancels active render or audio extraction task
      */
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -123,6 +142,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
             "renderVideo" -> handleRenderVideo(call, result)
             "extractAudio" -> handleExtractAudio(call, result)
             "getWaveform" -> handleGetWaveform(call, result)
+            "startWaveformStream" -> handleStartWaveformStream(call, result)
             "cancelTask" -> handleCancelTask(call, result)
             else -> result.notImplemented()
         }
@@ -425,6 +445,86 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
         } catch (e: Exception) {
             activeWaveformTasks.remove(id)
             result.error("WAVEFORM_ERROR", "Failed to start waveform generation: ${e.message}", null)
+        }
+    }
+
+    /**
+     * Starts streaming waveform generation.
+     *
+     * Unlike handleGetWaveform which waits for complete generation,
+     * this method emits waveform chunks progressively via the waveformStreamChannel.
+     */
+    private fun handleStartWaveformStream(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("id") ?: ""
+        if (id.isBlank()) {
+            result.error("INVALID_ARGUMENTS", "Task id is required and cannot be empty", null)
+            return
+        }
+
+        if (activeWaveformTasks.containsKey(id)) {
+            result.error(
+                "TASK_ALREADY_RUNNING",
+                "A waveform generation task with id '$id' is already running",
+                null
+            )
+            return
+        }
+
+        val task = WaveformTask(job = null, result = result)
+        activeWaveformTasks[id] = task
+
+        try {
+            val config = WaveformConfig.fromMethodCall(call)
+
+            val jobHandle = waveformGenerator.generate(
+                config = config,
+                onProgress = { _ ->
+                    // Progress is included in chunks for streaming mode
+                },
+                onChunk = { chunkData ->
+                    mainHandler.post {
+                        waveformStreamSink?.success(chunkData)
+                    }
+                },
+                onComplete = { _ ->
+                    mainHandler.post {
+                        activeWaveformTasks.remove(id)
+                        // Don't call result.success for streaming - chunks are sent via event channel
+                    }
+                },
+                onError = { error ->
+                    mainHandler.post {
+                        val removedTask = activeWaveformTasks.remove(id)
+                        val code = when {
+                            removedTask?.isCanceled == true -> "CANCELED"
+                            error is NoAudioTrackException -> "NO_AUDIO"
+                            else -> "WAVEFORM_ERROR"
+                        }
+                        // Send error via event channel
+                        val errorData = mapOf(
+                            "id" to id,
+                            "error" to error.message,
+                            "errorCode" to code
+                        )
+                        waveformStreamSink?.success(errorData)
+                    }
+                },
+                streaming = true
+            )
+
+            task.job = jobHandle
+            if (task.isCanceled) {
+                jobHandle.cancel()
+            }
+            
+            // Return immediately - chunks will be sent via event channel
+            result.success(null)
+        } catch (e: IllegalArgumentException) {
+            activeWaveformTasks.remove(id)
+            result.error("INVALID_ARGUMENTS", e.message, null)
+        } catch (e: Exception) {
+            activeWaveformTasks.remove(id)
+            result.error("WAVEFORM_ERROR", "Failed to start streaming waveform generation: ${e.message}", null)
         }
     }
 

@@ -2,6 +2,7 @@
 
 export '/core/models/audio/audio_extract_configs_model.dart';
 export '/core/models/audio/audio_format_model.dart';
+export '/core/models/audio/waveform_chunk_model.dart';
 export '/core/models/audio/waveform_configs_model.dart';
 export '/core/models/audio/waveform_data_model.dart';
 export 'features/audio/widgets/audio_waveform.dart';

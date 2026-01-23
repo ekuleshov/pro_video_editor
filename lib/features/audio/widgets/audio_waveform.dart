@@ -1,6 +1,7 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
+import 'package:pro_video_editor/core/models/audio/waveform_configs_model.dart';
+import 'package:pro_video_editor/features/audio/widgets/streaming_waveform.dart';
+import 'package:pro_video_editor/features/audio/widgets/waveform_painter.dart';
 
 import '/core/models/audio/waveform_data_model.dart';
 import '../models/waveform_style.dart';
@@ -31,244 +32,219 @@ import '../models/waveform_style.dart';
 ///   onSeek: (positionMs) => player.seek(positionMs),
 /// )
 /// ```
-class AudioWaveform extends StatelessWidget {
+///
+/// For streaming waveforms that update progressively, use
+/// [AudioWaveform.streaming]:
+/// ```dart
+/// AudioWaveform.streaming(
+///   config: WaveformConfigs(path: audioPath),
+///   style: WaveformStyle(waveColor: Colors.green),
+/// )
+/// ```
+class AudioWaveform extends StatefulWidget {
   /// Creates an [AudioWaveform] widget.
   ///
   /// [waveform] The waveform data to display.
   /// [style] Visual styling options for the waveform.
-  /// [height] Height of the widget. Defaults to 80.
   const AudioWaveform({
     super.key,
     required this.waveform,
     this.style = const WaveformStyle(),
-    this.height = 80,
-  })  : currentPosition = null,
+  })  : config = null,
+        currentPosition = null,
         onSeek = null,
-        showPositionIndicator = false;
+        showPositionIndicator = false,
+        onComplete = null;
 
   /// Creates an interactive [AudioWaveform] with position indicator and
   /// seek support.
   ///
   /// [waveform] The waveform data to display.
-  /// [currentPosition] Current playback position in milliseconds.
-  /// [onSeek] Callback when user taps to seek. Receives position in
-  /// milliseconds.
+  /// [currentPosition] Current playback position.
+  /// [onSeek] Callback when user taps to seek.
   /// [style] Visual styling options for the waveform.
-  /// [height] Height of the widget. Defaults to 80.
   const AudioWaveform.interactive({
     super.key,
     required this.waveform,
-    required int this.currentPosition,
+    required this.currentPosition,
     required this.onSeek,
     this.style = const WaveformStyle(),
-    this.height = 80,
-  }) : showPositionIndicator = true;
+  })  : config = null,
+        showPositionIndicator = true,
+        onComplete = null;
 
-  /// The waveform data to render.
-  final WaveformData waveform;
+  /// Creates a streaming [AudioWaveform] that displays chunks progressively.
+  ///
+  /// This constructor is designed for use with streaming waveform generation,
+  /// where chunks arrive over time. The waveform grows from left to right
+  /// as new chunks are added.
+  ///
+  /// The widget internally manages the stream - you only need to provide
+  /// the [config] and the widget handles everything else.
+  ///
+  /// [config] The waveform configuration for streaming generation.
+  /// [style] Visual styling options for the waveform.
+  /// [showPositionIndicator] Whether to show the streaming progress indicator.
+  /// [onComplete] Called when the streaming waveform generation is complete.
+  const AudioWaveform.streaming({
+    super.key,
+    required WaveformConfigs this.config,
+    this.style = const WaveformStyle(),
+    this.onSeek,
+    this.showPositionIndicator = false,
+    this.currentPosition,
+    this.onComplete,
+  }) : waveform = null;
+
+  /// The waveform data to render (for non-streaming mode).
+  final WaveformData? waveform;
+
+  /// The waveform configuration for streaming mode.
+  final WaveformConfigs? config;
 
   /// Visual styling options for the waveform.
   final WaveformStyle style;
 
-  /// Height of the widget in pixels.
-  final double height;
-
-  /// Current playback position in milliseconds (for interactive mode).
-  final int? currentPosition;
+  /// Current playback position (for interactive mode).
+  final Duration? currentPosition;
 
   /// Callback when user seeks to a position. Receives position in milliseconds.
-  final ValueChanged<int>? onSeek;
+  final ValueChanged<Duration>? onSeek;
 
   /// Whether to show the position indicator line.
   final bool showPositionIndicator;
 
+  /// Called when streaming waveform generation is complete.
+  final VoidCallback? onComplete;
+
+  /// Whether this widget is in streaming mode.
+  bool get isStreaming => config != null;
+
   @override
-  Widget build(BuildContext context) {
-    Widget child = ClipRRect(
-      borderRadius: style.borderRadius ?? BorderRadius.zero,
-      child: CustomPaint(
-        size: Size(double.infinity, height),
-        painter: _WaveformPainter(
-          waveform: waveform,
-          style: style,
-          currentPosition: currentPosition,
-          showPositionIndicator: showPositionIndicator,
-        ),
-      ),
-    );
-
-    if (onSeek != null && waveform.duration > 0) {
-      child = GestureDetector(
-        onTapDown: (details) => _handleTap(details, context),
-        onHorizontalDragUpdate: (details) => _handleDrag(details, context),
-        child: child,
-      );
-    }
-
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        color: style.backgroundColor,
-        borderRadius: style.borderRadius,
-      ),
-      child: child,
-    );
-  }
-
-  void _handleTap(TapDownDetails details, BuildContext context) {
-    final box = context.findRenderObject() as RenderBox;
-    final position = details.localPosition.dx / box.size.width;
-    final seekPosition = (position * waveform.duration).round();
-    onSeek?.call(seekPosition.clamp(0, waveform.duration));
-  }
-
-  void _handleDrag(DragUpdateDetails details, BuildContext context) {
-    final box = context.findRenderObject() as RenderBox;
-    final position = details.localPosition.dx / box.size.width;
-    final seekPosition = (position * waveform.duration).round();
-    onSeek?.call(seekPosition.clamp(0, waveform.duration));
-  }
+  State<AudioWaveform> createState() => _AudioWaveformState();
 }
 
-class _WaveformPainter extends CustomPainter {
-  _WaveformPainter({
-    required this.waveform,
-    required this.style,
-    this.currentPosition,
-    this.showPositionIndicator = false,
-  });
+class _AudioWaveformState extends State<AudioWaveform> {
+  Duration _streamingDuration = Duration.zero;
 
-  final WaveformData waveform;
-  final WaveformStyle style;
-  final int? currentPosition;
-  final bool showPositionIndicator;
+  Duration get _duration => widget.isStreaming
+      ? _streamingDuration
+      : (widget.waveform?.duration ?? Duration.zero);
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final samples = waveform.leftChannel;
-    if (samples.isEmpty) return;
+  void _handleTap(TapDownDetails details) {
+    final box = context.findRenderObject() as RenderBox;
+    final position = details.localPosition.dx / box.size.width;
+    final seekMs = (position * _duration.inMilliseconds).round();
+    widget.onSeek?.call(
+        Duration(milliseconds: seekMs.clamp(0, _duration.inMilliseconds)));
+  }
 
-    final totalBarWidth = style.barWidth + style.barSpacing;
-    final barsCount = (size.width / totalBarWidth).floor();
-    if (barsCount == 0) return;
-
-    final samplesPerBar = samples.length / barsCount;
-    final centerY = size.height / 2;
-    final maxAmplitude =
-        waveform.isStereo ? size.height / 4 - 2 : size.height / 2 - 2;
-
-    // Calculate position for played/unplayed coloring
-    final positionRatio = currentPosition != null && waveform.duration > 0
-        ? currentPosition! / waveform.duration
-        : 0.0;
-    final playedBars = (barsCount * positionRatio).floor();
-
-    // Prepare paints
-    final unplayedPaint = Paint()
-      ..color = style.waveColor
-      ..strokeWidth = style.barWidth
-      ..strokeCap = StrokeCap.round;
-
-    final playedPaint = Paint()
-      ..color = style.waveColorPlayed ?? style.waveColor
-      ..strokeWidth = style.barWidth
-      ..strokeCap = StrokeCap.round;
-
-    final secondaryUnplayedPaint = Paint()
-      ..color =
-          style.secondaryWaveColor ?? style.waveColor.withValues(alpha: 0.6)
-      ..strokeWidth = style.barWidth
-      ..strokeCap = StrokeCap.round;
-
-    final secondaryPlayedPaint = Paint()
-      ..color = style.secondaryWaveColor?.withValues(alpha: 0.8) ??
-          (style.waveColorPlayed ?? style.waveColor).withValues(alpha: 0.6)
-      ..strokeWidth = style.barWidth
-      ..strokeCap = StrokeCap.round;
-
-    // Draw waveform bars
-    for (int i = 0; i < barsCount; i++) {
-      final startIdx = (i * samplesPerBar).floor();
-      final endIdx = ((i + 1) * samplesPerBar).floor().clamp(0, samples.length);
-
-      // Find peak in this range
-      double leftPeak = 0;
-      double rightPeak = 0;
-
-      for (int j = startIdx; j < endIdx; j++) {
-        leftPeak = math.max(leftPeak, samples[j]);
-        if (waveform.rightChannel != null) {
-          rightPeak = math.max(rightPeak, waveform.rightChannel![j]);
-        }
-      }
-
-      final x = i * totalBarWidth + style.barWidth / 2;
-      final isPlayed = i < playedBars;
-
-      if (waveform.isStereo) {
-        // Stereo: left channel above center, right below
-        final leftHeight =
-            (leftPeak * maxAmplitude).clamp(style.minBarHeight, maxAmplitude);
-        final rightHeight =
-            (rightPeak * maxAmplitude).clamp(style.minBarHeight, maxAmplitude);
-
-        // Left channel (above center)
-        canvas
-          ..drawLine(
-            Offset(x, centerY - 1),
-            Offset(x, centerY - 1 - leftHeight),
-            isPlayed ? playedPaint : unplayedPaint,
-          )
-
-          // Right channel (below center)
-          ..drawLine(
-            Offset(x, centerY + 1),
-            Offset(x, centerY + 1 + rightHeight),
-            isPlayed ? secondaryPlayedPaint : secondaryUnplayedPaint,
-          );
-      } else {
-        // Mono: symmetric around center
-        final height =
-            (leftPeak * maxAmplitude).clamp(style.minBarHeight, maxAmplitude);
-        canvas.drawLine(
-          Offset(x, centerY - height),
-          Offset(x, centerY + height),
-          isPlayed ? playedPaint : unplayedPaint,
-        );
-      }
-    }
-
-    // Draw center line for stereo
-    if (waveform.isStereo && style.showCenterLine) {
-      final linePaint = Paint()
-        ..color =
-            style.centerLineColor ?? style.waveColor.withValues(alpha: 0.3)
-        ..strokeWidth = 1;
-      canvas.drawLine(
-        Offset(0, centerY),
-        Offset(size.width, centerY),
-        linePaint,
-      );
-    }
-
-    // Draw position indicator
-    if (showPositionIndicator && currentPosition != null) {
-      final indicatorX = size.width * positionRatio;
-      final indicatorPaint = Paint()
-        ..color = style.positionIndicatorColor ?? style.waveColor
-        ..strokeWidth = 2;
-      canvas.drawLine(
-        Offset(indicatorX, 0),
-        Offset(indicatorX, size.height),
-        indicatorPaint,
-      );
-    }
+  void _handleDrag(DragUpdateDetails details) {
+    final box = context.findRenderObject() as RenderBox;
+    final position = details.localPosition.dx / box.size.width;
+    final seekMs = (position * _duration.inMilliseconds).round();
+    widget.onSeek?.call(
+        Duration(milliseconds: seekMs.clamp(0, _duration.inMilliseconds)));
   }
 
   @override
-  bool shouldRepaint(covariant _WaveformPainter oldDelegate) {
-    return oldDelegate.waveform != waveform ||
-        oldDelegate.currentPosition != currentPosition ||
-        oldDelegate.style != style;
+  Widget build(BuildContext context) {
+    final enableSeekInteraction =
+        widget.onSeek != null && _duration > Duration.zero;
+
+    return Container(
+      height: widget.style.height,
+      decoration: BoxDecoration(
+        color: widget.style.backgroundColor,
+        borderRadius: widget.style.borderRadius,
+      ),
+      clipBehavior: Clip.hardEdge,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: enableSeekInteraction ? _handleTap : null,
+        onHorizontalDragUpdate: enableSeekInteraction ? _handleDrag : null,
+        child: widget.showPositionIndicator
+            ? LayoutBuilder(
+                builder: (context, constraints) {
+                  final positionRatio = widget.currentPosition != null &&
+                          _duration > Duration.zero
+                      ? widget.currentPosition!.inMilliseconds /
+                          _duration.inMilliseconds
+                      : 0.0;
+                  final indicatorPosition =
+                      (constraints.maxWidth * positionRatio)
+                          .clamp(0.0, constraints.maxWidth - 2);
+
+                  return Stack(
+                    alignment: AlignmentGeometry.center,
+                    fit: StackFit.expand,
+                    children: [
+                      _buildWaveForm(),
+                      if (widget.currentPosition != null) ...[
+                        // Played overlay (before indicator)
+                        if (widget.style.playedOverlayColor != null)
+                          Positioned(
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: indicatorPosition,
+                            child: Container(
+                              color: widget.style.playedOverlayColor!,
+                            ),
+                          ),
+                        // Unplayed overlay (after indicator)
+                        if (widget.style.unplayedOverlayColor != null)
+                          Positioned(
+                            left: indicatorPosition + 2,
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              color: widget.style.unplayedOverlayColor!,
+                            ),
+                          ),
+                        // Position indicator line
+                        Positioned(
+                          left: indicatorPosition,
+                          top: 0,
+                          bottom: 0,
+                          child: Container(
+                            width: 2,
+                            color: widget.style.positionIndicatorColor ??
+                                widget.style.waveColor,
+                          ),
+                        ),
+                      ]
+                    ],
+                  );
+                },
+              )
+            : _buildWaveForm(),
+      ),
+    );
+  }
+
+  Widget _buildWaveForm() {
+    // Standard waveform rendering
+    return widget.isStreaming
+        ? StreamingWaveform(
+            widget.config!,
+            style: widget.style,
+            onDurationAvailable: (duration) {
+              if (_streamingDuration != duration) {
+                setState(() => _streamingDuration = duration);
+              }
+            },
+            onComplete: widget.onComplete,
+          )
+        : CustomPaint(
+            size: Size(double.infinity, widget.style.height),
+            painter: WaveformPainter(
+              waveform: widget.waveform!,
+              style: widget.style,
+              currentPosition: widget.currentPosition,
+              showPositionIndicator: widget.showPositionIndicator,
+            ),
+          );
   }
 }

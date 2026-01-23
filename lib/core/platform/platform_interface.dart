@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import '/core/models/audio/audio_extract_configs_model.dart';
+import '/core/models/audio/waveform_chunk_model.dart';
 import '/core/models/audio/waveform_configs_model.dart';
 import '/core/models/audio/waveform_data_model.dart';
 import '/core/models/thumbnail/key_frames_configs_model.dart';
@@ -317,6 +318,56 @@ abstract class ProVideoEditor extends PlatformInterface {
   /// ```
   Future<WaveformData> getWaveform(WaveformConfigs value) {
     throw UnimplementedError('getWaveform() has not been implemented.');
+  }
+
+  /// Streams waveform data progressively during generation.
+  ///
+  /// Unlike [getWaveform] which waits for complete generation, this method
+  /// emits [WaveformChunk] objects as they are generated, allowing for
+  /// progressive UI updates.
+  ///
+  /// **Benefits over [getWaveform]:**
+  /// - Immediate visual feedback as waveform data becomes available
+  /// - Better user experience for long audio files
+  /// - Can start displaying waveform before generation completes
+  ///
+  /// **Chunk size:** Controlled by [WaveformConfigs.chunkSize]. Smaller
+  /// values provide more frequent updates but with more overhead.
+  ///
+  /// [value] Configuration specifying video source, resolution, and optional
+  /// time range for partial extraction.
+  ///
+  /// Returns a [Stream] of [WaveformChunk] objects. The stream completes
+  /// when the waveform generation finishes (check [WaveformChunk.isComplete]).
+  ///
+  /// Throws:
+  /// - [AudioNoTrackException] if the video has no audio track
+  /// - [RenderCanceledException] if cancelled via [cancel]
+  /// - [ArgumentError] if configuration is invalid
+  /// - [PlatformException] if waveform generation fails
+  ///
+  /// Example:
+  /// ```dart
+  /// final configs = WaveformConfigs(
+  ///   video: EditorVideo.file('/path/to/video.mp4'),
+  ///   resolution: WaveformResolution.high,
+  ///   chunkSize: 50, // Emit every 50 samples
+  /// );
+  ///
+  /// final allChunks = <WaveformChunk>[];
+  ///
+  /// await for (final chunk in
+  /// ProVideoEditor.instance.getWaveformStream(configs)) {
+  ///   allChunks.add(chunk);
+  ///   updateProgressiveWaveformDisplay(allChunks);
+  ///
+  ///   if (chunk.isComplete) {
+  ///     print('Waveform generation complete!');
+  ///   }
+  /// }
+  /// ```
+  Stream<WaveformChunk> getWaveformStream(WaveformConfigs value) {
+    throw UnimplementedError('getWaveformStream() has not been implemented.');
   }
 
   /// Renders a video with effects and returns the result in memory.

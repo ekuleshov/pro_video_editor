@@ -36,43 +36,11 @@ class WaveformData {
     required this.samplesPerSecond,
   });
 
-  /// Peak amplitudes for the left channel (or mono channel).
-  ///
-  /// Values are normalized to [0.0, 1.0].
-  final Float32List leftChannel;
-
-  /// Peak amplitudes for the right channel.
-  ///
-  /// Null for mono audio sources. Values are normalized to [0.0, 1.0].
-  final Float32List? rightChannel;
-
-  /// Original audio sample rate in Hz (e.g., 44100, 48000).
-  final int sampleRate;
-
-  /// Total audio duration in milliseconds.
-  final int duration;
-
-  /// Number of waveform samples per second of audio.
-  ///
-  /// This determines the resolution of the waveform. Higher values
-  /// provide more detail but increase memory usage.
-  final int samplesPerSecond;
-
-  /// Number of samples in this waveform.
-  int get sampleCount => leftChannel.length;
-
-  /// Whether this is stereo audio (has separate left/right channels).
-  bool get isStereo => rightChannel != null;
-
-  /// Duration per sample in milliseconds.
-  double get millisecondsPerSample =>
-      sampleCount > 0 ? duration / sampleCount : 0;
-
   /// Creates a [WaveformData] from a platform channel response map.
   ///
   /// The map should contain:
-  /// - `leftChannel`: List<double> or Float32List
-  /// - `rightChannel`: List<double> or Float32List (optional)
+  /// - `leftChannel`: List or Float32List
+  /// - `rightChannel`: List or Float32List (optional)
   /// - `sampleRate`: int
   /// - `duration`: int (milliseconds)
   /// - `samplesPerSecond`: int
@@ -107,10 +75,42 @@ class WaveformData {
       leftChannel: leftChannel,
       rightChannel: rightChannel,
       sampleRate: (map['sampleRate'] as num).toInt(),
-      duration: (map['duration'] as num).toInt(),
+      duration: Duration(milliseconds: (map['duration'] as num).toInt()),
       samplesPerSecond: (map['samplesPerSecond'] as num).toInt(),
     );
   }
+
+  /// Peak amplitudes for the left channel (or mono channel).
+  ///
+  /// Values are normalized to [0.0, 1.0].
+  final Float32List leftChannel;
+
+  /// Peak amplitudes for the right channel.
+  ///
+  /// Null for mono audio sources. Values are normalized to [0.0, 1.0].
+  final Float32List? rightChannel;
+
+  /// Original audio sample rate in Hz (e.g., 44100, 48000).
+  final int sampleRate;
+
+  /// Total audio duration.
+  final Duration duration;
+
+  /// Number of waveform samples per second of audio.
+  ///
+  /// This determines the resolution of the waveform. Higher values
+  /// provide more detail but increase memory usage.
+  final int samplesPerSecond;
+
+  /// Number of samples in this waveform.
+  int get sampleCount => leftChannel.length;
+
+  /// Whether this is stereo audio (has separate left/right channels).
+  bool get isStereo => rightChannel != null;
+
+  /// Duration per sample in milliseconds.
+  double get millisecondsPerSample =>
+      sampleCount > 0 ? duration.inMilliseconds / sampleCount : 0;
 
   /// Returns a downsampled version of this waveform for lower resolutions.
   ///
@@ -159,15 +159,17 @@ class WaveformData {
 
   /// Gets a range of samples for a specific time range.
   ///
-  /// [startMs] Start time in milliseconds.
-  /// [endMs] End time in milliseconds.
+  /// [start] Start time.
+  /// [end] End time.
   ///
   /// Returns a new [WaveformData] containing only the specified range.
-  WaveformData getRange(int startMs, int endMs) {
-    final startSample =
-        (startMs / millisecondsPerSample).floor().clamp(0, sampleCount);
-    final endSample =
-        (endMs / millisecondsPerSample).ceil().clamp(0, sampleCount);
+  WaveformData getRange(Duration start, Duration end) {
+    final startSample = (start.inMilliseconds / millisecondsPerSample)
+        .floor()
+        .clamp(0, sampleCount);
+    final endSample = (end.inMilliseconds / millisecondsPerSample)
+        .ceil()
+        .clamp(0, sampleCount);
     final length = endSample - startSample;
 
     if (length <= 0) {
@@ -175,7 +177,7 @@ class WaveformData {
         leftChannel: Float32List(0),
         rightChannel: rightChannel != null ? Float32List(0) : null,
         sampleRate: sampleRate,
-        duration: 0,
+        duration: Duration.zero,
         samplesPerSecond: samplesPerSecond,
       );
     }
@@ -184,7 +186,7 @@ class WaveformData {
       leftChannel: leftChannel.sublist(startSample, endSample),
       rightChannel: rightChannel?.sublist(startSample, endSample),
       sampleRate: sampleRate,
-      duration: endMs - startMs,
+      duration: end - start,
       samplesPerSecond: samplesPerSecond,
     );
   }
@@ -194,7 +196,7 @@ class WaveformData {
     return 'WaveformData('
         'samples: $sampleCount, '
         'stereo: $isStereo, '
-        'duration: ${duration}ms, '
+        'duration: $duration, '
         'sampleRate: ${sampleRate}Hz, '
         'samplesPerSecond: $samplesPerSecond)';
   }

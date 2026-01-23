@@ -17,6 +17,9 @@ struct WaveformConfig {
     /// Number of waveform samples to generate per second of audio
     let samplesPerSecond: Int
     
+    /// Number of samples per chunk for streaming mode
+    let chunkSize: Int
+    
     /// Optional start time in microseconds for partial extraction
     let startUs: Int64?
     
@@ -36,6 +39,7 @@ struct WaveformConfig {
         }
         
         let samplesPerSecond = args["samplesPerSecond"] as? Int ?? 50
+        let chunkSize = args["chunkSize"] as? Int ?? 50
         let startUs = args["startTime"] as? Int64
         let endUs = args["endTime"] as? Int64
         
@@ -44,6 +48,7 @@ struct WaveformConfig {
             inputPath: inputPath,
             fileExtension: extensionStr,
             samplesPerSecond: samplesPerSecond,
+            chunkSize: chunkSize,
             startUs: startUs,
             endUs: endUs
         )

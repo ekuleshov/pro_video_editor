@@ -18,8 +18,10 @@ import Foundation
 /// Communication protocol:
 /// - Method channel: "pro_video_editor" for commands and responses
 /// - Event channel: "pro_video_editor_progress" for progress updates
+/// - Event channel: "pro_video_editor_waveform_stream" for streaming waveform chunks
 public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
     var eventSink: FlutterEventSink?
+    var waveformStreamSink: FlutterEventSink?
     private var activeRenderTasks: [String: RenderTask] = [:]
     private var activeAudioTasks: [String: AudioExtractTask] = [:]
     private var activeWaveformTasks: [String: WaveformTask] = [:]
@@ -29,10 +31,13 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
             name: "pro_video_editor", binaryMessenger: registrar.messenger)
         let eventChannel = FlutterEventChannel(
             name: "pro_video_editor_progress", binaryMessenger: registrar.messenger)
+        let waveformStreamChannel = FlutterEventChannel(
+            name: "pro_video_editor_waveform_stream", binaryMessenger: registrar.messenger)
 
         let instance = ProVideoEditorPlugin()
         registrar.addMethodCallDelegate(instance, channel: methodChannel)
         eventChannel.setStreamHandler(instance)
+        waveformStreamChannel.setStreamHandler(WaveformStreamHandler(plugin: instance))
     }
 
     /// Routes incoming method calls to appropriate handlers.
@@ -66,6 +71,9 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
 
         case "getWaveform":
             handleGetWaveform(call: call, result: result)
+
+        case "startWaveformStream":
+            handleStartWaveformStream(call: call, result: result)
 
         case "cancelTask":
             handleCancelTask(call: call, result: result)
@@ -418,6 +426,84 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
         )
 
         task.attachHandle(handle)
+    }
+
+    /// Starts streaming waveform generation.
+    ///
+    /// Unlike handleGetWaveform which waits for complete generation,
+    /// this method emits waveform chunks progressively via the waveformStreamChannel.
+    private func handleStartWaveformStream(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+            let id = args["id"] as? String
+        else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Missing parameters", details: nil))
+            return
+        }
+
+        guard !id.isEmpty else {
+            result(FlutterError(code: "INVALID_ARGUMENTS", message: "Missing task id", details: nil))
+            return
+        }
+
+        if activeWaveformTasks[id] != nil {
+            result(
+                FlutterError(
+                    code: "TASK_ALREADY_RUNNING", message: "Waveform task with id \(id) is already running",
+                    details: nil))
+            return
+        }
+
+        guard let config = WaveformConfig.fromArguments(args) else {
+            result(
+                FlutterError(
+                    code: "INVALID_ARGUMENTS", message: "Invalid waveform configuration", details: nil))
+            return
+        }
+
+        let task = WaveformTask(result: result)
+        activeWaveformTasks[id] = task
+
+        let handle = WaveformGenerator.generateStreaming(
+            config: config,
+            onChunk: { chunkData in
+                DispatchQueue.main.async {
+                    self.waveformStreamSink?(chunkData)
+                }
+            },
+            onComplete: {
+                DispatchQueue.main.async {
+                    self.activeWaveformTasks.removeValue(forKey: id)
+                    // Don't call result.success for streaming - chunks are sent via event channel
+                }
+            },
+            onError: { error in
+                DispatchQueue.main.async {
+                    let task = self.activeWaveformTasks.removeValue(forKey: id)
+                    let code: String
+                    if task?.isCanceled == true {
+                        code = "CANCELED"
+                    } else if error is NoAudioTrackException {
+                        code = "NO_AUDIO"
+                    } else {
+                        code = "WAVEFORM_ERROR"
+                    }
+                    // Send error via event channel
+                    let errorData: [String: Any] = [
+                        "id": id,
+                        "error": error.localizedDescription,
+                        "errorCode": code
+                    ]
+                    self.waveformStreamSink?(errorData)
+                }
+            }
+        )
+
+        task.attachHandle(handle)
+        
+        // Return immediately - chunks will be sent via event channel
+        result(nil)
     }
 
     /// Cancels an active render or audio extraction task by ID.

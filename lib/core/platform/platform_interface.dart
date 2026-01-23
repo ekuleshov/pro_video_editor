@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import '/core/models/audio/audio_extract_configs_model.dart';
+import '/core/models/audio/waveform_configs_model.dart';
+import '/core/models/audio/waveform_data_model.dart';
 import '/core/models/thumbnail/key_frames_configs_model.dart';
 import '/core/models/thumbnail/thumbnail_configs_model.dart';
 import '/core/models/video/editor_video_model.dart';
@@ -267,6 +269,54 @@ abstract class ProVideoEditor extends PlatformInterface {
     AudioExtractConfigs value,
   ) {
     throw UnimplementedError('extractAudioToFile() has not been implemented.');
+  }
+
+  /// Generates waveform data from the audio track of a video.
+  ///
+  /// Extracts the audio, decodes it to PCM, and computes peak amplitudes
+  /// at the specified resolution. The resulting [WaveformData] can be used
+  /// to render a visual representation of the audio.
+  ///
+  /// **Architecture:** Audio decoding and peak computation happen natively
+  /// for performance. Flutter receives only the compact waveform arrays,
+  /// not raw PCM data.
+  ///
+  /// **Performance characteristics:**
+  /// - Processing speed: ~10x realtime on modern devices
+  /// - Memory: Resolution determines output size (~4 bytes per sample)
+  /// - Multi-resolution: Generate high-res once, downsample in Dart for zoom
+  ///
+  /// [value] Configuration specifying video source, resolution, and optional
+  /// time range for partial extraction.
+  ///
+  /// Returns [WaveformData] containing normalized peak amplitudes.
+  ///
+  /// Throws:
+  /// - [AudioNoTrackException] if the video has no audio track
+  /// - [RenderCanceledException] if cancelled via [cancel]
+  /// - [ArgumentError] if configuration is invalid
+  /// - [PlatformException] if waveform generation fails
+  ///
+  /// Progress updates are emitted via [progressStreamById] using
+  /// [WaveformConfigs.id].
+  ///
+  /// Example:
+  /// ```dart
+  /// final configs = WaveformConfigs(
+  ///   video: EditorVideo.file('/path/to/video.mp4'),
+  ///   resolution: WaveformResolution.high,
+  /// );
+  ///
+  /// // Listen to progress
+  /// ProVideoEditor.instance.progressStreamById(configs.id).listen((p) {
+  ///   print('Waveform generation: ${(p.progress * 100).toInt()}%');
+  /// });
+  ///
+  /// final waveform = await ProVideoEditor.instance.getWaveform(configs);
+  /// print('Generated ${waveform.sampleCount} samples');
+  /// ```
+  Future<WaveformData> getWaveform(WaveformConfigs value) {
+    throw UnimplementedError('getWaveform() has not been implemented.');
   }
 
   /// Renders a video with effects and returns the result in memory.

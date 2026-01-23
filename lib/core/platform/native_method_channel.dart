@@ -6,6 +6,8 @@ import 'package:mime/mime.dart';
 import 'package:pro_video_editor/core/models/exceptions/audio_exceptions.dart';
 
 import '/core/models/audio/audio_extract_configs_model.dart';
+import '/core/models/audio/waveform_configs_model.dart';
+import '/core/models/audio/waveform_data_model.dart';
 import '/core/models/exceptions/render_exceptions.dart';
 import '/core/models/thumbnail/key_frames_configs_model.dart';
 import '/core/models/thumbnail/thumbnail_base_abstract.dart';
@@ -170,6 +172,35 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
       );
 
       return filePath;
+    } on PlatformException catch (error) {
+      if (error.code == noAudioErrorCode) {
+        throw const AudioNoTrackException();
+      } else if (error.code == renderCanceledErrorCode) {
+        throw const RenderCanceledException();
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<WaveformData> getWaveform(WaveformConfigs value) async {
+    try {
+      var inputPath = await value.video.safeFilePath();
+
+      final response = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'getWaveform',
+        {
+          'inputPath': inputPath,
+          'extension': _getFileExtension(inputPath),
+          ...value.toMap(),
+        },
+      );
+
+      if (response == null) {
+        throw ArgumentError('Failed to generate waveform data');
+      }
+
+      return WaveformData.fromMap(response);
     } on PlatformException catch (error) {
       if (error.code == noAudioErrorCode) {
         throw const AudioNoTrackException();

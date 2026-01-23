@@ -68,7 +68,7 @@ class _HomePageState extends State<HomePage> {
     ),
     _ExampleListItem(
       icon: Icons.audiotrack,
-      title: 'Audio Extraction',
+      title: 'Audio',
       pageBuilder: () => const AudioExtractExamplePage(),
     ),
     _ExampleListItem(

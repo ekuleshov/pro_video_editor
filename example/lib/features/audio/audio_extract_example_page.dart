@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -36,6 +37,17 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
   bool? _hasAudioTrack;
   bool? _mutedVideoHasAudio;
   bool _isCheckingAudio = false;
+
+  // Waveform states
+  WaveformData? _waveformData;
+  bool _isGeneratingWaveform = false;
+  WaveformResolution _selectedResolution = WaveformResolution.medium;
+  final String _waveformTaskId = 'WaveformGenerationTaskId';
+
+  // Streaming waveform states
+  bool _useStreamingMode = false;
+  WaveformConfigs? _streamingConfig;
+  bool _isStreamingComplete = false;
 
   @override
   void initState() {
@@ -213,11 +225,91 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
     }
   }
 
-  String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    final minutes = twoDigits(duration.inMinutes.remainder(60));
-    final seconds = twoDigits(duration.inSeconds.remainder(60));
-    return '$minutes:$seconds';
+  /// Generates waveform data from the demo video.
+  Future<void> _generateWaveform() async {
+    if (_useStreamingMode) {
+      _generateWaveformStreaming();
+    } else {
+      await _generateWaveformComplete();
+    }
+  }
+
+  /// Generates waveform data using the complete (non-streaming) method.
+  Future<void> _generateWaveformComplete() async {
+    setState(() {
+      _isGeneratingWaveform = true;
+      _waveformData = null;
+      _streamingConfig = null;
+    });
+
+    try {
+      final config = WaveformConfigs(
+        video: EditorVideo.asset('assets/tests/test_4k_b.mp4'),
+        resolution: _selectedResolution,
+        id: _waveformTaskId,
+      );
+
+      final waveform = await ProVideoEditor.instance.getWaveform(config);
+
+      setState(() {
+        _waveformData = waveform;
+        _isGeneratingWaveform = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Waveform generated: ${waveform.sampleCount} samples, '
+              '${waveform.isStereo ? "stereo" : "mono"}',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isGeneratingWaveform = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error generating waveform: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Generates waveform data using the streaming method.
+  void _generateWaveformStreaming() {
+    setState(() {
+      _streamingConfig = null;
+      _waveformData = null;
+      _isStreamingComplete = false;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        _streamingConfig = WaveformConfigs(
+          video: EditorVideo.asset('assets/tests/test_4k_b.mp4'),
+          resolution: _selectedResolution,
+          id: 'StreamingWaveformTaskId',
+          chunkSize: 20, // Emit every 20 samples for smoother updates
+        );
+      });
+    });
+  }
+
+  /// Cancels streaming waveform generation.
+  void _cancelStreamingWaveform() {
+    ProVideoEditor.instance.cancel('StreamingWaveformTaskId');
+    setState(() {
+      _streamingConfig = null;
+      _isStreamingComplete = false;
+    });
   }
 
   /// Checks if an audio format is supported on the current platform.
@@ -230,6 +322,7 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
         return Platform.isAndroid;
       case AudioFormat.aac:
       case AudioFormat.m4a:
+      case AudioFormat.wav:
         // AAC and M4A supported on all platforms
         return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
       case AudioFormat.caf:
@@ -250,258 +343,632 @@ class _AudioExtractExamplePageState extends State<AudioExtractExamplePage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
         children: [
-          // Format Selection
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Audio Format',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    children: AudioFormat.values.map((format) {
-                      final isSupported = _isFormatSupported(format);
-                      return Tooltip(
-                        message: isSupported
-                            ? 'Supported on this platform'
-                            : 'Not supported on ${Platform.operatingSystem}',
-                        child: ChoiceChip(
-                          label: Text(format.name.toUpperCase()),
-                          selected: _selectedFormat == format,
-                          onSelected: isSupported
-                              ? (selected) {
-                                  if (selected) {
-                                    setState(() {
-                                      _selectedFormat = format;
-                                    });
-                                  }
-                                }
-                              : null,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
+          _AudioExtractionCard(
+            selectedFormat: _selectedFormat,
+            isFormatSupported: _isFormatSupported,
+            isExtracting: _isExtracting,
+            taskId: _taskId,
+            extractedAudioPath: _extractedAudioPath,
+            isPlaying: _isPlaying,
+            position: _position,
+            duration: _duration,
+            onFormatChanged: (format) => setState(() {
+              _selectedFormat = format;
+            }),
+            onExtractAudio: _extractAudio,
+            onPlayPause: _playAudio,
+            onSeek: (value) async {
+              await _audioPlayer.seek(Duration(seconds: value.toInt()));
+            },
+            onDelete: _deleteAudio,
           ),
           const SizedBox(height: 16),
-
-          // Audio Track Check Section
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Audio Track Detection',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Check if videos have audio tracks before extraction',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Check Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _isCheckingAudio ? null : _checkAudioTrack,
-                      icon: _isCheckingAudio
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.music_note),
-                      label: Text(
-                        _isCheckingAudio ? 'Checking...' : 'Check Audio Tracks',
-                      ),
-                    ),
-                  ),
-
-                  // Results
-                  if (_hasAudioTrack != null ||
-                      _mutedVideoHasAudio != null) ...[
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    if (_hasAudioTrack != null) ...[
-                      Row(
-                        children: [
-                          Icon(
-                            _hasAudioTrack! ? Icons.check_circle : Icons.cancel,
-                            color: _hasAudioTrack! ? Colors.green : Colors.red,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          const Expanded(
-                            child: Text('Demo video (with audio):'),
-                          ),
-                          Text(
-                            _hasAudioTrack! ? 'Has audio' : 'No audio',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color:
-                                  _hasAudioTrack! ? Colors.green : Colors.red,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    if (_mutedVideoHasAudio != null) ...[
-                      Row(
-                        children: [
-                          Icon(
-                            _mutedVideoHasAudio!
-                                ? Icons.check_circle
-                                : Icons.cancel,
-                            color: _mutedVideoHasAudio!
-                                ? Colors.green
-                                : Colors.red,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          const Expanded(
-                            child: Text('Muted video (no audio):'),
-                          ),
-                          Text(
-                            _mutedVideoHasAudio! ? 'Has audio' : 'No audio',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: _mutedVideoHasAudio!
-                                  ? Colors.green
-                                  : Colors.red,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ],
-              ),
-            ),
+          _AudioTrackDetectionCard(
+            isCheckingAudio: _isCheckingAudio,
+            hasAudioTrack: _hasAudioTrack,
+            mutedVideoHasAudio: _mutedVideoHasAudio,
+            onCheckAudioTrack: _checkAudioTrack,
           ),
           const SizedBox(height: 16),
-
-          // Extract Button with Progress
-          ListTile(
-            onTap: _isExtracting ? null : _extractAudio,
-            leading: _isExtracting
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.audiotrack),
-            title:
-                Text(_isExtracting ? 'Extracting Audio...' : 'Extract Audio'),
-            trailing: _buildProgress(),
-            tileColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+          _WaveformGenerationCard(
+            isGeneratingWaveform: _isGeneratingWaveform,
+            useStreamingMode: _useStreamingMode,
+            selectedResolution: _selectedResolution,
+            waveformData: _waveformData,
+            waveformTaskId: _waveformTaskId,
+            streamingConfig: _streamingConfig,
+            onResolutionChanged: (resolution) => setState(() {
+              _selectedResolution = resolution;
+            }),
+            onStreamingModeChanged: (value) => setState(() {
+              _useStreamingMode = value;
+            }),
+            onGenerateWaveform: _generateWaveform,
+            onCancelStreaming: _cancelStreamingWaveform,
+            isStreamingComplete: _isStreamingComplete,
+            onStreamingComplete: () {
+              setState(() {
+                _isStreamingComplete = true;
+              });
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Streaming waveform complete!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
           ),
-          const SizedBox(height: 16),
-
-          // Audio Player Section
-          if (_extractedAudioPath != null) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Extracted Audio',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Play/Pause Button
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          icon:
-                              Icon(_isPlaying ? Icons.pause : Icons.play_arrow),
-                          iconSize: 48,
-                          onPressed: _playAudio,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Progress Slider
-                    Slider(
-                      value: _position.inSeconds.toDouble(),
-                      max: _duration.inSeconds.toDouble() > 0
-                          ? _duration.inSeconds.toDouble()
-                          : 1,
-                      onChanged: (value) async {
-                        await _audioPlayer
-                            .seek(Duration(seconds: value.toInt()));
-                      },
-                    ),
-
-                    // Time Display
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(_formatDuration(_position)),
-                          Text(_formatDuration(_duration)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // File Info
-                    Text(
-                      'File: ${_extractedAudioPath!.split('/').last}',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Delete Button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _deleteAudio,
-                        icon: const Icon(Icons.delete),
-                        label: const Text('Delete Audio'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
+}
 
-  Widget _buildProgress() {
+class _AudioExtractionCard extends StatelessWidget {
+  const _AudioExtractionCard({
+    required this.selectedFormat,
+    required this.isFormatSupported,
+    required this.isExtracting,
+    required this.taskId,
+    required this.extractedAudioPath,
+    required this.isPlaying,
+    required this.position,
+    required this.duration,
+    required this.onFormatChanged,
+    required this.onExtractAudio,
+    required this.onPlayPause,
+    required this.onSeek,
+    required this.onDelete,
+  });
+
+  final AudioFormat selectedFormat;
+  final bool Function(AudioFormat) isFormatSupported;
+  final bool isExtracting;
+  final String taskId;
+  final String? extractedAudioPath;
+  final bool isPlaying;
+  final Duration position;
+  final Duration duration;
+  final ValueChanged<AudioFormat> onFormatChanged;
+  final VoidCallback onExtractAudio;
+  final VoidCallback onPlayPause;
+  final ValueChanged<double> onSeek;
+  final VoidCallback onDelete;
+
+  String _formatDuration(Duration dur) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(dur.inMinutes.remainder(60));
+    final seconds = twoDigits(dur.inSeconds.remainder(60));
+    return '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Audio Extraction',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Select format and extract audio from video',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Format:',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: AudioFormat.values.map((format) {
+                final isSupported = isFormatSupported(format);
+                return Tooltip(
+                  message: isSupported
+                      ? 'Supported on this platform'
+                      : 'Not supported on ${Platform.operatingSystem}',
+                  child: ChoiceChip(
+                    label: Text(format.name.toUpperCase()),
+                    selected: selectedFormat == format,
+                    onSelected: isSupported
+                        ? (selected) {
+                            if (selected) onFormatChanged(format);
+                          }
+                        : null,
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: isExtracting ? null : onExtractAudio,
+                icon: isExtracting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.audiotrack),
+                label: Text(
+                  isExtracting ? 'Extracting...' : 'Extract Audio',
+                ),
+              ),
+            ),
+            if (isExtracting) ...[
+              const SizedBox(height: 8),
+              _ExtractionProgressIndicator(
+                taskId: taskId,
+                isExtracting: isExtracting,
+              ),
+            ],
+            // Extracted Audio Player
+            if (extractedAudioPath != null) ...[
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 12),
+              const Text(
+                'Extracted Audio',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                    iconSize: 48,
+                    onPressed: onPlayPause,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Slider(
+                value: position.inSeconds.toDouble(),
+                max: duration.inSeconds.toDouble() > 0
+                    ? duration.inSeconds.toDouble()
+                    : 1,
+                onChanged: onSeek,
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(_formatDuration(position)),
+                    Text(_formatDuration(duration)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'File: ${extractedAudioPath!.split('/').last}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete, size: 18),
+                  label: const Text('Delete'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AudioTrackDetectionCard extends StatelessWidget {
+  const _AudioTrackDetectionCard({
+    required this.isCheckingAudio,
+    required this.hasAudioTrack,
+    required this.mutedVideoHasAudio,
+    required this.onCheckAudioTrack,
+  });
+
+  final bool isCheckingAudio;
+  final bool? hasAudioTrack;
+  final bool? mutedVideoHasAudio;
+  final VoidCallback onCheckAudioTrack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Audio Track Detection',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Check if videos have audio tracks before extraction',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: isCheckingAudio ? null : onCheckAudioTrack,
+                icon: isCheckingAudio
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.music_note),
+                label: Text(
+                  isCheckingAudio ? 'Checking...' : 'Check Audio Tracks',
+                ),
+              ),
+            ),
+            if (hasAudioTrack != null || mutedVideoHasAudio != null) ...[
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              if (hasAudioTrack != null) ...[
+                _AudioTrackResultRow(
+                  label: 'Demo video (with audio):',
+                  hasAudio: hasAudioTrack!,
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (mutedVideoHasAudio != null)
+                _AudioTrackResultRow(
+                  label: 'Muted video (no audio):',
+                  hasAudio: mutedVideoHasAudio!,
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AudioTrackResultRow extends StatelessWidget {
+  const _AudioTrackResultRow({
+    required this.label,
+    required this.hasAudio,
+  });
+
+  final String label;
+  final bool hasAudio;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          hasAudio ? Icons.check_circle : Icons.cancel,
+          color: hasAudio ? Colors.green : Colors.red,
+          size: 20,
+        ),
+        const SizedBox(width: 8),
+        Expanded(child: Text(label)),
+        Text(
+          hasAudio ? 'Has audio' : 'No audio',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: hasAudio ? Colors.green : Colors.red,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WaveformGenerationCard extends StatelessWidget {
+  const _WaveformGenerationCard({
+    required this.isGeneratingWaveform,
+    required this.useStreamingMode,
+    required this.selectedResolution,
+    required this.waveformData,
+    required this.waveformTaskId,
+    required this.streamingConfig,
+    required this.onResolutionChanged,
+    required this.onStreamingModeChanged,
+    required this.onGenerateWaveform,
+    required this.onCancelStreaming,
+    required this.onStreamingComplete,
+    required this.isStreamingComplete,
+  });
+
+  final bool isGeneratingWaveform;
+  final bool useStreamingMode;
+  final WaveformResolution selectedResolution;
+  final WaveformData? waveformData;
+  final String waveformTaskId;
+  final WaveformConfigs? streamingConfig;
+  final ValueChanged<WaveformResolution> onResolutionChanged;
+  final ValueChanged<bool> onStreamingModeChanged;
+  final VoidCallback onGenerateWaveform;
+  final VoidCallback onCancelStreaming;
+  final VoidCallback onStreamingComplete;
+  final bool isStreamingComplete;
+
+  bool get _isProcessing =>
+      isGeneratingWaveform || (streamingConfig != null && !isStreamingComplete);
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Waveform Generation',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Generate visual waveform data from video audio',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Resolution:',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: WaveformResolution.values.map((resolution) {
+                return ChoiceChip(
+                  label: Text(
+                    '${resolution.name.toUpperCase()} '
+                    '(${resolution.samplesPerSecond}/s)',
+                  ),
+                  selected: selectedResolution == resolution,
+                  onSelected: _isProcessing
+                      ? null
+                      : (selected) {
+                          if (selected) onResolutionChanged(resolution);
+                        },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            SwitchListTile(
+              title: const Text('Streaming Mode'),
+              subtitle: const Text(
+                'Progressive waveform updates',
+                style: TextStyle(fontSize: 12),
+              ),
+              value: useStreamingMode,
+              onChanged: _isProcessing ? null : onStreamingModeChanged,
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+            if (isGeneratingWaveform) ...[
+              const SizedBox(height: 8),
+              _WaveformProgressIndicator(taskId: waveformTaskId),
+            ],
+            // Show streaming waveform widget
+            if (streamingConfig != null) ...[
+              const SizedBox(height: 8),
+              _StreamingWaveformPreview(
+                config: streamingConfig!,
+                onComplete: onStreamingComplete,
+              ),
+            ] else if (waveformData != null) ...[
+              const SizedBox(height: 16),
+              _WaveformDisplay(waveformData: waveformData!),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _isProcessing ? null : onGenerateWaveform,
+                    icon: _isProcessing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.waves),
+                    label: Text(
+                      _isProcessing
+                          ? (streamingConfig != null
+                              ? 'Streaming...'
+                              : 'Generating...')
+                          : (useStreamingMode
+                              ? 'Stream Waveform'
+                              : 'Generate Waveform'),
+                    ),
+                  ),
+                ),
+                if (streamingConfig != null && !isStreamingComplete) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: onCancelStreaming,
+                    icon: const Icon(Icons.cancel),
+                    tooltip: 'Cancel',
+                    color: Colors.red,
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Displays streaming waveform preview using the simplified API.
+class _StreamingWaveformPreview extends StatefulWidget {
+  const _StreamingWaveformPreview({
+    required this.config,
+    required this.onComplete,
+  });
+
+  final WaveformConfigs config;
+  final VoidCallback onComplete;
+
+  @override
+  State<_StreamingWaveformPreview> createState() =>
+      _StreamingWaveformPreviewState();
+}
+
+class _StreamingWaveformPreviewState extends State<_StreamingWaveformPreview> {
+  Duration _currentPosition = Duration.zero;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Streaming waveform...',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 8),
+        // The widget now manages the stream internally!
+        AudioWaveform.streaming(
+          config: widget.config,
+          showPositionIndicator: true,
+          currentPosition: _currentPosition,
+          onSeek: (value) {
+            _currentPosition = value;
+            setState(() {});
+          },
+          onComplete: widget.onComplete,
+          style: WaveformStyle(
+            height: 120,
+            playedOverlayColor: Colors.black38,
+            waveColor: Colors.greenAccent,
+            positionIndicatorColor: Colors.white,
+            backgroundColor: Colors.grey.shade900,
+            barWidth: 3.0,
+            barSpacing: 1.0,
+            minBarHeight: 2.0,
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WaveformProgressIndicator extends StatelessWidget {
+  const _WaveformProgressIndicator({required this.taskId});
+
+  final String taskId;
+
+  @override
+  Widget build(BuildContext context) {
     return StreamBuilder<ProgressModel>(
-      stream: ProVideoEditor.instance.progressStreamById(_taskId),
+      stream: ProVideoEditor.instance.progressStreamById(taskId),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || !_isExtracting) {
+        final progress = snapshot.data?.progress ?? 0.0;
+        return Column(
+          children: [
+            LinearProgressIndicator(value: progress),
+            const SizedBox(height: 4),
+            Text(
+              '${(progress * 100).toStringAsFixed(0)}%',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _WaveformDisplay extends StatefulWidget {
+  const _WaveformDisplay({required this.waveformData});
+
+  final WaveformData waveformData;
+
+  @override
+  State<_WaveformDisplay> createState() => _WaveformDisplayState();
+}
+
+class _WaveformDisplayState extends State<_WaveformDisplay> {
+  Duration currentPosition = Duration.zero;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Samples: ${widget.waveformData.sampleCount} | '
+          'Duration: ${widget.waveformData.duration}ms | '
+          '${widget.waveformData.isStereo ? "Stereo" : "Mono"}',
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 12),
+        AudioWaveform.interactive(
+          currentPosition: currentPosition,
+          onSeek: (value) {
+            currentPosition = value;
+            setState(() {});
+          },
+          waveform: widget.waveformData,
+          style: WaveformStyle(
+            height: 120,
+            waveColor: Colors.greenAccent,
+            backgroundColor: Colors.grey.shade900,
+            barWidth: 3.0,
+            barSpacing: 1.0,
+            minBarHeight: 2.0,
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        if (widget.waveformData.isStereo) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Left Channel (top) / Right Channel (bottom)',
+            style: TextStyle(fontSize: 10, color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ExtractionProgressIndicator extends StatelessWidget {
+  const _ExtractionProgressIndicator({
+    required this.taskId,
+    required this.isExtracting,
+  });
+
+  final String taskId;
+  final bool isExtracting;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<ProgressModel>(
+      stream: ProVideoEditor.instance.progressStreamById(taskId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !isExtracting) {
           return const SizedBox.shrink();
         }
 

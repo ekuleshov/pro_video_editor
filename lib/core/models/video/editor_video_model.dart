@@ -156,7 +156,9 @@ class EditorVideo {
       final directory = await getTemporaryDirectory();
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      filePath = '${directory.path}/video_$now.mp4';
+      // Preserve original file extension for proper format detection
+      final extension = _getFileExtension();
+      filePath = '${directory.path}/media_$now.$extension';
     }
 
     switch (typePreferredFile) {
@@ -205,6 +207,31 @@ class EditorVideo {
     } else {
       return EditorVideoType.asset;
     }
+  }
+
+  /// Extracts the file extension from the source path.
+  /// Returns 'mp4' as default if no extension can be determined.
+  String _getFileExtension() {
+    String? sourcePath;
+
+    if (hasAssetPath) {
+      sourcePath = assetPath;
+    } else if (hasNetworkUrl) {
+      // Remove query parameters from URL
+      sourcePath = networkUrl?.split('?').first;
+    } else if (hasFile) {
+      sourcePath = file?.path;
+    }
+
+    if (sourcePath != null && sourcePath.contains('.')) {
+      final extension = sourcePath.split('.').last.toLowerCase();
+      // Validate it's a reasonable extension (not too long, alphanumeric)
+      if (extension.length <= 5 && RegExp(r'^[a-z0-9]+$').hasMatch(extension)) {
+        return extension;
+      }
+    }
+
+    return 'mp4'; // Default fallback
   }
 
   /// Returns a copy of this config with the given fields replaced.

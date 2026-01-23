@@ -6,6 +6,9 @@ import 'package:mime/mime.dart';
 import 'package:pro_video_editor/core/models/exceptions/audio_exceptions.dart';
 
 import '/core/models/audio/audio_extract_configs_model.dart';
+import '/core/models/audio/waveform_chunk_model.dart';
+import '/core/models/audio/waveform_configs_model.dart';
+import '/core/models/audio/waveform_data_model.dart';
 import '/core/models/exceptions/render_exceptions.dart';
 import '/core/models/thumbnail/key_frames_configs_model.dart';
 import '/core/models/thumbnail/thumbnail_base_abstract.dart';
@@ -57,6 +60,13 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   /// Emits [ProgressModel] events during long-running operations like
   /// video rendering and thumbnail generation.
   final _progressChannel = const EventChannel('pro_video_editor_progress');
+
+  /// Event channel for receiving waveform chunk data during streaming.
+  ///
+  /// Emits [WaveformChunk] events during streaming waveform generation,
+  /// allowing progressive UI updates.
+  final _waveformStreamChannel =
+      const EventChannel('pro_video_editor_waveform_stream');
 
   @override
   Future<String?> getPlatformVersion() async {
@@ -178,6 +188,121 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
       }
       rethrow;
     }
+  }
+
+  @override
+  Future<WaveformData> getWaveform(WaveformConfigs value) async {
+    try {
+      var inputPath = await value.video.safeFilePath();
+
+      final response = await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'getWaveform',
+        {
+          'inputPath': inputPath,
+          'extension': _getFileExtension(inputPath),
+          ...value.toMap(),
+        },
+      );
+
+      if (response == null) {
+        throw ArgumentError('Failed to generate waveform data');
+      }
+
+      return WaveformData.fromMap(response);
+    } on PlatformException catch (error) {
+      if (error.code == noAudioErrorCode) {
+        throw const AudioNoTrackException();
+      } else if (error.code == renderCanceledErrorCode) {
+        throw const RenderCanceledException();
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Stream<WaveformChunk> getWaveformStream(WaveformConfigs value) async* {
+    // Get the input path before starting the stream
+    final inputPath = await value.video.safeFilePath();
+    final extension = _getFileExtension(inputPath);
+
+    // Start the streaming waveform generation on native side
+    // The native side will start sending chunks via the event channel
+    await methodChannel.invokeMethod<void>(
+      'startWaveformStream',
+      {
+        'inputPath': inputPath,
+        'extension': extension,
+        ...value.toMap(),
+      },
+    );
+
+    // Listen to the waveform stream event channel
+    final streamController = StreamController<WaveformChunk>();
+
+    StreamSubscription<dynamic>? subscription;
+
+    subscription = _waveformStreamChannel.receiveBroadcastStream().listen(
+      (event) {
+        try {
+          if (event is Map) {
+            // Check if this event is for our task
+            final eventId = event['id'] as String?;
+            if (eventId == value.id) {
+              // Check for error
+              final error = event['error'] as String?;
+              if (error != null) {
+                final errorCode = event['errorCode'] as String?;
+                if (errorCode == noAudioErrorCode) {
+                  streamController.addError(const AudioNoTrackException());
+                } else if (errorCode == renderCanceledErrorCode) {
+                  streamController.addError(const RenderCanceledException());
+                } else {
+                  streamController.addError(PlatformException(
+                    code: errorCode ?? 'WAVEFORM_ERROR',
+                    message: error,
+                  ));
+                }
+                streamController.close();
+                subscription?.cancel();
+                return;
+              }
+
+              // Parse the chunk data
+              final chunk = WaveformChunk.fromMap(event);
+              streamController.add(chunk);
+
+              // Close stream if this is the final chunk
+              if (chunk.isComplete) {
+                streamController.close();
+                subscription?.cancel();
+              }
+            }
+          }
+        } catch (e, stack) {
+          debugPrint('Error parsing waveform chunk: $e\n$stack');
+          streamController.addError(e);
+        }
+      },
+      onError: (error) {
+        streamController
+          ..addError(error)
+          ..close();
+      },
+      onDone: () {
+        if (!streamController.isClosed) {
+          streamController.close();
+        }
+      },
+    );
+
+    // Clean up when the stream is cancelled
+    streamController.onCancel = () {
+      subscription?.cancel();
+      // Cancel the native task if still running
+      cancel(value.id).catchError((_) {});
+    };
+
+    yield* streamController.stream;
   }
 
   @override

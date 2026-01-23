@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -58,15 +59,23 @@ class _StreamingWaveformState extends State<StreamingWaveform> {
 
   // Cached bar heights - recalculated when chunks or width changes
   List<double> _barHeights = [];
-  int _totalBarsCount = 0;
+  int _totalBarsCount = 50;
 
-  // Stream for StreamBuilder
-  late final Stream<WaveformChunk> _stream;
+  // Stream subscription
+  StreamSubscription<WaveformChunk>? _subscription;
 
   @override
   void initState() {
     super.initState();
-    _stream = ProVideoEditor.instance.getWaveformStream(widget.config);
+    _subscription = ProVideoEditor.instance
+        .getWaveformStream(widget.config)
+        .listen(_onChunkReceived);
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 
   void _onChunkReceived(WaveformChunk chunk) {
@@ -77,6 +86,9 @@ class _StreamingWaveformState extends State<StreamingWaveform> {
 
     _chunks.add(chunk);
     _recalculateSamples();
+
+    // Trigger rebuild with updated bar heights
+    if (mounted) setState(() {});
   }
 
   void _recalculateSamples() {
@@ -113,33 +125,27 @@ class _StreamingWaveformState extends State<StreamingWaveform> {
     // Report duration when it becomes available
     if (lastChunk.totalDuration != _lastReportedDuration) {
       _lastReportedDuration = lastChunk.totalDuration;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        widget.onDurationAvailable?.call(lastChunk.totalDuration);
-      });
+      widget.onDurationAvailable?.call(lastChunk.totalDuration);
     }
 
     // Notify when streaming is complete
     if (_isComplete && !_hasCalledComplete) {
       _hasCalledComplete = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        widget.onComplete?.call();
-      });
+      widget.onComplete?.call();
     }
 
     // Recalculate bar heights if we know the width
     if (_lastKnownWidth > 0) {
-      _recalculateBarHeights(_lastKnownWidth);
+      _recalculateBarHeights();
     }
   }
 
-  void _recalculateBarHeights(double width) {
+  void _recalculateBarHeights() {
     final totalBarWidth = widget.style.barWidth + widget.style.barSpacing;
-    final barsCount = (width / totalBarWidth).floor();
+    final barsCount = (_lastKnownWidth / totalBarWidth).floor();
     if (barsCount == 0) {
       _barHeights = [];
-      _totalBarsCount = 0;
+      _totalBarsCount = 50;
       return;
     }
 
@@ -191,41 +197,23 @@ class _StreamingWaveformState extends State<StreamingWaveform> {
         // Update width for bar calculations
         if (_lastKnownWidth != constraints.maxWidth) {
           _lastKnownWidth = constraints.maxWidth;
-          _recalculateBarHeights(constraints.maxWidth);
+          _recalculateBarHeights();
         }
 
-        return StreamBuilder<WaveformChunk>(
-          stream: _stream,
-          builder: (context, snapshot) {
-            // Handle errors
-            if (snapshot.hasError) {
-              debugPrint('Waveform stream error: ${snapshot.error}');
-            }
-
-            // Process new chunk if available
-            if (snapshot.hasData) {
-              _onChunkReceived(snapshot.data!);
-            }
-
-            if (_totalBarsCount == 0) return const SizedBox.shrink();
-
-            return RepaintBoundary(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  for (var i = 0; i < _totalBarsCount; i++)
-                    _AnimatedWaveformBar(
-                      key: ValueKey('pro_image_editor_bar_${_id}_$i'),
-                      height: i < _barHeights.length ? _barHeights[i] : 0.0,
-                      style: widget.style,
-                      spacing: i < _totalBarsCount - 1
-                          ? widget.style.barSpacing
-                          : 0,
-                    ),
-                ],
-              ),
-            );
-          },
+        return RepaintBoundary(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              for (var i = 0; i < _totalBarsCount; i++)
+                _AnimatedWaveformBar(
+                  key: ValueKey('pro_image_editor_bar_${_id}_$i'),
+                  height: i < _barHeights.length ? _barHeights[i] : 0.0,
+                  style: widget.style,
+                  spacing:
+                      i < _totalBarsCount - 1 ? widget.style.barSpacing : 0,
+                ),
+            ],
+          ),
         );
       },
     );
@@ -255,20 +243,20 @@ class _AnimatedWaveformBar extends StatelessWidget {
 
     return RepaintBoundary(
       child: TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: style.minBarHeight, end: targetHeight),
-      duration: style.animationDuration,
-      curve: Curves.easeOutCubic,
-      builder: (context, animatedHeight, child) {
-        return Container(
-          margin: EdgeInsets.only(right: spacing),
-          width: style.barWidth,
-          height: animatedHeight,
-          decoration: BoxDecoration(
-            color: style.waveColor,
-            borderRadius: BorderRadius.circular(style.barWidth / 2),
-          ),
-        );
-      },
+        tween: Tween<double>(begin: style.minBarHeight, end: targetHeight),
+        duration: style.animationDuration,
+        curve: Curves.easeOutCubic,
+        builder: (context, animatedHeight, child) {
+          return Container(
+            margin: EdgeInsets.only(right: spacing),
+            width: style.barWidth,
+            height: animatedHeight,
+            decoration: BoxDecoration(
+              color: style.waveColor,
+              borderRadius: BorderRadius.circular(style.barWidth / 2),
+            ),
+          );
+        },
       ),
     );
   }

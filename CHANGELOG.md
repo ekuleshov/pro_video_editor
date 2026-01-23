@@ -1,3 +1,10 @@
+## 1.3.0
+- **FEAT**(android, iOS, macOS): Add waveform generation with `getWaveform` method to extract audio peak data for visualization.
+- **FEAT**(android, iOS, macOS): Add streaming waveform generation with `getWaveformStream` for progressive real-time waveform display.
+- **FEAT**(widgets): Add `AudioWaveform` widget for static waveform visualization with playback position indicator and seek support.
+- **FEAT**(widgets): Add `AudioWaveform.streaming` constructor for animated progressive waveform rendering during generation.
+- **FEAT**(android, iOS, macOS): Add WAV format support for audio extraction.
+
 ## 1.2.3
 - **PERF**(android): Improves render performance on Android when mixing with a custom audio track.
 

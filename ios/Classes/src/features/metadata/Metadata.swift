@@ -191,8 +191,10 @@ class VideoMetadata {
         // Check if video is optimized for streaming (moov before mdat)
         // Only perform this check if explicitly requested (performance optimization)
         if checkStreamingOptimization {
-            if let isOptimized = checkStreamingOptimization(url: tempFileURL) {
-                metadataDict["isOptimizedForStreaming"] = isOptimized
+            if #available(iOS 13.4, *) {
+                if let isOptimized = Self.checkStreamingOptimization(url: tempFileURL) {
+                    metadataDict["isOptimizedForStreaming"] = isOptimized
+                }
             }
         }
         
@@ -254,6 +256,7 @@ class VideoMetadata {
     /// - Parameter url: URL to the video file
     /// - Returns: true if optimized for streaming (moov before mdat), false if not,
     ///            nil if the format doesn't support this check or an error occurred
+    @available(iOS 13.4, *)
     private static func checkStreamingOptimization(url: URL) -> Bool? {
         // Only check MP4/MOV/M4V files
         let ext = url.pathExtension.lowercased()
@@ -328,7 +331,7 @@ class VideoMetadata {
             }
             
             // Skip to next atom
-            let skipBytes = actualSize - 8 - (atomSize == 1 ? 8 : 0)
+            _ = actualSize - 8 - (atomSize == 1 ? 8 : 0)
             position += actualSize
             
             do {

@@ -4,7 +4,8 @@ import io.flutter.plugin.common.MethodCall
 
 data class MetadataConfig(
     val inputPath: String,
-    val extension: String
+    val extension: String,
+    val checkStreamingOptimization: Boolean = false
 ) {
     companion object {
         /**
@@ -21,7 +22,8 @@ data class MetadataConfig(
 
             return MetadataConfig(
                 inputPath = inputPath,
-                extension = extension
+                extension = extension,
+                checkStreamingOptimization = call.argument<Boolean>("checkStreamingOptimization") ?: false
             )
         }
     }

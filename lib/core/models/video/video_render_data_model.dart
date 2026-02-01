@@ -31,6 +31,7 @@ class VideoRenderData {
     this.customAudioPath,
     this.originalAudioVolume,
     this.customAudioVolume,
+    this.shouldOptimizeForNetworkUse = true,
     String? id,
   })  : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         assert(
@@ -100,6 +101,7 @@ class VideoRenderData {
     String? customAudioPath,
     double? originalAudioVolume,
     double? customAudioVolume,
+    bool shouldOptimizeForNetworkUse = true,
     String? id,
   }) {
     final qualityConfig = VideoQualityConfig.fromPreset(qualityPreset);
@@ -121,6 +123,7 @@ class VideoRenderData {
       customAudioPath: customAudioPath,
       originalAudioVolume: originalAudioVolume,
       customAudioVolume: customAudioVolume,
+      shouldOptimizeForNetworkUse: shouldOptimizeForNetworkUse,
     );
   }
 
@@ -256,6 +259,23 @@ class VideoRenderData {
   /// This parameter is only effective when [customAudioPath] is provided.
   final double? customAudioVolume;
 
+  /// Whether to optimize the video for network streaming (fast start).
+  ///
+  /// When `true`, the video metadata (moov atom) is moved to the beginning
+  /// of the file, enabling progressive playback/streaming in browsers and
+  /// media players.
+  ///
+  /// This fixes the "mdat before moov" issue where the video index is at
+  /// the END of the file instead of the beginning, preventing browsers from
+  /// streaming progressively.
+  ///
+  /// **Default**: `false`
+  ///
+  /// **Recommended:** Keep this `true` for videos intended for web playback
+  /// or streaming. Set it to `false` if file size or encoding speed is
+  /// more critical than streaming capability.
+  final bool shouldOptimizeForNetworkUse;
+
   /// Returns a [Stream] of [ProgressModel] objects that provides updates on
   /// the progress of the video rendering process associated with this model's
   /// [id].
@@ -323,6 +343,7 @@ class VideoRenderData {
       // applied to the clip itself
       'startUs': videoSegments != null ? startTime?.inMicroseconds : null,
       'endUs': videoSegments != null ? endTime?.inMicroseconds : null,
+      'shouldOptimizeForNetworkUse': shouldOptimizeForNetworkUse,
     };
   }
 
@@ -345,6 +366,7 @@ class VideoRenderData {
     String? customAudioPath,
     double? originalAudioVolume,
     double? customAudioVolume,
+    bool? shouldOptimizeForNetworkUse,
   }) {
     return VideoRenderData(
       id: id ?? this.id,
@@ -364,6 +386,8 @@ class VideoRenderData {
       customAudioPath: customAudioPath ?? this.customAudioPath,
       originalAudioVolume: originalAudioVolume ?? this.originalAudioVolume,
       customAudioVolume: customAudioVolume ?? this.customAudioVolume,
+      shouldOptimizeForNetworkUse:
+          shouldOptimizeForNetworkUse ?? this.shouldOptimizeForNetworkUse,
     );
   }
 }

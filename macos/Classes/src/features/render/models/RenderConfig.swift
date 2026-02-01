@@ -76,10 +76,9 @@ struct RenderConfig {
     /// Global end time in microseconds for trimming the final composition
     let endUs: Int64?
     
-    /// Creates a RenderConfig from Flutter method call arguments.
-    ///
-    /// - Parameter arguments: Dictionary containing the method call arguments
-    /// - Returns: A configured RenderConfig instance, or nil if required parameters are missing
+    /// Whether to optimize the video for network streaming (fast start).
+    /// When true, moves the moov atom to the beginning of the file.
+    let shouldOptimizeForNetworkUse: Bool
     static func fromArguments(_ arguments: [String: Any]?) -> RenderConfig? {
         guard let args = arguments else {
             return nil
@@ -139,7 +138,8 @@ struct RenderConfig {
             originalAudioVolume: (args["originalAudioVolume"] as? NSNumber)?.floatValue,
             customAudioVolume: (args["customAudioVolume"] as? NSNumber)?.floatValue,
             startUs: (args["startUs"] as? NSNumber)?.int64Value,
-            endUs: (args["endUs"] as? NSNumber)?.int64Value
+            endUs: (args["endUs"] as? NSNumber)?.int64Value,
+            shouldOptimizeForNetworkUse: args["shouldOptimizeForNetworkUse"] as? Bool ?? true
         )
     }
 }

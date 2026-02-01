@@ -1,3 +1,8 @@
+## 1.4.0
+- **FEAT**(android, iOS, macOS): Add `shouldOptimizeForNetworkUse` render option to enable progressive streaming by placing moov atom at file start (fast start). Enabled by default.
+- **FEAT**(android, iOS, macOS): Add `isOptimizedForStreaming` metadata property to detect if a video has moov before mdat for streaming compatibility.
+- **FEAT**(android, iOS, macOS): Add optional `checkStreamingOptimization` parameter to `getMetadata()` for on-demand MP4 atom analysis.
+
 ## 1.3.0
 - **FEAT**(android, iOS, macOS): Add waveform generation with `getWaveform` method to extract audio peak data for visualization.
 - **FEAT**(android, iOS, macOS): Add streaming waveform generation with `getWaveformStream` for progressive real-time waveform display.

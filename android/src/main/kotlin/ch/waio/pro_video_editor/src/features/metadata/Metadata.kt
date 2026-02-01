@@ -147,6 +147,15 @@ class Metadata(private val context: Context) {
                 metadata[key] = retriever.extractMetadata(metadataKey) ?: ""
             }
 
+            // Check if video is optimized for streaming (moov before mdat)
+            // Only perform this check if explicitly requested (performance optimization)
+            if (config.checkStreamingOptimization) {
+                val isOptimizedForStreaming = checkStreamingOptimization(tempFile)
+                if (isOptimizedForStreaming != null) {
+                    metadata["isOptimizedForStreaming"] = isOptimizedForStreaming
+                }
+            }
+
             return metadata
         } finally {
             // Always release the retriever to free native resources
@@ -214,6 +223,96 @@ class Metadata(private val context: Context) {
             return null
         } finally {
             extractor.release()
+        }
+    }
+
+    /**
+     * Checks if the video file is optimized for progressive streaming.
+     *
+     * For MP4/MOV files, this checks if the moov atom appears before the mdat atom.
+     * When moov comes first, browsers can start playback before downloading the
+     * entire file (progressive streaming / fast start).
+     *
+     * @param file The video file to check
+     * @return true if optimized for streaming (moov before mdat), false if not,
+     *         null if the format doesn't support this check or an error occurred
+     */
+    private fun checkStreamingOptimization(file: File): Boolean? {
+        // Only check MP4/MOV/M4V files
+        val extension = file.extension.lowercase()
+        if (extension !in listOf("mp4", "mov", "m4v", "m4a")) {
+            return null
+        }
+
+        try {
+            file.inputStream().use { inputStream ->
+                val buffer = ByteArray(8)
+                var moovPosition: Long = -1
+                var mdatPosition: Long = -1
+                var position: Long = 0
+
+                while (true) {
+                    // Read atom header (4 bytes size + 4 bytes type)
+                    val bytesRead = inputStream.read(buffer, 0, 8)
+                    if (bytesRead < 8) break
+
+                    // Parse atom size (big-endian)
+                    val atomSize = ((buffer[0].toLong() and 0xFF) shl 24) or
+                            ((buffer[1].toLong() and 0xFF) shl 16) or
+                            ((buffer[2].toLong() and 0xFF) shl 8) or
+                            (buffer[3].toLong() and 0xFF)
+
+                    // Parse atom type
+                    val atomType = String(buffer, 4, 4, Charsets.US_ASCII)
+
+                    // Track positions of moov and mdat atoms
+                    when (atomType) {
+                        "moov" -> moovPosition = position
+                        "mdat" -> mdatPosition = position
+                    }
+
+                    // If we found both, we can determine the result
+                    if (moovPosition >= 0 && mdatPosition >= 0) {
+                        return moovPosition < mdatPosition
+                    }
+
+                    // Handle extended size (atomSize == 1 means 64-bit size follows)
+                    val actualSize = if (atomSize == 1L) {
+                        // Read 64-bit size
+                        val extBuffer = ByteArray(8)
+                        if (inputStream.read(extBuffer, 0, 8) < 8) break
+                        ((extBuffer[0].toLong() and 0xFF) shl 56) or
+                                ((extBuffer[1].toLong() and 0xFF) shl 48) or
+                                ((extBuffer[2].toLong() and 0xFF) shl 40) or
+                                ((extBuffer[3].toLong() and 0xFF) shl 32) or
+                                ((extBuffer[4].toLong() and 0xFF) shl 24) or
+                                ((extBuffer[5].toLong() and 0xFF) shl 16) or
+                                ((extBuffer[6].toLong() and 0xFF) shl 8) or
+                                (extBuffer[7].toLong() and 0xFF)
+                    } else if (atomSize == 0L) {
+                        // Atom extends to end of file
+                        break
+                    } else {
+                        atomSize
+                    }
+
+                    // Skip to next atom
+                    val skipBytes = actualSize - 8 - (if (atomSize == 1L) 8 else 0)
+                    if (skipBytes > 0) {
+                        inputStream.skip(skipBytes)
+                    }
+                    position += actualSize
+                }
+
+                // If we only found one of them, determine based on what we found
+                return when {
+                    moovPosition >= 0 && mdatPosition < 0 -> true  // moov found, no mdat yet
+                    moovPosition < 0 && mdatPosition >= 0 -> false // mdat found first, no moov
+                    else -> null // Neither found or couldn't determine
+                }
+            }
+        } catch (e: Exception) {
+            return null
         }
     }
 

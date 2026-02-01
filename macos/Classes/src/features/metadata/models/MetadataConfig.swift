@@ -11,6 +11,9 @@ struct MetadataConfig {
     /// The file extension (e.g., "mp4", "mov")
     let fileExtension: String
     
+    /// Whether to check if the video is optimized for streaming (moov before mdat)
+    let checkStreamingOptimization: Bool
+    
     /// Creates a MetadataConfig from Flutter method call arguments.
     ///
     /// - Parameter arguments: Dictionary containing the method call arguments
@@ -24,7 +27,8 @@ struct MetadataConfig {
         
         return MetadataConfig(
             inputPath: inputPath,
-            fileExtension: extensionStr
+            fileExtension: extensionStr,
+            checkStreamingOptimization: args["checkStreamingOptimization"] as? Bool ?? false
         )
     }
 }

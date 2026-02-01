@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import applyBitrate
 import mapFormatToMimeType
 import ch.waio.pro_video_editor.src.features.render.helpers.applyComposition
+import ch.waio.pro_video_editor.src.features.render.helpers.ConfigurableMp4MuxerFactory
 import ch.waio.pro_video_editor.src.features.render.helpers.VolumeControlAudioMixerFactory
 import ch.waio.pro_video_editor.src.features.render.models.RenderConfig
 import ch.waio.pro_video_editor.src.features.render.models.RenderJobHandle
@@ -91,6 +92,11 @@ class RenderVideo(private val context: Context) {
         val transformerBuilder = Transformer.Builder(context)
             .setEncoderFactory(encoderFactoryBuilder.build())
             .setVideoMimeType(outputMimeType)
+            // Configure muxer for streaming optimization (moov atom placement)
+            // When true: attempts to place moov at start for progressive streaming (fast start)
+            // When false: writes moov at end (faster encoding, no streaming support)
+            // Note: On Android this is "best effort" - not guaranteed like iOS/macOS
+            .setMuxerFactory(ConfigurableMp4MuxerFactory(config.shouldOptimizeForNetworkUse))
 
         // Use custom audio mixer ONLY when mixing video audio with custom audio
         // For video-only volume adjustment, VolumeAudioProcessor is used instead

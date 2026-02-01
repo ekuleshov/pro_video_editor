@@ -21,6 +21,7 @@ class VideoMetadata {
     this.album = '',
     this.albumArtist = '',
     this.date,
+    this.isOptimizedForStreaming,
   });
 
   /// Creates a [VideoMetadata] instance from a map of data.
@@ -55,6 +56,7 @@ class VideoMetadata {
       albumArtist: value['albumArtist'] ?? '',
       date:
           (value['date'] ?? '') != '' ? DateTime.tryParse(value['date']) : null,
+      isOptimizedForStreaming: value['isOptimizedForStreaming'] as bool?,
     );
   }
 
@@ -140,6 +142,22 @@ class VideoMetadata {
   /// larger file sizes.
   final int bitrate;
 
+  /// Whether the video is optimized for progressive streaming.
+  ///
+  /// When `true`, the video's metadata (moov atom) is located at the beginning
+  /// of the file, allowing browsers and media players to start playback before
+  /// the entire file is downloaded.
+  ///
+  /// When `false`, the metadata is at the end of the file (mdat before moov),
+  /// which requires downloading the entire file before playback can begin.
+  ///
+  /// This value is `null` for non-MP4/MOV formats or if the check couldn't
+  /// be performed.
+  ///
+  /// To create streaming-optimized videos, set `shouldOptimizeForNetworkUse`
+  /// to `true` when rendering.
+  final bool? isOptimizedForStreaming;
+
   /// Returns a copy of this config with the given fields replaced.
   VideoMetadata copyWith({
     String? title,
@@ -156,6 +174,7 @@ class VideoMetadata {
     Duration? audioDuration,
     String? extension,
     int? bitrate,
+    bool? isOptimizedForStreaming,
   }) {
     return VideoMetadata(
       title: title ?? this.title,
@@ -172,6 +191,8 @@ class VideoMetadata {
       audioDuration: audioDuration ?? this.audioDuration,
       extension: extension ?? this.extension,
       bitrate: bitrate ?? this.bitrate,
+      isOptimizedForStreaming:
+          isOptimizedForStreaming ?? this.isOptimizedForStreaming,
     );
   }
 
@@ -193,7 +214,8 @@ class VideoMetadata {
         other.duration == duration &&
         other.audioDuration == audioDuration &&
         other.extension == extension &&
-        other.bitrate == bitrate;
+        other.bitrate == bitrate &&
+        other.isOptimizedForStreaming == isOptimizedForStreaming;
   }
 
   @override
@@ -211,6 +233,7 @@ class VideoMetadata {
         duration.hashCode ^
         audioDuration.hashCode ^
         extension.hashCode ^
-        bitrate.hashCode;
+        bitrate.hashCode ^
+        isOptimizedForStreaming.hashCode;
   }
 }

@@ -56,7 +56,11 @@ class ProVideoEditorWeb extends ProVideoEditor {
   }
 
   @override
-  Future<VideoMetadata> getMetadata(EditorVideo value) async {
+  Future<VideoMetadata> getMetadata(
+    EditorVideo value, {
+    bool checkStreamingOptimization = false,
+  }) {
+    // Web doesn't support streaming optimization check
     return _manager.getMetadata(value);
   }
 

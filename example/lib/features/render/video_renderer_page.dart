@@ -364,6 +364,40 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
+  /// Export with network streaming optimization (fast start).
+  ///
+  /// This example demonstrates how to optimize the video for progressive
+  /// streaming by moving the moov atom to the beginning of the file.
+  ///
+  /// When `shouldOptimizeForNetworkUse` is `true` (default), the video
+  /// metadata is placed at the start of the file, allowing browsers and
+  /// media players to begin playback before the entire file is downloaded.
+  ///
+  /// This fixes the "mdat before moov" issue that prevents progressive
+  /// streaming in browsers.
+  Future<void> _optimizeForNetworkUse() async {
+    var data = VideoRenderData(
+      video: _video,
+      shouldOptimizeForNetworkUse: true, // Default, but explicit for demo
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Export WITHOUT network streaming optimization.
+  ///
+  /// This example exports the video without moving the moov atom,
+  /// which may result in faster encoding but prevents progressive
+  /// streaming in browsers.
+  Future<void> _noNetworkOptimization() async {
+    var data = VideoRenderData(
+      video: _video,
+      shouldOptimizeForNetworkUse: false,
+    );
+
+    await _renderVideo(data);
+  }
+
   Future<void> _renderVideo(VideoRenderData value) async {
     _taskId = DateTime.now().microsecondsSinceEpoch.toString();
     setState(() => _isExporting = true);
@@ -390,6 +424,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
     _outputMetadata = await _pve.getMetadata(
       EditorVideo.memory(result),
+      checkStreamingOptimization: true,
     );
 
     await _playerPreview.open(Media(outputPath));
@@ -547,6 +582,26 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
                 'Result: ${formatBytes(_videoBytes!.lengthInBytes)} '
                 'bytes in ${_generationTime.inMilliseconds}ms',
               ),
+              if (_outputMetadata?.isOptimizedForStreaming != null)
+                Row(
+                  children: [
+                    Icon(
+                      _outputMetadata!.isOptimizedForStreaming!
+                          ? Icons.check_circle
+                          : Icons.cancel,
+                      color: _outputMetadata!.isOptimizedForStreaming!
+                          ? Colors.green
+                          : Colors.red,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _outputMetadata!.isOptimizedForStreaming!
+                          ? 'Optimized for streaming (moov before mdat)'
+                          : 'Not optimized (mdat before moov)',
+                    ),
+                  ],
+                ),
             ],
     );
   }
@@ -678,6 +733,19 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           leading: const Icon(Icons.four_k),
           title: const Text('Export with 4K Quality Preset'),
           subtitle: const Text('35 Mbps bitrate'),
+        ),
+        ..._buildSectionTitle('Network Streaming'),
+        ListTile(
+          onTap: _optimizeForNetworkUse,
+          leading: const Icon(Icons.cloud_upload_outlined),
+          title: const Text('Optimize for Network Streaming'),
+          subtitle: const Text('Fast start enabled (moov at beginning)'),
+        ),
+        ListTile(
+          onTap: _noNetworkOptimization,
+          leading: const Icon(Icons.cloud_off_outlined),
+          title: const Text('No Network Optimization'),
+          subtitle: const Text('Fast start disabled'),
         ),
       ],
     );

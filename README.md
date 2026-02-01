@@ -122,6 +122,7 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 - 🧮 **Color Matrix**: Apply one or multiple 4x5 color matrices (e.g., for filters).
 - 💧 **Blur**: Add a blur effect to the video.
 - 📡 **Bitrate**: Set a custom video bitrate. If constant bitrate (CBR) isn't supported, it will gracefully fall back to the next available mode.
+- 🌐 **Streaming Optimization**: Optimize video for progressive playback by placing metadata (moov atom) at the start of the file.
 
 #### 📱 **Runtime Features**
 - 📊 **Progress**: Track the progress of one or multiple running tasks.
@@ -150,6 +151,7 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 | `Extract Audio`            | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Waveform`                 | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Waveform Streaming`       | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
+| `Streaming Optimization`   | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Censor-Layers "Pixelate"` | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
 
 

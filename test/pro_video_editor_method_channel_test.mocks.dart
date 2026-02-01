@@ -226,6 +226,12 @@ class MockThumbnailConfigs extends _i1.Mock implements _i4.ThumbnailConfigs {
       ) as _i3.Size);
 
   @override
+  int get jpegQuality => (super.noSuchMethod(
+        Invocation.getter(#jpegQuality),
+        returnValue: 0,
+      ) as int);
+
+  @override
   _i9.ThumbnailFormat get outputFormat => (super.noSuchMethod(
         Invocation.getter(#outputFormat),
         returnValue: _i9.ThumbnailFormat.jpeg,
@@ -295,6 +301,12 @@ class MockKeyFramesConfigs extends _i1.Mock implements _i4.KeyFramesConfigs {
       ) as _i3.Size);
 
   @override
+  int get jpegQuality => (super.noSuchMethod(
+        Invocation.getter(#jpegQuality),
+        returnValue: 0,
+      ) as int);
+
+  @override
   _i9.ThumbnailFormat get outputFormat => (super.noSuchMethod(
         Invocation.getter(#outputFormat),
         returnValue: _i9.ThumbnailFormat.jpeg,
@@ -358,6 +370,12 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
       ) as List<List<double>>);
 
   @override
+  bool get shouldOptimizeForNetworkUse => (super.noSuchMethod(
+        Invocation.getter(#shouldOptimizeForNetworkUse),
+        returnValue: false,
+      ) as bool);
+
+  @override
   _i7.Stream<_i11.ProgressModel> get progressStream => (super.noSuchMethod(
         Invocation.getter(#progressStream),
         returnValue: _i7.Stream<_i11.ProgressModel>.empty(),
@@ -392,6 +410,7 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
     String? customAudioPath,
     double? originalAudioVolume,
     double? customAudioVolume,
+    bool? shouldOptimizeForNetworkUse,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
@@ -401,7 +420,7 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
             #id: id,
             #outputFormat: outputFormat,
             #video: video,
-            #videoClips: videoSegments,
+            #videoSegments: videoSegments,
             #imageBytes: imageBytes,
             #transform: transform,
             #enableAudio: enableAudio,
@@ -415,6 +434,7 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
             #customAudioPath: customAudioPath,
             #originalAudioVolume: originalAudioVolume,
             #customAudioVolume: customAudioVolume,
+            #shouldOptimizeForNetworkUse: shouldOptimizeForNetworkUse,
           },
         ),
         returnValue: _FakeVideoRenderData_2(
@@ -426,7 +446,7 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
               #id: id,
               #outputFormat: outputFormat,
               #video: video,
-              #videoClips: videoSegments,
+              #videoSegments: videoSegments,
               #imageBytes: imageBytes,
               #transform: transform,
               #enableAudio: enableAudio,
@@ -440,6 +460,7 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
               #customAudioPath: customAudioPath,
               #originalAudioVolume: originalAudioVolume,
               #customAudioVolume: customAudioVolume,
+              #shouldOptimizeForNetworkUse: shouldOptimizeForNetworkUse,
             },
           ),
         ),

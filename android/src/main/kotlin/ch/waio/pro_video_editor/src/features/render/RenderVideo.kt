@@ -16,6 +16,7 @@ import applyBitrate
 import mapFormatToMimeType
 import ch.waio.pro_video_editor.src.features.render.helpers.applyComposition
 import ch.waio.pro_video_editor.src.features.render.helpers.VolumeControlAudioMixerFactory
+import ch.waio.pro_video_editor.src.features.render.helpers.ConfigurableInAppMp4Muxer
 import ch.waio.pro_video_editor.src.features.render.models.RenderConfig
 import ch.waio.pro_video_editor.src.features.render.models.RenderJobHandle
 
@@ -91,6 +92,13 @@ class RenderVideo(private val context: Context) {
         val transformerBuilder = Transformer.Builder(context)
             .setEncoderFactory(encoderFactoryBuilder.build())
             .setVideoMimeType(outputMimeType)
+        
+        // Configure muxer for streaming optimization (moov atom placement)
+        // true = moov at start (streamable), false = moov at end (smaller file)
+        val muxerFactory = ConfigurableInAppMp4Muxer.Factory(
+            attemptStreamableOutput = config.shouldOptimizeForNetworkUse
+        )
+        transformerBuilder.setMuxerFactory(muxerFactory)
 
         // Use custom audio mixer ONLY when mixing video audio with custom audio
         // For video-only volume adjustment, VolumeAudioProcessor is used instead

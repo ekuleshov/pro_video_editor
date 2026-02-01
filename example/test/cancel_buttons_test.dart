@@ -91,7 +91,10 @@ class _FakeCancelableEditor extends ProVideoEditor {
   Future<String?> getPlatformVersion() async => 'test';
 
   @override
-  Future<VideoMetadata> getMetadata(EditorVideo value) {
+  Future<VideoMetadata> getMetadata(
+    EditorVideo value, {
+    bool checkStreamingOptimization = false,
+  }) {
     throw UnimplementedError();
   }
 

@@ -196,7 +196,8 @@ class RenderVideo {
                         outputFormat: config.outputFormat,
                         preset: preset,
                         startUs: config.startUs,
-                        endUs: config.endUs
+                        endUs: config.endUs,
+                        shouldOptimizeForNetworkUse: config.shouldOptimizeForNetworkUse
                     )
 
                     handle.attach(export: export)
@@ -273,7 +274,8 @@ class RenderVideo {
         outputFormat: String,
         preset: String,
         startUs: Int64?,
-        endUs: Int64?
+        endUs: Int64?,
+        shouldOptimizeForNetworkUse: Bool
     ) throws -> AVAssetExportSession {
         guard let export = AVAssetExportSession(asset: composition, presetName: preset) else {
             throw NSError(
@@ -316,6 +318,12 @@ class RenderVideo {
             print("🔊 Audio mix applied to export session")
         } else if !hasAudioTracks {
             print("ℹ️ No audio tracks in composition - exporting video only")
+        }
+        
+        // Apply fast start optimization (moves moov atom to beginning for streaming)
+        export.shouldOptimizeForNetworkUse = shouldOptimizeForNetworkUse
+        if shouldOptimizeForNetworkUse {
+            print("🚀 Fast start enabled - optimizing for network streaming")
         }
 
         return export

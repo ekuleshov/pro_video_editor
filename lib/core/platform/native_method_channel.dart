@@ -76,7 +76,10 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   }
 
   @override
-  Future<VideoMetadata> getMetadata(EditorVideo value) async {
+  Future<VideoMetadata> getMetadata(
+    EditorVideo value, {
+    bool checkStreamingOptimization = false,
+  }) async {
     var inputPath = await value.safeFilePath();
 
     var extension = _getFileExtension(inputPath);
@@ -85,6 +88,7 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
         await methodChannel.invokeMethod<Map<dynamic, dynamic>>('getMetadata', {
               'inputPath': inputPath,
               'extension': extension,
+              'checkStreamingOptimization': checkStreamingOptimization,
             }) ??
             {};
 

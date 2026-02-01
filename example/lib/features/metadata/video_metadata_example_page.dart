@@ -27,6 +27,7 @@ class _VideoMetadataExamplePageState extends State<VideoMetadataExamplePage> {
   Future<void> _setMetadata() async {
     _metadata = await ProVideoEditor.instance.getMetadata(
       EditorVideo.asset(kVideoEditorExampleAssetPath),
+      checkStreamingOptimization: true, // Enable streaming optimization check
     );
     setState(() {});
   }
@@ -78,6 +79,14 @@ class _VideoMetadataExamplePageState extends State<VideoMetadataExamplePage> {
         _buildMetadataRow('Author:', meta.author),
         _buildMetadataRow('Album:', meta.album),
         _buildMetadataRow('AlbumArtist:', meta.albumArtist),
+        _buildMetadataRow(
+          'Optimized for Streaming:',
+          meta.isOptimizedForStreaming == null
+              ? 'N/A (non-MP4/MOV)'
+              : meta.isOptimizedForStreaming!
+                  ? '✅ Yes (moov before mdat)'
+                  : '❌ No (mdat before moov)',
+        ),
       ],
     );
   }

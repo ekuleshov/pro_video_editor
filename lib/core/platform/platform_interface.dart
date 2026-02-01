@@ -98,13 +98,21 @@ abstract class ProVideoEditor extends PlatformInterface {
   /// - Asset path
   /// - Memory bytes (Uint8List)
   ///
+  /// [checkStreamingOptimization] If `true`, additionally checks whether the
+  /// video file is optimized for progressive streaming (moov atom before mdat).
+  /// This requires parsing the MP4 container structure which adds overhead.
+  /// Default is `false` for better performance.
+  ///
   /// Returns a [Future] containing [VideoMetadata] with all extracted
   /// information.
   ///
   /// Throws:
   /// - [ArgumentError] if the video source is invalid
   /// - [PlatformException] if native extraction fails
-  Future<VideoMetadata> getMetadata(EditorVideo value) {
+  Future<VideoMetadata> getMetadata(
+    EditorVideo value, {
+    bool checkStreamingOptimization = false,
+  }) {
     throw UnimplementedError('getMetadata() has not been implemented.');
   }
 

@@ -42,7 +42,11 @@ data class RenderConfig(
     /** Global start time in microseconds for trimming the final composition */
     val startUs: Long? = null,
     /** Global end time in microseconds for trimming the final composition */
-    val endUs: Long? = null
+    val endUs: Long? = null,
+    /** Whether to optimize the video for network streaming (fast start).
+     * When true, attempts to place moov atom at start of MP4 for progressive streaming.
+     * When false, moov atom will be at the end (smaller file, but not streamable). */
+    val shouldOptimizeForNetworkUse: Boolean = true
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -119,7 +123,8 @@ data class RenderConfig(
                 originalAudioVolume = call.argument<Number?>("originalAudioVolume")?.toFloat(),
                 customAudioVolume = call.argument<Number?>("customAudioVolume")?.toFloat(),
                 startUs = call.argument<Number?>("startUs")?.toLong(),
-                endUs = call.argument<Number?>("endUs")?.toLong()
+                endUs = call.argument<Number?>("endUs")?.toLong(),
+                shouldOptimizeForNetworkUse = call.argument<Boolean>("shouldOptimizeForNetworkUse") ?: true
             )
         }
     }

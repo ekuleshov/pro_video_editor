@@ -22,9 +22,10 @@ class VideoMetadata {
     /// - Parameters:
     ///   - inputPath: The absolute file path to the video file
     ///   - ext: The file extension (e.g., "mp4", "mov")
+    ///   - checkStreamingOptimization: Whether to check if the video is optimized for streaming
     /// - Returns: Dictionary containing all extracted metadata with string keys and typed values
     /// - Throws: Error if the file cannot be accessed or metadata extraction fails
-    static func processVideo(inputPath: String, ext: String) async throws -> [String: Any] {
+    static func processVideo(inputPath: String, ext: String, checkStreamingOptimization: Bool = false) async throws -> [String: Any] {
         let tempFileURL = URL(fileURLWithPath: inputPath)
         let asset = AVURLAsset(url: tempFileURL)
 
@@ -187,6 +188,16 @@ class VideoMetadata {
             metadataDict["audioDuration"] = audioDuration
         }
         
+        // Check if video is optimized for streaming (moov before mdat)
+        // Only perform this check if explicitly requested (performance optimization)
+        if checkStreamingOptimization {
+            if #available(iOS 13.4, *) {
+                if let isOptimized = Self.checkStreamingOptimization(url: tempFileURL) {
+                    metadataDict["isOptimizedForStreaming"] = isOptimized
+                }
+            }
+        }
+        
         return metadataDict
     }
 
@@ -232,5 +243,111 @@ class VideoMetadata {
             return try await item.load(.stringValue) ?? ""
         }
         return ""
+    }
+    
+    // MARK: - Streaming Optimization Check
+    
+    /// Checks if the video file is optimized for progressive streaming.
+    ///
+    /// For MP4/MOV files, this checks if the moov atom appears before the mdat atom.
+    /// When moov comes first, browsers can start playback before downloading the
+    /// entire file (progressive streaming / fast start).
+    ///
+    /// - Parameter url: URL to the video file
+    /// - Returns: true if optimized for streaming (moov before mdat), false if not,
+    ///            nil if the format doesn't support this check or an error occurred
+    @available(iOS 13.4, *)
+    private static func checkStreamingOptimization(url: URL) -> Bool? {
+        // Only check MP4/MOV/M4V files
+        let ext = url.pathExtension.lowercased()
+        guard ["mp4", "mov", "m4v", "m4a"].contains(ext) else {
+            return nil
+        }
+        
+        guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
+            return nil
+        }
+        
+        defer {
+            try? fileHandle.close()
+        }
+        
+        var moovPosition: UInt64? = nil
+        var mdatPosition: UInt64? = nil
+        var position: UInt64 = 0
+        
+        while true {
+            // Read atom header (4 bytes size + 4 bytes type)
+            guard let headerData = try? fileHandle.read(upToCount: 8),
+                  headerData.count == 8 else {
+                break
+            }
+            
+            // Parse atom size (big-endian)
+            let atomSize = UInt64(headerData[0]) << 24 |
+                          UInt64(headerData[1]) << 16 |
+                          UInt64(headerData[2]) << 8 |
+                          UInt64(headerData[3])
+            
+            // Parse atom type
+            let atomType = String(data: headerData[4..<8], encoding: .ascii) ?? ""
+            
+            // Track positions of moov and mdat atoms
+            switch atomType {
+            case "moov":
+                moovPosition = position
+            case "mdat":
+                mdatPosition = position
+            default:
+                break
+            }
+            
+            // If we found both, we can determine the result
+            if let moov = moovPosition, let mdat = mdatPosition {
+                return moov < mdat
+            }
+            
+            // Handle extended size (atomSize == 1 means 64-bit size follows)
+            var actualSize: UInt64
+            if atomSize == 1 {
+                // Read 64-bit size
+                guard let extData = try? fileHandle.read(upToCount: 8),
+                      extData.count == 8 else {
+                    break
+                }
+                actualSize = UInt64(extData[0]) << 56 |
+                            UInt64(extData[1]) << 48 |
+                            UInt64(extData[2]) << 40 |
+                            UInt64(extData[3]) << 32 |
+                            UInt64(extData[4]) << 24 |
+                            UInt64(extData[5]) << 16 |
+                            UInt64(extData[6]) << 8 |
+                            UInt64(extData[7])
+            } else if atomSize == 0 {
+                // Atom extends to end of file
+                break
+            } else {
+                actualSize = atomSize
+            }
+            
+            // Skip to next atom
+            _ = actualSize - 8 - (atomSize == 1 ? 8 : 0)
+            position += actualSize
+            
+            do {
+                try fileHandle.seek(toOffset: position)
+            } catch {
+                break
+            }
+        }
+        
+        // If we only found one of them, determine based on what we found
+        if moovPosition != nil && mdatPosition == nil {
+            return true  // moov found, no mdat yet
+        } else if moovPosition == nil && mdatPosition != nil {
+            return false // mdat found first, no moov
+        }
+        
+        return nil // Neither found or couldn't determine
     }
 }

@@ -31,7 +31,7 @@ class VideoRenderData {
     this.customAudioPath,
     this.originalAudioVolume,
     this.customAudioVolume,
-    this.shouldOptimizeForNetworkUse = true,
+    this.shouldOptimizeForNetworkUse = false,
     String? id,
   })  : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         assert(
@@ -101,7 +101,7 @@ class VideoRenderData {
     String? customAudioPath,
     double? originalAudioVolume,
     double? customAudioVolume,
-    bool shouldOptimizeForNetworkUse = true,
+    bool shouldOptimizeForNetworkUse = false,
     String? id,
   }) {
     final qualityConfig = VideoQualityConfig.fromPreset(qualityPreset);

@@ -262,7 +262,6 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
         flipX: true,
       ),
       colorMatrixList: kBasicFilterMatrix,
-      enableAudio: false,
       imageBytes: imageBytes,
       endTime: const Duration(seconds: 20),
     );

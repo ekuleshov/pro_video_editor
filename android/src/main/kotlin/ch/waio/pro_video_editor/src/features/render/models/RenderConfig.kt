@@ -44,7 +44,8 @@ data class RenderConfig(
     /** Global end time in microseconds for trimming the final composition */
     val endUs: Long? = null,
     /** Whether to optimize the video for network streaming (fast start).
-     * When true, moves the moov atom to the beginning of the file. */
+     * When true, attempts to place moov atom at start of MP4 for progressive streaming.
+     * When false, moov atom will be at the end (smaller file, but not streamable). */
     val shouldOptimizeForNetworkUse: Boolean = true
 ) {
     override fun equals(other: Any?): Boolean {

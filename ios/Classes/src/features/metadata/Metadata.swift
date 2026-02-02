@@ -315,14 +315,15 @@ class VideoMetadata {
                       extData.count == 8 else {
                     break
                 }
-                actualSize = UInt64(extData[0]) << 56 |
-                            UInt64(extData[1]) << 48 |
-                            UInt64(extData[2]) << 40 |
-                            UInt64(extData[3]) << 32 |
-                            UInt64(extData[4]) << 24 |
-                            UInt64(extData[5]) << 16 |
-                            UInt64(extData[6]) << 8 |
-                            UInt64(extData[7])
+                let byte0: UInt64 = UInt64(extData[0]) << 56
+                let byte1: UInt64 = UInt64(extData[1]) << 48
+                let byte2: UInt64 = UInt64(extData[2]) << 40
+                let byte3: UInt64 = UInt64(extData[3]) << 32
+                let byte4: UInt64 = UInt64(extData[4]) << 24
+                let byte5: UInt64 = UInt64(extData[5]) << 16
+                let byte6: UInt64 = UInt64(extData[6]) << 8
+                let byte7: UInt64 = UInt64(extData[7])
+                actualSize = byte0 | byte1 | byte2 | byte3 | byte4 | byte5 | byte6 | byte7
             } else if atomSize == 0 {
                 // Atom extends to end of file
                 break

@@ -1,3 +1,6 @@
+## 1.4.1
+- **FIX**(iOS, macOS): Fix Swift compiler type-check error by breaking up complex bit-shift expression into sub-expressions.
+
 ## 1.4.0
 - **FEAT**(android, iOS, macOS): Add `shouldOptimizeForNetworkUse` render option to enable progressive streaming by placing moov atom at file start (fast start). Enabled by default.
 - **FEAT**(android, iOS, macOS): Add `isOptimizedForStreaming` metadata property to detect if a video has moov before mdat for streaming compatibility.

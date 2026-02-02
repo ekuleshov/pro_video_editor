@@ -405,7 +405,9 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     var sp = Stopwatch()..start();
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    String outputPath = '${directory.path}/my_video_$now.mp4';
+    // Use the correct file extension based on the output format
+    final extension = value.outputFormat.name;
+    String outputPath = '${directory.path}/my_video_$now.$extension';
 
     try {
       await _pve.renderVideoToFile(

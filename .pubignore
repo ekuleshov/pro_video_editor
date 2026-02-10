@@ -2,8 +2,6 @@
 .vs/
 .vscode/
 .dart_tool/
-.idea/
-.vs/
-.vscode/
 build/
 /example/assets/tests
+example/macos/Podfile.lock

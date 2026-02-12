@@ -1,3 +1,6 @@
+## 1.5.2
+- **FIX**(iOS, macOS): Fixed color filters (`colorMatrixList`), blur, and flip effects being incorrectly applied to overlay images when `imageBytesWithCropping` is enabled. These effects are now applied only to the video before compositing the overlay.
+
 ## 1.5.1
 - **FIX**(android): Fixed semi-transparent overlay layers appearing darker than expected during video rendering. The issue was caused by double alpha premultiplication — Android's BitmapFactory produces premultiplied pixels while Media3's overlay shader applies alpha again. Pixel data is now converted to straight alpha before uploading to the GPU.
 

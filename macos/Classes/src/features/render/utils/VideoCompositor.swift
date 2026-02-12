@@ -179,6 +179,51 @@ class VideoCompositor: NSObject, AVVideoCompositing {
         // 3: Apply user-defined effects (crop, rotation, flip, scale)
         var transform = CGAffineTransform.identity
         
+        // Apply LUT, blur, and flip BEFORE overlay when imageBytesWithCropping is enabled
+        // This ensures these effects only affect the video, not the overlay
+        if imageBytesWithCropping {
+            // Apply LUT to video only
+            let (lutData, lutSize) = getLUT()
+            if let lutData,
+                let lutFilter = CIFilter(name: "CIColorCube")
+            {
+                lutFilter.setValue(lutSize, forKey: "inputCubeDimension")
+                lutFilter.setValue(lutData, forKey: "inputCubeData")
+                lutFilter.setValue(outputImage, forKey: kCIInputImageKey)
+                if let filteredImage = lutFilter.outputImage {
+                    outputImage = filteredImage
+                }
+            }
+            
+            // Apply blur to video only
+            if blurSigma > 0 {
+                outputImage = outputImage.applyingGaussianBlur(sigma: blurSigma)
+            }
+            
+            // Apply flip to video only (before adding overlay)
+            if flipX || flipY {
+                let flipScaleX: CGFloat = flipX ? -1 : 1
+                let flipScaleY: CGFloat = flipY ? -1 : 1
+
+                let flipTransform = CGAffineTransform(translationX: center.x, y: center.y)
+                    .scaledBy(x: flipScaleX, y: flipScaleY)
+                    .translatedBy(x: -center.x, y: -center.y)
+
+                outputImage = outputImage.transformed(by: flipTransform)
+                
+                // Normalize position after flip
+                let flippedExtent = outputImage.extent
+                if flippedExtent.origin.x != 0 || flippedExtent.origin.y != 0 {
+                    let translation = CGAffineTransform(
+                        translationX: -flippedExtent.origin.x,
+                        y: -flippedExtent.origin.y
+                    )
+                    outputImage = outputImage.transformed(by: translation)
+                }
+                center = CGPoint(x: outputImage.extent.midX, y: outputImage.extent.midY)
+            }
+        }
+        
         // Apply overlay BEFORE crop if imageBytesWithCropping is enabled
         if imageBytesWithCropping, let overlay = overlayImage {
             let imageRect = outputImage.extent
@@ -230,8 +275,8 @@ class VideoCompositor: NSObject, AVVideoCompositing {
             center = CGPoint(x: outputImage.extent.midX, y: outputImage.extent.midY)
         }
 
-        // Flipping
-        if flipX || flipY {
+        // Flipping (only if NOT imageBytesWithCropping - otherwise already applied before overlay)
+        if !imageBytesWithCropping && (flipX || flipY) {
             let scaleX: CGFloat = flipX ? -1 : 1
             let scaleY: CGFloat = flipY ? -1 : 1
 
@@ -249,22 +294,24 @@ class VideoCompositor: NSObject, AVVideoCompositing {
 
         outputImage = outputImage.transformed(by: transform)
 
-        // Apply LUT
-        let (lutData, lutSize) = getLUT()
-        if let lutData,
-            let lutFilter = CIFilter(name: "CIColorCube")
-        {
-            lutFilter.setValue(lutSize, forKey: "inputCubeDimension")
-            lutFilter.setValue(lutData, forKey: "inputCubeData")
-            lutFilter.setValue(outputImage, forKey: kCIInputImageKey)
-            if let filteredImage = lutFilter.outputImage {
-                outputImage = filteredImage
+        // Apply LUT (only if NOT imageBytesWithCropping - otherwise already applied before overlay)
+        if !imageBytesWithCropping {
+            let (lutData, lutSize) = getLUT()
+            if let lutData,
+                let lutFilter = CIFilter(name: "CIColorCube")
+            {
+                lutFilter.setValue(lutSize, forKey: "inputCubeDimension")
+                lutFilter.setValue(lutData, forKey: "inputCubeData")
+                lutFilter.setValue(outputImage, forKey: kCIInputImageKey)
+                if let filteredImage = lutFilter.outputImage {
+                    outputImage = filteredImage
+                }
             }
-        }
 
-        // Apply blur
-        if blurSigma > 0 {
-            outputImage = outputImage.applyingGaussianBlur(sigma: blurSigma)
+            // Apply blur
+            if blurSigma > 0 {
+                outputImage = outputImage.applyingGaussianBlur(sigma: blurSigma)
+            }
         }
 
         // Apply overlay image (only if not already applied before crop)

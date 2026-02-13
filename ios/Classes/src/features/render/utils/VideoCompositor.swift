@@ -112,9 +112,10 @@ class VideoCompositor: NSObject, AVVideoCompositing {
         }
         var outputImage = CIImage(cvPixelBuffer: sourceBuffer)
         
-        // 1: Apply layer instruction transform first (video scaling/centering)
-        // This ensures all videos are properly sized before applying user effects. 
-        // Note that's only required on macOS and iOS
+        // Apply layer instruction transform first (video scaling/centering/rotation)
+        // This ensures all videos are properly sized and oriented before applying user effects.
+        // The layerInstruction contains the preferredTransform which already handles video rotation
+        // from portrait to landscape or vice versa, so no additional orientation correction is needed.
         if let instruction = request.videoCompositionInstruction as? AVMutableVideoCompositionInstruction,
            let layerInstruction = instruction.layerInstructions.first as? AVMutableVideoCompositionLayerInstruction {
             
@@ -144,40 +145,10 @@ class VideoCompositor: NSObject, AVVideoCompositing {
                 }
             }
         }
-        
-        // 2: Apply orientation correction if needed
-        if shouldApplyOrientationCorrection {
-            let correctionAngle: Double
-
-            switch Int(videoRotationDegrees.rounded()) {
-            case 90:
-                correctionAngle = -.pi / 2
-            case -90, 270:
-                correctionAngle = .pi / 2
-            case 180, -180:
-                correctionAngle = .pi
-            default:
-                correctionAngle = 0
-            }
-
-            if correctionAngle != 0 {
-                let correctionTransform = CGAffineTransform(rotationAngle: correctionAngle)
-                outputImage = outputImage.transformed(by: correctionTransform)
-
-                let transformedExtent = outputImage.extent
-                if transformedExtent.origin.x < 0 || transformedExtent.origin.y < 0 {
-                    let translation = CGAffineTransform(
-                        translationX: -transformedExtent.origin.x,
-                        y: -transformedExtent.origin.y
-                    )
-                    outputImage = outputImage.transformed(by: translation)
-                }
-            }
-        }
 
         var center = CGPoint(x: outputImage.extent.midX, y: outputImage.extent.midY)
 
-        // 3: Apply user-defined effects (crop, rotation, flip, scale)
+        // Apply user-defined effects (crop, rotation, flip, scale)
         var transform = CGAffineTransform.identity
         
         // Apply LUT, blur, and flip BEFORE overlay when imageBytesWithCropping is enabled

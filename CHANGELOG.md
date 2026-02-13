@@ -1,3 +1,8 @@
+## 1.6.0
+- **DEPRECATED**(metadata): `originalResolution` is now deprecated. Use `rawResolution` instead.
+- **FIX**(android): Video metadata now returns display dimensions (after rotation correction), consistent with iOS/macOS. Previously, Android returned raw dimensions while iOS/macOS returned display dimensions.
+- **FEAT**(metadata): Add `rawResolution` getter to retrieve the raw video dimensions before rotation is applied.
+
 ## 1.5.2
 - **FIX**(iOS, macOS): Fixed color filters (`colorMatrixList`), blur, and flip effects being incorrectly applied to overlay images when `imageBytesWithCropping` is enabled. These effects are now applied only to the video before compositing the overlay.
 

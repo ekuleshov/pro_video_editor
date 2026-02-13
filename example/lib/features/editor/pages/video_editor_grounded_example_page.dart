@@ -732,7 +732,10 @@ class _VideoEditorGroundedExamplePageState
     );
   }
 
-  Future<void> _mergeClips(List<VideoClip> clips) async {
+  Future<void> _mergeClips(
+    List<VideoClip> clips,
+    void Function(double) onProgress,
+  ) async {
     LoadingDialog.instance.show(context, configs: _configs);
     final directory = await getApplicationCacheDirectory();
     final updatedFile = File('${directory.path}/temp.mp4');

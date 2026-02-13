@@ -1,3 +1,6 @@
+## 1.6.1
+- **FIX**(iOS, macOS): Fixed video appearing upside down after export due to coordinate system mismatch between AVFoundation (top-left origin) and CIImage (bottom-left origin). The transform is now properly converted between coordinate systems.
+
 ## 1.6.0
 - **FIX**(iOS, macOS): Fixed portrait mode videos being rotated incorrectly after export. The video rotation was being applied twice (once via layer instruction transform and again via orientation correction), causing portrait videos to appear with incorrect pixel orientation despite correct dimensions.
 - **DEPRECATED**(metadata): `originalResolution` is now deprecated. Use `rawResolution` instead.

@@ -20,6 +20,9 @@ class VideoCompositor: NSObject, AVVideoCompositing {
 
     // New properties for handling iPhone orientation
     var originalNaturalSize: CGSize = .zero
+    
+    /// Fallback source track ID for older iOS versions
+    var sourceTrackID: CMPersistentTrackID = kCMPersistentTrackID_Invalid
 
     private let lutQueue = DispatchQueue(label: "lut.queue")
     private var _lutData: Data?
@@ -54,6 +57,7 @@ class VideoCompositor: NSObject, AVVideoCompositing {
         self.videoRotationDegrees = config.videoRotationDegrees
         self.shouldApplyOrientationCorrection = config.shouldApplyOrientationCorrection
         self.originalNaturalSize = config.originalNaturalSize
+        self.sourceTrackID = config.sourceTrackID
 
         self.setOverlayImage(from: config.overlayImage)
         self.setLUT(data: config.lutData, size: config.lutSize)
@@ -104,10 +108,34 @@ class VideoCompositor: NSObject, AVVideoCompositing {
     func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {}
 
     func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
-        guard
-            let sourceBuffer = request.sourceFrame(byTrackID: request.sourceTrackIDs[0].int32Value)
-        else {
-            request.finish(with: NSError(domain: "VideoCompositor", code: 0))
+        // Try to get source buffer from the first available track
+        var sourceBuffer: CVPixelBuffer?
+        
+        if !request.sourceTrackIDs.isEmpty {
+            sourceBuffer = request.sourceFrame(byTrackID: request.sourceTrackIDs[0].int32Value)
+        }
+        
+        // Fallback 1: Try to get track ID from layer instruction if sourceTrackIDs is empty
+        // This can happen on older iOS versions (iPhone 7, iOS 15)
+        if sourceBuffer == nil,
+           let instruction = request.videoCompositionInstruction as? AVMutableVideoCompositionInstruction,
+           let layerInstruction = instruction.layerInstructions.first as? AVMutableVideoCompositionLayerInstruction {
+            let trackID = layerInstruction.trackID
+            if trackID != kCMPersistentTrackID_Invalid {
+                sourceBuffer = request.sourceFrame(byTrackID: trackID)
+            }
+        }
+        
+        // Fallback 2: Use the pre-configured sourceTrackID from VideoCompositorConfig
+        // This is set during composition building and guarantees we have the correct track ID
+        if sourceBuffer == nil && sourceTrackID != kCMPersistentTrackID_Invalid {
+            sourceBuffer = request.sourceFrame(byTrackID: sourceTrackID)
+        }
+        
+        guard let sourceBuffer = sourceBuffer else {
+            request.finish(with: NSError(domain: "VideoCompositor", code: 0, userInfo: [
+                NSLocalizedDescriptionKey: "No source tracks available for compositing (sourceTrackIDs: \(request.sourceTrackIDs.count), configTrackID: \(sourceTrackID))"
+            ]))
             return
         }
         var outputImage = CIImage(cvPixelBuffer: sourceBuffer)
@@ -120,9 +148,18 @@ class VideoCompositor: NSObject, AVVideoCompositing {
         // IMPORTANT: AVFoundation uses a top-left origin coordinate system (Y points down),
         // while CIImage uses a bottom-left origin (Y points up). We need to convert the transform
         // to work correctly with CIImage's coordinate system.
-        if let instruction = request.videoCompositionInstruction as? AVMutableVideoCompositionInstruction,
-           let layerInstruction = instruction.layerInstructions.first as? AVMutableVideoCompositionLayerInstruction {
-            
+        
+        // Extract layer instruction from either AVMutableVideoCompositionInstruction or CustomVideoCompositionInstruction
+        var layerInstruction: AVMutableVideoCompositionLayerInstruction?
+        if let customInstruction = request.videoCompositionInstruction as? CustomVideoCompositionInstruction,
+           let firstLayerInstruction = customInstruction.layerInstructions.first as? AVMutableVideoCompositionLayerInstruction {
+            layerInstruction = firstLayerInstruction
+        } else if let standardInstruction = request.videoCompositionInstruction as? AVMutableVideoCompositionInstruction,
+                  let firstLayerInstruction = standardInstruction.layerInstructions.first as? AVMutableVideoCompositionLayerInstruction {
+            layerInstruction = firstLayerInstruction
+        }
+        
+        if let layerInstruction = layerInstruction {
             var startTransform = CGAffineTransform.identity
             var endTransform = CGAffineTransform.identity
             var timeRange = CMTimeRange.zero

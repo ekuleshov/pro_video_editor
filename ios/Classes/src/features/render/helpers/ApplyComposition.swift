@@ -20,6 +20,7 @@ import Foundation
 ///   - AVMutableVideoComposition: Video composition with effects and instructions
 ///   - CGSize: Final render size (max dimensions from all clips)
 ///   - AVAudioMix?: Audio mix with volume controls (nil if no audio mixing needed)
+///   - CMPersistentTrackID: The track ID of the video composition track (for fallback on older iOS)
 ///
 /// - Throws: NSError if video clips are empty, files don't exist, or tracks can't be loaded.
 func applyComposition(
@@ -29,7 +30,7 @@ func applyComposition(
     customAudioPath: String?,
     originalAudioVolume: Float?,
     customAudioVolume: Float?
-) async throws -> (AVMutableComposition, AVMutableVideoComposition, CGSize, AVAudioMix?) {
+) async throws -> (AVMutableComposition, AVMutableVideoComposition, CGSize, AVAudioMix?, CMPersistentTrackID) {
     return try await CompositionBuilder(videoClips: videoClips, videoEffects: videoEffects)
         .setEnableAudio(enableAudio)
         .setCustomAudioPath(customAudioPath)

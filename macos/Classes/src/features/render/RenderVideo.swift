@@ -101,7 +101,7 @@ class RenderVideo {
                     var effectsConfig = VideoCompositorConfig()
 
                     // Use composition helper to merge multiple video clips
-                    let (composition, videoComposition, renderSize, audioMix) =
+                    let (composition, videoComposition, renderSize, audioMix, sourceTrackID) =
                         try await applyComposition(
                             videoClips: config.videoClips,
                             videoEffects: effectsConfig,
@@ -110,6 +110,9 @@ class RenderVideo {
                             originalAudioVolume: config.originalAudioVolume,
                             customAudioVolume: config.customAudioVolume
                         )
+                    
+                    // Set source track ID for fallback on older macOS versions
+                    effectsConfig.sourceTrackID = sourceTrackID
 
                     // Apply playback speed to the entire composition
                     applyPlaybackSpeed(composition: composition, speed: config.playbackSpeed)

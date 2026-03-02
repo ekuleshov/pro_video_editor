@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreImage
 
 struct VideoCompositorConfig {
@@ -30,4 +31,8 @@ struct VideoCompositorConfig {
     /// When true, the overlay is applied before cropping and gets cropped together with the video.
     /// When false (default), the overlay is scaled to the final cropped size.
     var imageBytesWithCropping: Bool = false
+    
+    /// Fallback source track ID for older macOS versions where sourceTrackIDs may be empty.
+    /// This is used when the custom compositor doesn't receive track IDs properly.
+    var sourceTrackID: CMPersistentTrackID = kCMPersistentTrackID_Invalid
 }

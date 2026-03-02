@@ -1,3 +1,6 @@
+## 1.6.2
+- **FIX**(iOS, macOS): Fixed crash when merging multiple MOV video clips on older devices (e.g., iPhone 7, iOS 15). The issue was caused by `AVMutableVideoCompositionInstruction` not properly deriving `requiredSourceTrackIDs` from layer instructions when using a custom video compositor. Introduced `CustomVideoCompositionInstruction` that explicitly provides source track IDs.
+
 ## 1.6.1
 - **FIX**(iOS, macOS): Fixed video appearing upside down after export due to coordinate system mismatch between AVFoundation (top-left origin) and CIImage (bottom-left origin). The transform is now properly converted between coordinate systems.
 

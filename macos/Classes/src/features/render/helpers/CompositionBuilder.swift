@@ -63,9 +63,9 @@ internal class CompositionBuilder {
     
     /// Builds the complete composition.
     ///
-    /// - Returns: Tuple containing composition, video composition, render size, and audio mix
+    /// - Returns: Tuple containing composition, video composition, render size, audio mix, and source track ID
     /// - Throws: Error if composition creation fails
-    func build() async throws -> (AVMutableComposition, AVMutableVideoComposition, CGSize, AVAudioMix?) {
+    func build() async throws -> (AVMutableComposition, AVMutableVideoComposition, CGSize, AVAudioMix?, CMPersistentTrackID) {
         guard !videoClips.isEmpty else {
             throw NSError(
                 domain: "CompositionBuilder",
@@ -128,7 +128,9 @@ internal class CompositionBuilder {
         videoComposition.renderSize = videoResult.renderSize
         
         // Create instructions for each clip segment
-        var instructions: [AVMutableVideoCompositionInstruction] = []
+        // Use custom instruction class to ensure requiredSourceTrackIDs is properly set
+        // This fixes issues on older macOS versions
+        var instructions: [AVVideoCompositionInstructionProtocol] = []
         
         print("")
         print("🎨 ===== CREATING VIDEO INSTRUCTIONS =====")
@@ -140,10 +142,6 @@ internal class CompositionBuilder {
         for (index, clipInstruction) in videoResult.clipInstructions.enumerated() {
             print("🎬 Processing instruction for clip \(index)")
             print("   Time range: \(String(format: "%.2f", clipInstruction.timeRange.start.seconds))s - \(String(format: "%.2f", (clipInstruction.timeRange.start + clipInstruction.timeRange.duration).seconds))s")
-            
-            let instruction = AVMutableVideoCompositionInstruction()
-            instruction.timeRange = clipInstruction.timeRange
-            instruction.backgroundColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)
             
             // Create layer instruction for this clip segment
             let layerInstruction = AVMutableVideoCompositionLayerInstruction(
@@ -160,9 +158,16 @@ internal class CompositionBuilder {
             
             // Set transform at the start of THIS instruction's time range (relative to instruction start)
             layerInstruction.setTransform(transform, at: .zero)
-            instruction.layerInstructions = [layerInstruction]
             
-            print("   ⚙️ Layer instruction configured with transform")
+            // Use custom instruction that explicitly provides requiredSourceTrackIDs
+            let instruction = CustomVideoCompositionInstruction(
+                timeRange: clipInstruction.timeRange,
+                sourceTrackID: videoResult.videoTrack.trackID,
+                layerInstructions: [layerInstruction],
+                backgroundColor: CGColor(red: 0, green: 0, blue: 0, alpha: 1)
+            )
+            
+            print("   ⚙️ Layer instruction configured with transform (trackID: \(videoResult.videoTrack.trackID))")
             print("")
             
             instructions.append(instruction)
@@ -172,7 +177,10 @@ internal class CompositionBuilder {
         
         print("✅ Composition created successfully with \(videoClips.count) clips")
         
-        return (composition, videoComposition, videoResult.renderSize, audioMix)
+        // Return the track ID for fallback on older macOS versions
+        let sourceTrackID = videoResult.videoTrack.trackID
+        
+        return (composition, videoComposition, videoResult.renderSize, audioMix, sourceTrackID)
     }
     
     /// Creates audio mix with volume parameters.

@@ -299,3 +299,35 @@ internal struct VideoSequenceResult {
     let frameRate: Float
     let clipInstructions: [ClipInstruction]
 }
+
+/// Custom video composition instruction that explicitly provides source track IDs.
+/// This is required for older iOS versions (e.g., iPhone 7, iOS 15) where
+/// AVMutableVideoCompositionInstruction doesn't properly derive track IDs
+/// from layer instructions when using a custom video compositor.
+internal class CustomVideoCompositionInstruction: NSObject, AVVideoCompositionInstructionProtocol {
+    let timeRange: CMTimeRange
+    let enablePostProcessing: Bool = false
+    let containsTweening: Bool = false
+    let backgroundColor: CGColor?
+    let layerInstructions: [AVVideoCompositionLayerInstruction]
+    
+    private let _requiredSourceTrackIDs: [NSValue]
+    var requiredSourceTrackIDs: [NSValue]? {
+        return _requiredSourceTrackIDs
+    }
+    
+    var passthroughTrackID: CMPersistentTrackID {
+        return kCMPersistentTrackID_Invalid
+    }
+    
+    init(timeRange: CMTimeRange, 
+         sourceTrackID: CMPersistentTrackID,
+         layerInstructions: [AVVideoCompositionLayerInstruction],
+         backgroundColor: CGColor? = nil) {
+        self.timeRange = timeRange
+        self._requiredSourceTrackIDs = [NSNumber(value: sourceTrackID)]
+        self.layerInstructions = layerInstructions
+        self.backgroundColor = backgroundColor
+        super.init()
+    }
+}

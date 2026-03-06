@@ -29,12 +29,14 @@ func applyComposition(
     enableAudio: Bool,
     customAudioPath: String?,
     originalAudioVolume: Float?,
-    customAudioVolume: Float?
+    customAudioVolume: Float?,
+    loopCustomAudio: Bool
 ) async throws -> (AVMutableComposition, AVMutableVideoComposition, CGSize, AVAudioMix?, CMPersistentTrackID) {
     return try await CompositionBuilder(videoClips: videoClips, videoEffects: videoEffects)
         .setEnableAudio(enableAudio)
         .setCustomAudioPath(customAudioPath)
         .setOriginalAudioVolume(originalAudioVolume)
         .setCustomAudioVolume(customAudioVolume)
+        .setLoopCustomAudio(loopCustomAudio)
         .build()
 }

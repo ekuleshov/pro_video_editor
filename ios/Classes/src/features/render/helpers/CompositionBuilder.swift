@@ -14,6 +14,7 @@ internal class CompositionBuilder {
     private var customAudioPath: String?
     private var originalAudioVolume: Float = 1.0
     private var customAudioVolume: Float = 1.0
+    private var loopCustomAudio: Bool = true
     
     /// Initializes builder with configuration.
     ///
@@ -61,6 +62,15 @@ internal class CompositionBuilder {
         return self
     }
     
+    /// Sets whether custom audio should loop.
+    ///
+    /// - Parameter loop: If true, audio repeats to match video duration
+    /// - Returns: Self for chaining
+    func setLoopCustomAudio(_ loop: Bool) -> CompositionBuilder {
+        self.loopCustomAudio = loop
+        return self
+    }
+    
     /// Builds the complete composition.
     ///
     /// - Returns: Tuple containing composition, video composition, render size, audio mix, and source track ID
@@ -100,6 +110,7 @@ internal class CompositionBuilder {
                 audioPath: customPath,
                 targetDuration: videoResult.totalDuration
             ).setVolume(customAudioVolume)
+             .setLoop(loopCustomAudio)
             
             customAudioTrack = try await audioBuilder.build(in: composition)
         }

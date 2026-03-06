@@ -84,6 +84,11 @@ struct RenderConfig {
     /// When true, the image overlay is cropped together with the video.
     /// When false (default), the overlay is scaled to the final cropped size.
     let imageBytesWithCropping: Bool
+    
+    /// Whether to loop the custom audio if it is shorter than the video.
+    /// When true (default), audio is repeated to match video duration.
+    /// When false, audio plays once and silence fills the rest.
+    let loopCustomAudio: Bool
     static func fromArguments(_ arguments: [String: Any]?) -> RenderConfig? {
         guard let args = arguments else {
             return nil
@@ -154,7 +159,8 @@ struct RenderConfig {
             startUs: (args["startUs"] as? NSNumber)?.int64Value,
             endUs: (args["endUs"] as? NSNumber)?.int64Value,
             shouldOptimizeForNetworkUse: args["shouldOptimizeForNetworkUse"] as? Bool ?? true,
-            imageBytesWithCropping: args["imageBytesWithCropping"] as? Bool ?? false
+            imageBytesWithCropping: args["imageBytesWithCropping"] as? Bool ?? false,
+            loopCustomAudio: args["loopCustomAudio"] as? Bool ?? true
         )
     }
 }

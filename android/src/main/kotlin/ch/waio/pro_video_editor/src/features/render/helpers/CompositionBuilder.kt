@@ -110,6 +110,7 @@ class CompositionBuilder(
             val audioSequence = AudioSequenceBuilder(config.customAudioPath!!, totalVideoDuration)
                 .setVolume(config.customAudioVolume ?: 1.0f)
                 .setNormalization(needsNormalization)
+                .setLoop(config.loopCustomAudio)
                 .build()
 
             if (audioSequence != null) {

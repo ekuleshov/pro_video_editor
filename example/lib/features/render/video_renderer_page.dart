@@ -226,6 +226,26 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
+  /// Play custom audio once without looping.
+  ///
+  /// By default, custom audio loops to match the video duration.
+  /// Setting `loopCustomAudio: false` plays the audio only once,
+  /// with silence for the remaining video duration.
+  Future<void> _customAudioNoLoop() async {
+    final customAudioFile =
+        await _writeAssetAudioToFile(kVideoEditorExampleAudio1Path);
+
+    var data = VideoRenderData(
+      video: _video,
+      customAudioPath: customAudioFile.path,
+      originalAudioVolume: 0.0,
+      customAudioVolume: 1.0,
+      loopCustomAudio: false,
+    );
+
+    await _renderVideo(data);
+  }
+
   Future<void> _layers() async {
     final imageBytes = await _captureLayerContent();
     var data = VideoRenderData(
@@ -715,6 +735,12 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           leading: const Icon(Icons.volume_down_outlined),
           title: const Text('Adjust Original Volume'),
           subtitle: const Text('Reduce to 20%'),
+        ),
+        ListTile(
+          onTap: _customAudioNoLoop,
+          leading: const Icon(Icons.music_off_outlined),
+          title: const Text('Custom Audio Without Loop'),
+          subtitle: const Text('Plays once, then silence'),
         ),
         ..._buildSectionTitle('Quality'),
         ListTile(

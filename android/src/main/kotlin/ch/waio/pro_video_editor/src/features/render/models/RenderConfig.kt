@@ -50,7 +50,11 @@ data class RenderConfig(
     /** Whether to apply cropping to the image overlay along with the video.
      * When true, the image overlay is applied before cropping (cropped together with video).
      * When false (default), the overlay is scaled to the final cropped size. */
-    val imageBytesWithCropping: Boolean = false
+    val imageBytesWithCropping: Boolean = false,
+    /** Whether to loop the custom audio if it is shorter than the video.
+     * When true (default), audio is repeated to match video duration.
+     * When false, audio plays once and silence fills the rest. */
+    val loopCustomAudio: Boolean = true
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -129,7 +133,8 @@ data class RenderConfig(
                 startUs = call.argument<Number?>("startUs")?.toLong(),
                 endUs = call.argument<Number?>("endUs")?.toLong(),
                 shouldOptimizeForNetworkUse = call.argument<Boolean>("shouldOptimizeForNetworkUse") ?: true,
-                imageBytesWithCropping = call.argument<Boolean>("imageBytesWithCropping") ?: false
+                imageBytesWithCropping = call.argument<Boolean>("imageBytesWithCropping") ?: false,
+                loopCustomAudio = call.argument<Boolean>("loopCustomAudio") ?: true
             )
         }
     }

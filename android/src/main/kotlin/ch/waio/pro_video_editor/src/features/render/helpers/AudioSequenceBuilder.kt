@@ -26,6 +26,7 @@ class AudioSequenceBuilder(
 ) {
     private var volume: Float = 1.0f
     private var needsNormalization: Boolean = false
+    private var loopAudio: Boolean = true
 
     /**
      * Sets the volume multiplier for the custom audio.
@@ -45,6 +46,16 @@ class AudioSequenceBuilder(
      */
     fun setNormalization(enabled: Boolean): AudioSequenceBuilder {
         this.needsNormalization = enabled
+        return this
+    }
+
+    /**
+     * Sets whether the audio should loop to match video duration.
+     *
+     * @param loop If true, audio repeats; if false, plays once
+     */
+    fun setLoop(loop: Boolean): AudioSequenceBuilder {
+        this.loopAudio = loop
         return this
     }
 
@@ -73,8 +84,12 @@ class AudioSequenceBuilder(
         val audioProcessors = buildAudioProcessors()
         val audioEffects = Effects(audioProcessors, emptyList())
 
-        // Create audio items with looping
-        val audioItems = createLoopedAudioItems(audioFile, audioDurationUs, audioEffects)
+        // Create audio items with looping or single play
+        val audioItems = if (loopAudio) {
+            createLoopedAudioItems(audioFile, audioDurationUs, audioEffects)
+        } else {
+            createSingleAudioItem(audioFile, audioDurationUs, audioEffects)
+        }
 
         return EditedMediaItemSequence.Builder(audioItems).build()
     }
@@ -189,6 +204,24 @@ class AudioSequenceBuilder(
 
         Log.d(RENDER_TAG, "Custom audio will loop $loopCount times to match video duration")
         return audioItems
+    }
+
+    /**
+     * Creates a single audio item (no looping). Trims if audio is longer than video.
+     */
+    private fun createSingleAudioItem(
+        audioFile: File,
+        audioDurationUs: Long,
+        effects: Effects
+    ): List<EditedMediaItem> {
+        val trimDurationUs = if (audioDurationUs > videoDurationUs && videoDurationUs > 0) {
+            Log.d(RENDER_TAG, "Trimming audio to ${videoDurationUs / 1000} ms (no loop)")
+            videoDurationUs
+        } else {
+            Log.d(RENDER_TAG, "Playing audio once (${audioDurationUs / 1000} ms, no loop)")
+            null
+        }
+        return listOf(createAudioItem(audioFile, trimDurationUs, effects))
     }
 
     /**

@@ -1,3 +1,6 @@
+## 1.7.0
+- **FEAT**(android, iOS, macOS): Add `loopCustomAudio` option to `VideoRenderData`. When `false`, custom audio plays once instead of looping to match the video duration. Defaults to `true` for backward compatibility.
+
 ## 1.6.2
 - **FIX**(iOS, macOS): Fixed crash when merging multiple MOV video clips on older devices (e.g., iPhone 7, iOS 15). The issue was caused by `AVMutableVideoCompositionInstruction` not properly deriving `requiredSourceTrackIDs` from layer instructions when using a custom video compositor. Introduced `CustomVideoCompositionInstruction` that explicitly provides source track IDs.
 

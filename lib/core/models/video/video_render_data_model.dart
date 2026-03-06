@@ -33,6 +33,7 @@ class VideoRenderData {
     this.customAudioVolume,
     this.shouldOptimizeForNetworkUse = false,
     this.imageBytesWithCropping = false,
+    this.loopCustomAudio = true,
     String? id,
   })  : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         assert(
@@ -104,6 +105,7 @@ class VideoRenderData {
     double? customAudioVolume,
     bool shouldOptimizeForNetworkUse = false,
     bool imageBytesWithCropping = false,
+    bool loopCustomAudio = true,
     String? id,
   }) {
     final qualityConfig = VideoQualityConfig.fromPreset(qualityPreset);
@@ -127,6 +129,7 @@ class VideoRenderData {
       customAudioVolume: customAudioVolume,
       shouldOptimizeForNetworkUse: shouldOptimizeForNetworkUse,
       imageBytesWithCropping: imageBytesWithCropping,
+      loopCustomAudio: loopCustomAudio,
     );
   }
 
@@ -298,6 +301,17 @@ class VideoRenderData {
   /// - `true`: Overlay is cropped together with the video
   final bool imageBytesWithCropping;
 
+  /// Whether to loop the custom audio track if it is shorter than the video.
+  ///
+  /// When `true` (default), the custom audio will be repeated until it
+  /// matches the video duration. When `false`, the audio plays once and
+  /// silence fills the remaining duration.
+  ///
+  /// This parameter is only effective when [customAudioPath] is provided.
+  ///
+  /// **Default**: `true`
+  final bool loopCustomAudio;
+
   /// Returns a [Stream] of [ProgressModel] objects that provides updates on
   /// the progress of the video rendering process associated with this model's
   /// [id].
@@ -367,6 +381,7 @@ class VideoRenderData {
       'endUs': videoSegments != null ? endTime?.inMicroseconds : null,
       'shouldOptimizeForNetworkUse': shouldOptimizeForNetworkUse,
       'imageBytesWithCropping': imageBytesWithCropping,
+      'loopCustomAudio': loopCustomAudio,
     };
   }
 
@@ -391,6 +406,7 @@ class VideoRenderData {
     double? customAudioVolume,
     bool? shouldOptimizeForNetworkUse,
     bool? imageBytesWithCropping,
+    bool? loopCustomAudio,
   }) {
     return VideoRenderData(
       id: id ?? this.id,
@@ -414,6 +430,7 @@ class VideoRenderData {
           shouldOptimizeForNetworkUse ?? this.shouldOptimizeForNetworkUse,
       imageBytesWithCropping:
           imageBytesWithCropping ?? this.imageBytesWithCropping,
+      loopCustomAudio: loopCustomAudio ?? this.loopCustomAudio,
     );
   }
 }

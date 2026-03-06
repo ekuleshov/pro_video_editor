@@ -108,7 +108,8 @@ class RenderVideo {
                             enableAudio: config.enableAudio,
                             customAudioPath: config.customAudioPath,
                             originalAudioVolume: config.originalAudioVolume,
-                            customAudioVolume: config.customAudioVolume
+                            customAudioVolume: config.customAudioVolume,
+                            loopCustomAudio: config.loopCustomAudio
                         )
                     
                     // Set source track ID for fallback on older macOS versions

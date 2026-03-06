@@ -10,6 +10,7 @@ internal class AudioSequenceBuilder {
     private let audioPath: String
     private let targetDuration: CMTime
     private var volume: Float = 1.0
+    private var loopAudio: Bool = true
     
     /// Initializes builder with audio path and target duration.
     ///
@@ -27,6 +28,15 @@ internal class AudioSequenceBuilder {
     /// - Returns: Self for chaining
     func setVolume(_ volume: Float) -> AudioSequenceBuilder {
         self.volume = volume
+        return self
+    }
+    
+    /// Sets whether the audio should loop to match video duration.
+    ///
+    /// - Parameter loop: If true, audio repeats; if false, plays once
+    /// - Returns: Self for chaining
+    func setLoop(_ loop: Bool) -> AudioSequenceBuilder {
+        self.loopAudio = loop
         return self
     }
     
@@ -68,7 +78,7 @@ internal class AudioSequenceBuilder {
             let timeRange = CMTimeRange(start: .zero, duration: targetDuration)
             try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
             print("✂️ Custom audio trimmed to \(targetDuration.seconds)s")
-        } else {
+        } else if loopAudio {
             // Loop audio to match video duration
             var currentTime = CMTime.zero
             var loopCount = 0
@@ -84,6 +94,11 @@ internal class AudioSequenceBuilder {
             }
             
             print("🔄 Custom audio looped \(loopCount) times to match \(targetDuration.seconds)s duration")
+        } else {
+            // Play audio once without looping
+            let timeRange = CMTimeRange(start: .zero, duration: audioDuration)
+            try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
+            print("▶️ Custom audio plays once (\(audioDuration.seconds)s, no loop)")
         }
         
         if volume != 1.0 {

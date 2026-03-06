@@ -382,6 +382,12 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
       ) as bool);
 
   @override
+  bool get loopCustomAudio => (super.noSuchMethod(
+        Invocation.getter(#loopCustomAudio),
+        returnValue: false,
+      ) as bool);
+
+  @override
   _i7.Stream<_i11.ProgressModel> get progressStream => (super.noSuchMethod(
         Invocation.getter(#progressStream),
         returnValue: _i7.Stream<_i11.ProgressModel>.empty(),
@@ -418,6 +424,7 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
     double? customAudioVolume,
     bool? shouldOptimizeForNetworkUse,
     bool? imageBytesWithCropping,
+    bool? loopCustomAudio,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
@@ -443,6 +450,7 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
             #customAudioVolume: customAudioVolume,
             #shouldOptimizeForNetworkUse: shouldOptimizeForNetworkUse,
             #imageBytesWithCropping: imageBytesWithCropping,
+            #loopCustomAudio: loopCustomAudio,
           },
         ),
         returnValue: _FakeVideoRenderData_2(
@@ -470,6 +478,7 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
               #customAudioVolume: customAudioVolume,
               #shouldOptimizeForNetworkUse: shouldOptimizeForNetworkUse,
               #imageBytesWithCropping: imageBytesWithCropping,
+              #loopCustomAudio: loopCustomAudio,
             },
           ),
         ),

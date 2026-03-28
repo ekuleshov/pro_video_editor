@@ -1,3 +1,6 @@
+## 1.9.3
+- **FIX**(android, iOS, macOS): Fixed rendering failure with HEVC encoded videos.
+
 ## 1.9.2
 - **FIX**(all): Fix file write failures when the target directory does not exist. `writeMemoryVideoToFile`, `writeAssetVideoToFile`, and `fetchVideoToFile` now create parent directories recursively before writing.
 

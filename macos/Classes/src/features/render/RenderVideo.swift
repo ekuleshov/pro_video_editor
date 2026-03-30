@@ -181,6 +181,7 @@ class RenderVideo {
                         cropWidth: workingConfig.cropWidth,
                         cropHeight: workingConfig.cropHeight
                     )
+                    
                     applyRotation(config: &effectsConfig, rotateTurns: workingConfig.rotateTurns)
                     applyFlip(config: &effectsConfig, flipX: workingConfig.flipX, flipY: workingConfig.flipY)
                     applyScale(config: &effectsConfig, scaleX: workingConfig.scaleX, scaleY: workingConfig.scaleY)
@@ -188,7 +189,11 @@ class RenderVideo {
                         config: &effectsConfig, to: videoComposition,
                         matrixList: workingConfig.colorMatrixList)
                     applyBlur(config: &effectsConfig, sigma: workingConfig.blur)
-                    applyImageLayer(config: &effectsConfig, imageData: workingConfig.imageData, withCropping: workingConfig.imageBytesWithCropping)
+                    applyImageLayer(
+                        config: &effectsConfig,
+                        imageData: workingConfig.imageData,
+                        imageLayers: workingConfig.imageLayers,
+                        withCropping: workingConfig.imageBytesWithCropping)
 
                     var finalRenderSize = videoComposition.renderSize
 

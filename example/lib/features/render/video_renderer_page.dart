@@ -76,7 +76,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _rotate() async {
     var data = VideoRenderData(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       transform: const ExportTransform(rotateTurns: 1),
     );
 
@@ -85,7 +85,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _flip() async {
     var data = VideoRenderData(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       transform: const ExportTransform(flipX: true),
     );
 
@@ -94,7 +94,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _crop() async {
     var data = VideoRenderData(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       transform: const ExportTransform(x: 100, y: 250, width: 700, height: 300),
     );
 
@@ -103,7 +103,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _scale() async {
     var data = VideoRenderData(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       transform: const ExportTransform(scaleX: 0.2, scaleY: 0.2),
     );
 
@@ -112,22 +112,32 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _trim() async {
     var data = VideoRenderData(
-      video: _video,
-      startTime: const Duration(seconds: 7),
-      endTime: const Duration(seconds: 20),
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 7),
+          endTime: const Duration(seconds: 20),
+        ),
+      ],
     );
 
     await _renderVideo(data);
   }
 
   Future<void> _changeSpeed() async {
-    var data = VideoRenderData(video: _video, playbackSpeed: .5);
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      playbackSpeed: .5,
+    );
 
     await _renderVideo(data);
   }
 
   Future<void> _removeAudio() async {
-    var data = VideoRenderData(video: _video, enableAudio: false);
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      enableAudio: false,
+    );
 
     await _renderVideo(data);
   }
@@ -180,11 +190,19 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     );
 
     var data = VideoRenderData(
-      video: _video,
-      customAudioPath: customAudioFile.path,
-      originalAudioVolume: 0.0,
-      // Mute original audio
-      customAudioVolume: 1, // Full volume for custom audio
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          volume: 0.0, // Mute original audio
+        ),
+      ],
+      audioTracks: [
+        VideoAudioTrack(
+          path: customAudioFile.path,
+          volume: 1, // Full volume for custom audio
+          loop: true,
+        ),
+      ],
     );
 
     await _renderVideo(data);
@@ -203,11 +221,10 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     );
 
     var data = VideoRenderData(
-      video: _video,
-      customAudioPath: customAudioFile.path,
-      originalAudioVolume: 0.9,
-      // Original audio at 90%
-      customAudioVolume: 0.1, // Background music at 10%
+      videoSegments: [VideoSegment(video: _video, volume: 0.9)],
+      audioTracks: [
+        VideoAudioTrack(path: customAudioFile.path, volume: 0.1, loop: true),
+      ],
     );
 
     await _renderVideo(data);
@@ -226,8 +243,12 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   /// - `2.0`: Doubled volume
   Future<void> _adjustOriginalVolume() async {
     var data = VideoRenderData(
-      video: _video,
-      originalAudioVolume: 0.2, // Reduce original audio to 20%
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          volume: 0.2, // Reduce to 20%
+        ),
+      ],
     );
 
     await _renderVideo(data);
@@ -244,11 +265,10 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     );
 
     var data = VideoRenderData(
-      video: _video,
-      customAudioPath: customAudioFile.path,
-      originalAudioVolume: 0.0,
-      customAudioVolume: 1.0,
-      loopCustomAudio: false,
+      videoSegments: [VideoSegment(video: _video, volume: 0)],
+      audioTracks: [
+        VideoAudioTrack(path: customAudioFile.path, volume: 1.0, loop: false),
+      ],
     );
 
     await _renderVideo(data);
@@ -266,13 +286,110 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     );
 
     var data = VideoRenderData(
-      video: _video,
-      customAudioPath: customAudioFile.path,
-      customAudioStartTime: const Duration(seconds: 5),
-      // Start at 5 seconds
-      loopCustomAudio: false,
-      originalAudioVolume: 0.0,
-      customAudioVolume: 1.0,
+      videoSegments: [VideoSegment(video: _video, volume: 0)],
+      audioTracks: [
+        VideoAudioTrack(
+          path: customAudioFile.path,
+          startTime: const Duration(seconds: 5),
+          volume: 1.0,
+          loop: false,
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Mix multiple audio tracks at different time ranges.
+  ///
+  /// This example demonstrates timed audio mixing:
+  /// - Audio track 1 plays from 0–10 seconds
+  /// - Audio track 2 plays from 10–20 seconds
+  /// - Both overlap for a brief transition
+  Future<void> _timedAudioTracks() async {
+    final audioFile1 = await _writeAssetAudioToFile(
+      kVideoEditorExampleAudio1Path,
+    );
+    final audioFile2 = await _writeAssetAudioToFile(
+      kVideoEditorExampleAudio2Path,
+    );
+
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video, volume: 0.3)],
+      audioTracks: [
+        VideoAudioTrack(
+          path: audioFile1.path,
+          volume: 0.8,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 10),
+        ),
+        VideoAudioTrack(
+          path: audioFile2.path,
+          volume: 0.8,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 20),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Use audioStartTime and audioEndTime to select a specific portion of
+  /// an audio file.
+  ///
+  /// This example demonstrates extracting a section from within the audio
+  /// file itself (5s–15s of the audio) and placing it at a specific position
+  /// in the video timeline (starting at 3s).
+  Future<void> _audioClipRange() async {
+    final customAudioFile = await _writeAssetAudioToFile(
+      kVideoEditorExampleAudio1Path,
+    );
+
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video, volume: 0)],
+      audioTracks: [
+        VideoAudioTrack(
+          path: customAudioFile.path,
+          volume: 1.0,
+          audioStartTime: const Duration(seconds: 3),
+          audioEndTime: const Duration(seconds: 8),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Different volume levels per video segment.
+  ///
+  /// This example demonstrates per-clip volume control when concatenating
+  /// multiple video clips:
+  /// - Clip 1: Original audio at 100%
+  /// - Clip 2: Muted (0%)
+  /// - Clip 3: Reduced to 30%
+  Future<void> _perClipVolume() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 0),
+          endTime: const Duration(seconds: 7),
+          volume: 1.0,
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 7),
+          endTime: const Duration(seconds: 14),
+          volume: 0.0,
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 14),
+          endTime: const Duration(seconds: 21),
+          volume: 0.3,
+        ),
+      ],
     );
 
     await _renderVideo(data);
@@ -280,7 +397,10 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _layers() async {
     final imageBytes = await _captureLayerContent();
-    var data = VideoRenderData(video: _video, imageBytes: imageBytes);
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      imageLayers: [ImageLayer(image: EditorLayerImage.memory(imageBytes))],
+    );
 
     await _renderVideo(data);
   }
@@ -296,9 +416,9 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     const videoHeight = 720;
 
     var data = VideoRenderData(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       imageLayers: [
-        /// Always visible
+        /// Always visible — positioned at top-left
         ImageLayer(image: layerImage, offset: const Offset(0, 0)),
 
         /// Start at 5s
@@ -334,15 +454,66 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _colorMatrix() async {
     var data = VideoRenderData(
-      video: _video,
-      colorMatrixList: kComplexFilterMatrix,
+      videoSegments: [VideoSegment(video: _video)],
+      colorFilters: kComplexFilterMatrix,
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Apply different color filters at specific time ranges.
+  ///
+  /// This example demonstrates timed color filters:
+  /// - A warm filter applied from 0–8 seconds
+  /// - A cool filter applied from 8–16 seconds
+  /// - A high-contrast filter applied from 16 seconds onwards
+  Future<void> _colorMatrixTimed() async {
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      colorFilters: [
+        // Warm tone filter: 0s – 8s
+        ColorFilter(
+          matrix: const [
+            1.2, 0.0, 0.0, 0.0, 20.0, //
+            0.0, 1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.8, 0.0, -10.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+          ],
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 8),
+        ),
+        // Cool tone filter: 8s – 16s
+        ColorFilter(
+          matrix: const [
+            0.8, 0.0, 0.0, 0.0, -10.0, //
+            0.0, 1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 1.3, 0.0, 30.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+          ],
+          startTime: const Duration(seconds: 8),
+          endTime: const Duration(seconds: 16),
+        ),
+        // High contrast filter: 16s – end
+        const ColorFilter(
+          matrix: [
+            1.5, 0.0, 0.0, 0.0, -60.0, //
+            0.0, 1.5, 0.0, 0.0, -60.0,
+            0.0, 0.0, 1.5, 0.0, -60.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+          ],
+          startTime: Duration(seconds: 16),
+        ),
+      ],
     );
 
     await _renderVideo(data);
   }
 
   Future<void> _blur() async {
-    var data = VideoRenderData(video: _video, blur: 5);
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      blur: 5,
+    );
 
     await _renderVideo(data);
   }
@@ -350,18 +521,98 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Future<void> _multipleChanges() async {
     final imageBytes = await _captureLayerContent();
     var data = VideoRenderData(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       transform: const ExportTransform(flipX: true),
-      colorMatrixList: kBasicFilterMatrix,
-      imageBytes: imageBytes,
       endTime: const Duration(seconds: 20),
+      colorFilters: kBasicFilterMatrix,
+      imageLayers: [ImageLayer(image: EditorLayerImage.memory(imageBytes))],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Combined timeline-based example.
+  ///
+  /// This example demonstrates how to combine multiple timed features:
+  /// - 2 video segments with different per-clip volume
+  /// - Timed color filters (warm first half, cool second half)
+  /// - A timed image layer that only appears from 3–8 seconds
+  /// - A stretched overlay visible for the entire video
+  /// - Background music that plays during the second half
+  Future<void> _combinedTimeBased() async {
+    final imageBytes = await _captureLayerContent();
+    final stickerImage = EditorLayerImage.asset('assets/sticker.png');
+    final audioFile = await _writeAssetAudioToFile(
+      kVideoEditorExampleAudio1Path,
+    );
+
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 10),
+          volume: 1.0,
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 20),
+          volume: 0.3,
+        ),
+      ],
+      colorFilters: [
+        // Warm tone: first 10s
+        ColorFilter(
+          matrix: const [
+            1.2, 0.0, 0.0, 0.0, 20.0, //
+            0.0, 1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.8, 0.0, -10.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+          ],
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 10),
+        ),
+        // Cool tone: 10s – end
+        const ColorFilter(
+          matrix: [
+            0.8, 0.0, 0.0, 0.0, -10.0, //
+            0.0, 1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 1.3, 0.0, 30.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+          ],
+          startTime: Duration(seconds: 10),
+        ),
+      ],
+      imageLayers: [
+        // Stretched overlay for entire video
+        ImageLayer(image: EditorLayerImage.memory(imageBytes)),
+        // Sticker visible only from 3s–8s
+        ImageLayer(
+          image: stickerImage,
+          offset: const Offset(500, 150),
+          startTime: const Duration(seconds: 3),
+          endTime: const Duration(seconds: 8),
+        ),
+      ],
+      audioTracks: [
+        // Background music in second half at low volume
+        VideoAudioTrack(
+          path: audioFile.path,
+          volume: 0.4,
+          startTime: const Duration(seconds: 10),
+        ),
+      ],
     );
 
     await _renderVideo(data);
   }
 
   Future<void> _bitrate() async {
-    var data = VideoRenderData(video: _video, bitrate: 1000000);
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      bitrate: 1000000,
+    );
 
     await _renderVideo(data);
   }
@@ -369,7 +620,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Future<void> _generateMov() async {
     var data = VideoRenderData(
       outputFormat: VideoOutputFormat.mov,
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
     );
 
     await _renderVideo(data);
@@ -377,7 +628,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _qualityPreset1080p() async {
     var data = VideoRenderData.withQualityPreset(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       qualityPreset: VideoQualityPreset.p1080,
     );
 
@@ -386,7 +637,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _qualityPreset720p() async {
     var data = VideoRenderData.withQualityPreset(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       qualityPreset: VideoQualityPreset.p720,
     );
 
@@ -395,7 +646,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Future<void> _qualityPreset4K() async {
     var data = VideoRenderData.withQualityPreset(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       qualityPreset: VideoQualityPreset.k4,
     );
 
@@ -429,7 +680,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   Future<void> _concatenateWithTransforms() async {
     final imageBytes = await _captureLayerContent();
     var data = VideoRenderData(
-      imageBytes: imageBytes,
+      imageLayers: [ImageLayer(image: EditorLayerImage.memory(imageBytes))],
       videoSegments: [
         VideoSegment(
           video: _video,
@@ -464,7 +715,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   /// streaming in browsers.
   Future<void> _optimizeForNetworkUse() async {
     var data = VideoRenderData(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       shouldOptimizeForNetworkUse: true, // Default, but explicit for demo
     );
 
@@ -478,7 +729,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   /// streaming in browsers.
   Future<void> _noNetworkOptimization() async {
     var data = VideoRenderData(
-      video: _video,
+      videoSegments: [VideoSegment(video: _video)],
       shouldOptimizeForNetworkUse: false,
     );
 
@@ -489,7 +740,10 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     final sourceMeta = await _pve.getMetadata(_video);
 
     final result = await _pve.renderVideo(
-      VideoRenderData(video: _video, outputFormat: VideoOutputFormat.mp4),
+      VideoRenderData(
+        videoSegments: [VideoSegment(video: _video)],
+        outputFormat: VideoOutputFormat.mp4,
+      ),
     );
 
     final renderedMeta = await _pve.getMetadata(EditorVideo.memory(result));
@@ -794,6 +1048,12 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           title: const Text('Apply ColorMatrix'),
         ),
         ListTile(
+          onTap: _colorMatrixTimed,
+          leading: const Icon(Icons.palette_outlined),
+          title: const Text('Timed Color Filters'),
+          subtitle: const Text('Warm → Cool → Contrast'),
+        ),
+        ListTile(
           onTap: _blur,
           leading: const Icon(Icons.blur_circular_outlined),
           title: const Text('Blur'),
@@ -802,6 +1062,12 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           onTap: _multipleChanges,
           leading: const Icon(Icons.web_stories_outlined),
           title: const Text('Multiple changes'),
+        ),
+        ListTile(
+          onTap: _combinedTimeBased,
+          leading: const Icon(Icons.timeline_outlined),
+          title: const Text('Combined Time-Based'),
+          subtitle: const Text('Clips + filters + layers + audio, all timed'),
         ),
         ListTile(
           onTap: _bitrate,
@@ -862,6 +1128,24 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           leading: const Icon(Icons.skip_next_outlined),
           title: const Text('Custom Audio with Start Offset'),
           subtitle: const Text('Start at 5 seconds into audio'),
+        ),
+        ListTile(
+          onTap: _timedAudioTracks,
+          leading: const Icon(Icons.queue_music_outlined),
+          title: const Text('Timed Audio Tracks'),
+          subtitle: const Text('Track 1: 0–10s, Track 2: 10–20s'),
+        ),
+        ListTile(
+          onTap: _audioClipRange,
+          leading: const Icon(Icons.content_cut_outlined),
+          title: const Text('Audio Clip Range'),
+          subtitle: const Text('Extract 3s–8s from audio file'),
+        ),
+        ListTile(
+          onTap: _perClipVolume,
+          leading: const Icon(Icons.tune_outlined),
+          title: const Text('Per-Clip Volume'),
+          subtitle: const Text('100% → 0% → 30% across clips'),
         ),
         ..._buildSectionTitle('Quality'),
         ListTile(

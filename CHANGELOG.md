@@ -1,3 +1,6 @@
+## 1.14.2
+- **FIX**(android, iOS, macOS): Correct audio extraction to WAV format in `extractAudioToFile`.
+
 ## 1.14.1
 - **FIX**(android): Fix compatibility with media3 1.10.0 by replacing removed `ChannelMixingMatrix.create` with `ChannelMixingMatrix.createForConstantGain`.
 

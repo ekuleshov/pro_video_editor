@@ -56,13 +56,14 @@ struct AudioExtractConfig {
     
     /// Returns the file extension for the output audio file based on the format.
     ///
-    /// - Returns: The file extension string (e.g., "mp3", "aac", "m4a")
+    /// - Returns: The file extension string (e.g., "mp3", "aac", "m4a", "wav")
     func getOutputExtension() -> String {
         switch format.lowercased() {
         case "mp3": return "mp3"
         case "aac": return "m4a"
         case "m4a": return "m4a"
         case "caf": return "caf"
+        case "wav": return "wav"
         default: return "m4a"
         }
     }
@@ -75,6 +76,7 @@ struct AudioExtractConfig {
         case "mp3": return "com.apple.m4a-audio" // MP3 in M4A container
         case "aac": return "com.apple.m4a-audio" // AAC in M4A container
         case "m4a": return "com.apple.m4a-audio" // M4A container
+        case "wav": return "com.microsoft.waveform-audio" // WAV format
         default: return "com.apple.m4a-audio"
         }
     }

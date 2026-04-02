@@ -136,14 +136,63 @@ class ExtractAudio {
                 default:
                     outputFileType = .m4a
                 }
-
-                // Create export session with audio-only preset
-                guard
-                    let session = AVAssetExportSession(
-                        asset: asset,
-                        presetName: AVAssetExportPresetPassthrough
+                
+                // Configure to export only audio tracks
+                let audioTracks = asset.tracks(withMediaType: .audio)
+                guard !audioTracks.isEmpty else {
+                    throw NoAudioTrackException()
+                }
+                
+                // Get the actual audio track to extract
+                let audioTrack = audioTracks[0]
+                
+                // Determine the time range to extract
+                // IMPORTANT: Use the audio track's actual timeRange, not asset.duration
+                // Audio tracks may not start at zero due to encoding delays or sync adjustments
+                let sourceTimeRange: CMTimeRange
+                if let startUs = config.startUs, let endUs = config.endUs {
+                    let startTime = CMTime(value: startUs, timescale: 1_000_000)
+                    let endTime = CMTime(value: endUs, timescale: 1_000_000)
+                    let duration = CMTimeSubtract(endTime, startTime)
+                    sourceTimeRange = CMTimeRange(start: startTime, duration: duration)
+                } else if let startUs = config.startUs {
+                    let startTime = CMTime(value: startUs, timescale: 1_000_000)
+                    let duration = CMTimeSubtract(asset.duration, startTime)
+                    sourceTimeRange = CMTimeRange(start: startTime, duration: duration)
+                } else if let endUs = config.endUs {
+                    let endTime = CMTime(value: endUs, timescale: 1_000_000)
+                    sourceTimeRange = CMTimeRange(start: .zero, duration: endTime)
+                } else {
+                    // Use the audio track's actual time range to capture all audio data
+                    sourceTimeRange = audioTrack.timeRange
+                }
+                
+                // Create composition to remap timestamps to start at zero
+                // This ensures the extracted audio timeline starts at 0, not at the original offset
+                let composition = AVMutableComposition()
+                guard let compositionAudioTrack = composition.addMutableTrack(
+                    withMediaType: .audio,
+                    preferredTrackID: kCMPersistentTrackID_Invalid
+                ) else {
+                    throw NSError(
+                        domain: "ExtractAudio",
+                        code: -13,
+                        userInfo: [NSLocalizedDescriptionKey: "Failed to create composition audio track"]
                     )
-                else {
+                }
+                
+                // Insert the audio track at time zero (remapping the timeline)
+                try compositionAudioTrack.insertTimeRange(
+                    sourceTimeRange,
+                    of: audioTrack,
+                    at: .zero
+                )
+                
+                // Create export session with the composition (not the original asset)
+                guard let session = AVAssetExportSession(
+                    asset: composition,
+                    presetName: AVAssetExportPresetPassthrough
+                ) else {
                     throw NSError(
                         domain: "ExtractAudio",
                         code: -1,
@@ -154,28 +203,9 @@ class ExtractAudio {
                 exportSession = session
                 session.outputURL = outputURL
                 session.outputFileType = outputFileType
-
-                // Configure to export only audio tracks
-                let audioTracks = asset.tracks(withMediaType: .audio)
-                guard !audioTracks.isEmpty else {
-                    throw NoAudioTrackException()
-                }
-
-                // Apply time range if trimming is requested
-                if let startUs = config.startUs, let endUs = config.endUs {
-                    let startTime = CMTime(value: startUs, timescale: 1_000_000)
-                    let endTime = CMTime(value: endUs, timescale: 1_000_000)
-                    let duration = CMTimeSubtract(endTime, startTime)
-                    session.timeRange = CMTimeRange(start: startTime, duration: duration)
-                } else if let startUs = config.startUs {
-                    let startTime = CMTime(value: startUs, timescale: 1_000_000)
-                    let duration = CMTimeSubtract(asset.duration, startTime)
-                    session.timeRange = CMTimeRange(start: startTime, duration: duration)
-                } else if let endUs = config.endUs {
-                    let endTime = CMTime(value: endUs, timescale: 1_000_000)
-                    session.timeRange = CMTimeRange(start: .zero, duration: endTime)
-                }
-
+                
+                // No need to set timeRange on the session since the composition already handles it
+                
                 // Start progress tracking on main thread
                 DispatchQueue.main.async {
                     onProgress(0.0)
@@ -368,7 +398,8 @@ class ExtractAudio {
                 }
 
                 // Calculate time range
-                var timeRange = CMTimeRange(start: .zero, duration: asset.duration)
+                // Audio tracks may not start at zero due to encoding delays or sync adjustments
+                var timeRange: CMTimeRange
                 if let startUs = config.startUs, let endUs = config.endUs {
                     let startTime = CMTime(value: startUs, timescale: 1_000_000)
                     let endTime = CMTime(value: endUs, timescale: 1_000_000)
@@ -381,6 +412,9 @@ class ExtractAudio {
                 } else if let endUs = config.endUs {
                     let endTime = CMTime(value: endUs, timescale: 1_000_000)
                     timeRange = CMTimeRange(start: .zero, duration: endTime)
+                } else {
+                    // Use the audio track's actual time range to capture all audio data
+                    timeRange = audioTrack.timeRange
                 }
 
                 // Create asset reader
@@ -428,6 +462,22 @@ class ExtractAudio {
                     formatDescription)?.pointee
                 let sampleRate = audioStreamBasicDescription?.mSampleRate ?? 44100
                 let channels = audioStreamBasicDescription?.mChannelsPerFrame ?? 2
+                
+                // Create audio channel layout based on number of channels
+                var channelLayout = AudioChannelLayout()
+                channelLayout.mChannelBitmap = AudioChannelBitmap(rawValue: 0)
+                channelLayout.mNumberChannelDescriptions = 0
+                channelLayout.mChannelLayoutTag = switch channels {
+                    case 1: kAudioChannelLayoutTag_Mono
+                    case 2: kAudioChannelLayoutTag_Stereo
+                    case 3: kAudioChannelLayoutTag_MPEG_3_0_A
+                    case 4: kAudioChannelLayoutTag_Quadraphonic
+                    case 5: kAudioChannelLayoutTag_MPEG_5_0_A
+                    case 6: kAudioChannelLayoutTag_MPEG_5_1_A
+                    case 7: kAudioChannelLayoutTag_MPEG_6_1_A
+                    case 8: kAudioChannelLayoutTag_MPEG_7_1_A
+                    default: kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channels)
+                }
 
                 // Configure writer input for PCM WAV
                 let writerInputSettings: [String: Any] = [
@@ -438,6 +488,7 @@ class ExtractAudio {
                     AVLinearPCMIsFloatKey: false,
                     AVLinearPCMIsBigEndianKey: false,
                     AVLinearPCMIsNonInterleaved: false,
+                    AVChannelLayoutKey: Data(bytes: &channelLayout, count: MemoryLayout<AudioChannelLayout>.size)
                 ]
 
                 let writerInput = AVAssetWriterInput(
@@ -471,9 +522,9 @@ class ExtractAudio {
                             userInfo: [NSLocalizedDescriptionKey: "Failed to start writing"]
                         )
                 }
-
-                writer.startSession(atSourceTime: timeRange.start)
-
+                
+                writer.startSession(atSourceTime: .zero)
+                
                 // Calculate total duration for progress
                 let totalDuration = CMTimeGetSeconds(timeRange.duration)
 

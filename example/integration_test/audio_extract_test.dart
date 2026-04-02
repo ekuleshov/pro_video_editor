@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:mime/mime.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pro_video_editor/pro_video_editor.dart';
 import 'package:pro_video_editor_example/core/constants/example_constants.dart';
@@ -17,6 +18,8 @@ void main() {
 
   // Audio extraction is not supported on Web, Windows, and Linux yet
   final skipPlatform = kIsWeb || isWindows || isLinux;
+
+  final pve = ProVideoEditor.instance;
 
   /// Helper to check if a format is supported on current platform
   bool isFormatSupported(AudioFormat format) {
@@ -38,16 +41,14 @@ void main() {
     testWidgets(
       'extractAudio with $format returns valid audio file',
       (tester) async {
+        if (!isFormatSupported(format)) return;
+
         final directory = await getTemporaryDirectory();
         final outputPath =
             '${directory.path}/test_audio_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';
 
         final config = AudioExtractConfigs(video: testVideo, format: format);
-
-        final result = await ProVideoEditor.instance.extractAudioToFile(
-          outputPath,
-          config,
-        );
+        final result = await pve.extractAudioToFile(outputPath, config);
 
         expect(result, equals(outputPath));
 
@@ -58,6 +59,20 @@ void main() {
           isTrue,
           reason: 'Audio file should exist at $outputPath',
         );
+
+        // Use extension-based MIME detection — header-based detection is
+        // unreliable for MP4-container formats (AAC/M4A/MP3 on Android all
+        // share the same magic bytes regardless of audio content).
+        final mimeType = lookupMimeType(result);
+        // AAC on iOS/macOS is saved with a .m4a extension (the only container
+        // Apple supports for AAC export), so it resolves to 'audio/mp4'.
+        // The mime package maps .wav to 'audio/x-wav' rather than 'audio/wav'.
+        final expectedMimeTypes = switch (format) {
+          AudioFormat.aac => [format.mimeType, 'audio/mp4'],
+          AudioFormat.wav => [format.mimeType, 'audio/wav'],
+          _ => [format.mimeType],
+        };
+        expect(expectedMimeTypes, contains(mimeType));
 
         // Verify file has content
         final fileSize = await file.length();
@@ -76,6 +91,8 @@ void main() {
     testWidgets(
       'extractAudio with $format and trimming works correctly',
       (tester) async {
+        if (!isFormatSupported(format)) return;
+
         final directory = await getTemporaryDirectory();
         final outputPath =
             '${directory.path}/test_audio_trimmed_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';
@@ -88,10 +105,7 @@ void main() {
           endTime: const Duration(seconds: 10),
         );
 
-        final result = await ProVideoEditor.instance.extractAudioToFile(
-          outputPath,
-          config,
-        );
+        final result = await pve.extractAudioToFile(outputPath, config);
 
         expect(result, equals(outputPath));
 
@@ -111,11 +125,15 @@ void main() {
           greaterThan(500),
           reason: 'Trimmed audio should have some content',
         );
-        expect(
-          fileSize,
-          lessThan(500000),
-          reason: 'Trimmed audio should be smaller than full extraction',
-        );
+        // WAV is uncompressed — 5 seconds can be several MB depending on
+        // sample rate and bit depth, so only cap compressed formats.
+        if (format != AudioFormat.wav && format != AudioFormat.caf) {
+          expect(
+            fileSize,
+            lessThan(500000),
+            reason: 'Trimmed audio should be smaller than full extraction',
+          );
+        }
 
         // Clean up
         await file.delete();

@@ -11,7 +11,7 @@ class NoAudioTrackException: NSError, @unchecked Sendable {
             userInfo: [NSLocalizedDescriptionKey: "No audio track found in video"]
         )
     }
-    
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -26,7 +26,7 @@ class NoAudioTrackException: NSError, @unchecked Sendable {
 /// - Provides progress tracking during extraction
 /// - Supports cancellation of active extraction jobs
 class ExtractAudio {
-    
+
     /// Extracts audio from a video file asynchronously.
     ///
     /// This method uses AVAssetExportSession for fast Passthrough export,
@@ -44,7 +44,7 @@ class ExtractAudio {
         onComplete: @escaping (FlutterStandardTypedData?) -> Void,
         onError: @escaping (Error) -> Void
     ) -> AudioExtractJobHandle {
-        
+
         // Check if WAV format is requested - requires transcoding
         let outputExtension = config.getOutputExtension().lowercased()
         if outputExtension == "wav" {
@@ -55,7 +55,7 @@ class ExtractAudio {
                 onError: onError
             )
         }
-        
+
         // Use passthrough export for other formats
         return extractPassthrough(
             config: config,
@@ -64,7 +64,7 @@ class ExtractAudio {
             onError: onError
         )
     }
-    
+
     /// Extracts audio using passthrough (no transcoding) for M4A, AAC, CAF formats.
     private static func extractPassthrough(
         config: AudioExtractConfig,
@@ -72,26 +72,26 @@ class ExtractAudio {
         onComplete: @escaping (FlutterStandardTypedData?) -> Void,
         onError: @escaping (Error) -> Void
     ) -> AudioExtractJobHandle {
-        
+
         var exportSession: AVAssetExportSession?
         var progressTimer: Timer?
         var isCancelled = false
-        
+
         // Execute extraction on background queue
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 // Load source video asset
                 let sourceURL = URL(fileURLWithPath: config.inputPath)
                 let asset = AVURLAsset(url: sourceURL)
-                
+
                 // Wait for tracks to be loaded
                 let loadSemaphore = DispatchSemaphore(value: 0)
                 var loadError: Error?
-                
+
                 asset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) {
                     let tracksStatus = asset.statusOfValue(forKey: "tracks", error: nil)
                     let durationStatus = asset.statusOfValue(forKey: "duration", error: nil)
-                    
+
                     if tracksStatus == .failed || durationStatus == .failed {
                         loadError = NSError(
                             domain: "ExtractAudio",
@@ -101,13 +101,13 @@ class ExtractAudio {
                     }
                     loadSemaphore.signal()
                 }
-                
+
                 loadSemaphore.wait()
-                
+
                 if let error = loadError {
                     throw error
                 }
-                
+
                 // Determine output file location
                 let outputURL: URL
                 if let outputPath = config.outputPath {
@@ -117,14 +117,14 @@ class ExtractAudio {
                     let filename = "audio_\(Date().timeIntervalSince1970).\(config.getOutputExtension())"
                     outputURL = tempDir.appendingPathComponent(filename)
                 }
-                
+
                 // Remove existing file if present
                 try? FileManager.default.removeItem(at: outputURL)
-                
+
                 // Determine output file type based on extension
                 let fileExtension = outputURL.pathExtension.lowercased()
                 let outputFileType: AVFileType
-                
+
                 switch fileExtension {
                 case "m4a":
                     outputFileType = .m4a
@@ -198,7 +198,7 @@ class ExtractAudio {
                         userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"]
                     )
                 }
-                
+
                 exportSession = session
                 session.outputURL = outputURL
                 session.outputFileType = outputFileType
@@ -330,7 +330,8 @@ class ExtractAudio {
         var assetReader: AVAssetReader?
         var assetWriter: AVAssetWriter?
         var isCancelled = false
-        
+        var sessionStarted = false
+
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 // Load source video asset
@@ -410,7 +411,7 @@ class ExtractAudio {
                     AVLinearPCMBitDepthKey: 16,
                     AVLinearPCMIsFloatKey: false,
                     AVLinearPCMIsBigEndianKey: false,
-                    AVLinearPCMIsNonInterleaved: false
+                    AVLinearPCMIsNonInterleaved: false,
                 ]
                 
                 let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: readerOutputSettings)
@@ -499,9 +500,7 @@ class ExtractAudio {
                         userInfo: [NSLocalizedDescriptionKey: "Failed to start writing"]
                     )
                 }
-                
-                writer.startSession(atSourceTime: .zero)
-                
+
                 // Calculate total duration for progress
                 let totalDuration = CMTimeGetSeconds(timeRange.duration)
                 
@@ -517,6 +516,11 @@ class ExtractAudio {
                 writerInput.requestMediaDataWhenReady(on: processingQueue) {
                     while writerInput.isReadyForMoreMediaData && !isCancelled {
                         if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
+                            if !sessionStarted {
+                                writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+                                sessionStarted = true
+                            }
+
                             // Update progress
                             let currentTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                             let elapsed = CMTimeGetSeconds(currentTime) - CMTimeGetSeconds(timeRange.start)
@@ -531,6 +535,11 @@ class ExtractAudio {
                             }
                         } else {
                             // No more samples
+                            if !sessionStarted && !isCancelled {
+                                // Fallback session start if no samples were found
+                                writer.startSession(atSourceTime: timeRange.start)
+                                sessionStarted = true
+                            }
                             writerInput.markAsFinished()
                             break
                         }

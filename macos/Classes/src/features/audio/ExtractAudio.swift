@@ -347,6 +347,7 @@ class ExtractAudio {
         var assetReader: AVAssetReader?
         var assetWriter: AVAssetWriter?
         var isCancelled = false
+        var sessionStarted = false
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -398,6 +399,7 @@ class ExtractAudio {
                 }
 
                 // Calculate time range
+                // Use the audio track's actual timeRange for full extraction
                 // Audio tracks may not start at zero due to encoding delays or sync adjustments
                 var timeRange: CMTimeRange
                 if let startUs = config.startUs, let endUs = config.endUs {
@@ -522,9 +524,7 @@ class ExtractAudio {
                             userInfo: [NSLocalizedDescriptionKey: "Failed to start writing"]
                         )
                 }
-                
-                writer.startSession(atSourceTime: .zero)
-                
+
                 // Calculate total duration for progress
                 let totalDuration = CMTimeGetSeconds(timeRange.duration)
 
@@ -540,6 +540,11 @@ class ExtractAudio {
                 writerInput.requestMediaDataWhenReady(on: processingQueue) {
                     while writerInput.isReadyForMoreMediaData && !isCancelled {
                         if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
+                            if !sessionStarted {
+                                writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+                                sessionStarted = true
+                            }
+
                             // Update progress
                             let currentTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                             let elapsed =
@@ -555,6 +560,11 @@ class ExtractAudio {
                             }
                         } else {
                             // No more samples
+                            if !sessionStarted && !isCancelled {
+                                // Fallback session start if no samples were found
+                                writer.startSession(atSourceTime: timeRange.start)
+                                sessionStarted = true
+                            }
                             writerInput.markAsFinished()
                             break
                         }

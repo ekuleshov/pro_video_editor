@@ -1,3 +1,6 @@
+## 1.14.3
+- **FIX**(iOS, macOS): Resolve crash in `extractToWav()` caused by starting the writer session at `.zero` instead of the actual sample time.
+
 ## 1.14.2
 - **FIX**(android, iOS, macOS): Correct audio extraction to WAV format in `extractAudioToFile`.
 

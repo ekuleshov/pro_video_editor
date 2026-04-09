@@ -330,7 +330,6 @@ class ExtractAudio {
         var assetReader: AVAssetReader?
         var assetWriter: AVAssetWriter?
         var isCancelled = false
-        var sessionStarted = false
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -501,6 +500,26 @@ class ExtractAudio {
                     )
                 }
 
+                // AVAssetWriter.startSession must be called BEFORE requestMediaDataWhenReady
+                // fires — calling it lazily inside the callback is too late on some
+                // AVFoundation versions/media types and causes a crash:
+                //   "Cannot append sample buffer: Must start a session first"
+                //
+                // To correctly handle audio tracks that don't start at zero (encoding delays,
+                // sync offsets), we read the first sample synchronously here to obtain its
+                // exact PTS, then anchor the session to that timestamp. This avoids any
+                // silent gap at the beginning of the output file that would occur if we
+                // unconditionally used timeRange.start when the first sample's PTS differs.
+                let firstSampleBuffer = readerOutput.copyNextSampleBuffer()
+                let sessionStartTime: CMTime
+                if let first = firstSampleBuffer {
+                    sessionStartTime = CMSampleBufferGetPresentationTimeStamp(first)
+                } else {
+                    // No samples available — anchor to timeRange.start as fallback
+                    sessionStartTime = timeRange.start
+                }
+                writer.startSession(atSourceTime: sessionStartTime)
+
                 // Calculate total duration for progress
                 let totalDuration = CMTimeGetSeconds(timeRange.duration)
                 
@@ -514,13 +533,19 @@ class ExtractAudio {
                 var processingError: Error?
                 
                 writerInput.requestMediaDataWhenReady(on: processingQueue) {
-                    while writerInput.isReadyForMoreMediaData && !isCancelled {
-                        if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-                            if !sessionStarted {
-                                writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-                                sessionStarted = true
-                            }
+                    // Drain any sample that was pre-read before the session was started
+                    var pendingBuffer: CMSampleBuffer? = firstSampleBuffer
 
+                    while writerInput.isReadyForMoreMediaData && !isCancelled {
+                        let sampleBuffer: CMSampleBuffer?
+                        if let pending = pendingBuffer {
+                            sampleBuffer = pending
+                            pendingBuffer = nil
+                        } else {
+                            sampleBuffer = readerOutput.copyNextSampleBuffer()
+                        }
+
+                        if let sampleBuffer = sampleBuffer {
                             // Update progress
                             let currentTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                             let elapsed = CMTimeGetSeconds(currentTime) - CMTimeGetSeconds(timeRange.start)
@@ -535,11 +560,6 @@ class ExtractAudio {
                             }
                         } else {
                             // No more samples
-                            if !sessionStarted && !isCancelled {
-                                // Fallback session start if no samples were found
-                                writer.startSession(atSourceTime: timeRange.start)
-                                sessionStarted = true
-                            }
                             writerInput.markAsFinished()
                             break
                         }

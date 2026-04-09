@@ -90,7 +90,8 @@ fun applyTimedImageLayers(
             // Scale to target size if provided
             val sizedBitmap = if (layer.width != null && layer.height != null) {
                 val scaled = layerBitmap.scale(layer.width.toInt(), layer.height.toInt())
-                layerBitmap.recycle()
+                // scale() may return the same object when dimensions already match
+                if (scaled !== layerBitmap) layerBitmap.recycle()
                 scaled
             } else {
                 layerBitmap
@@ -108,7 +109,8 @@ fun applyTimedImageLayers(
                 // Stretch image to fill the entire video frame
                 val scaledOverlay = if (sizedBitmap.width != videoWidth || sizedBitmap.height != videoHeight) {
                     val scaled = sizedBitmap.scale(videoWidth, videoHeight)
-                    sizedBitmap.recycle()
+                    // scale() may return the same object when dimensions already match
+                    if (scaled !== sizedBitmap) sizedBitmap.recycle()
                     scaled
                 } else {
                     sizedBitmap

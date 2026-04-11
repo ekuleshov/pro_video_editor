@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
+import androidx.core.graphics.scale
 
 /**
  * Service for generating video thumbnail images.
@@ -140,13 +141,18 @@ class ThumbnailGenerator(private val context: Context) {
                     if (bitmap != null) {
                         val resized =
                             resizeBitmapKeepingAspect(bitmap, outputWidth, outputHeight, boxFit)
-                        val bytes = compressBitmap(resized, outputFormat, jpegQuality)
-                        thumbnails[index] = bytes
-                        val duration = System.currentTimeMillis() - startTime
-                        Log.d(
-                            THUMBNAIL_TAG,
-                            "✅ [$index]  Generated in $duration ms (${bytes.size} bytes)"
-                        )
+                        try {
+                            val bytes = compressBitmap(resized, outputFormat, jpegQuality)
+                            thumbnails[index] = bytes
+                            val duration = System.currentTimeMillis() - startTime
+                            Log.d(
+                                THUMBNAIL_TAG,
+                                "✅ [$index]  Generated in $duration ms (${bytes.size} bytes)"
+                            )
+                        } finally {
+                            if (resized !== bitmap) bitmap.recycle()
+                            resized.recycle()
+                        }
                     } else {
                         Log.w(THUMBNAIL_TAG, "[$index] ❌ Null frame at ${timeUs / 1000} ms")
                     }
@@ -217,13 +223,18 @@ class ThumbnailGenerator(private val context: Context) {
                     if (bitmap != null) {
                         val resized =
                             resizeBitmapKeepingAspect(bitmap, outputWidth, outputHeight, boxFit)
-                        val bytes = compressBitmap(resized, outputFormat, jpegQuality)
-                        thumbnails[index] = bytes
-                        val duration = System.currentTimeMillis() - startTime
-                        Log.d(
-                            THUMBNAIL_TAG,
-                            "[$index] ✅ ${timeUs / 1000} ms in $duration ms (${bytes.size} bytes)"
-                        )
+                        try {
+                            val bytes = compressBitmap(resized, outputFormat, jpegQuality)
+                            thumbnails[index] = bytes
+                            val duration = System.currentTimeMillis() - startTime
+                            Log.d(
+                                THUMBNAIL_TAG,
+                                "[$index] ✅ ${timeUs / 1000} ms in $duration ms (${bytes.size} bytes)"
+                            )
+                        } finally {
+                            if (resized !== bitmap) bitmap.recycle()
+                            resized.recycle()
+                        }
                     } else {
                         Log.w(THUMBNAIL_TAG, "[$index] ❌ Null frame at ${timeUs / 1000} ms")
                     }
@@ -328,7 +339,7 @@ class ThumbnailGenerator(private val context: Context) {
         val resizedWidth = (originalWidth * scale).toInt()
         val resizedHeight = (originalHeight * scale).toInt()
 
-        return Bitmap.createScaledBitmap(original, resizedWidth, resizedHeight, true)
+        return original.scale(resizedWidth, resizedHeight)
     }
 
     /**

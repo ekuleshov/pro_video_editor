@@ -8,12 +8,12 @@ import androidx.media3.common.Effect
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.OverlayEffect
-import ch.waio.pro_video_editor.src.features.render.utils.getRotatedVideoDimensions
 import java.io.File
 import java.nio.ByteBuffer
 import androidx.core.graphics.scale
 import androidx.media3.effect.StaticOverlaySettings
 import androidx.media3.effect.TimestampWrapper
+import ch.waio.pro_video_editor.src.features.render.models.ImageLayer
 
 /**
  * Applies static image overlay on video.
@@ -38,7 +38,7 @@ import androidx.media3.effect.TimestampWrapper
 fun applyImageLayer(
     videoEffects: MutableList<Effect>,
     inputFile: File,
-    imageLayers: List<ch.waio.pro_video_editor.src.features.render.models.ImageLayer>,
+    imageLayers: List<ImageLayer>,
     rotationDegrees: Float,
     cropWidth: Int?,
     cropHeight: Int?,
@@ -90,7 +90,8 @@ fun applyTimedImageLayers(
             // Scale to target size if provided
             val sizedBitmap = if (layer.width != null && layer.height != null) {
                 val scaled = layerBitmap.scale(layer.width.toInt(), layer.height.toInt())
-                layerBitmap.recycle()
+                // scale() may return the same object when dimensions already match
+                if (scaled !== layerBitmap) layerBitmap.recycle()
                 scaled
             } else {
                 layerBitmap
@@ -106,13 +107,8 @@ fun applyTimedImageLayers(
 
             if (isStretched) {
                 // Stretch image to fill the entire video frame
-                val scaledOverlay = if (sizedBitmap.width != videoWidth || sizedBitmap.height != videoHeight) {
-                    val scaled = sizedBitmap.scale(videoWidth, videoHeight)
-                    sizedBitmap.recycle()
-                    scaled
-                } else {
-                    sizedBitmap
-                }
+                val scaledOverlay = sizedBitmap.scale(videoWidth, videoHeight)
+                if (scaledOverlay !== sizedBitmap) sizedBitmap.recycle()
 
                 val unpremultiplied = unpremultiplyAlpha(scaledOverlay)
                 if (unpremultiplied !== scaledOverlay) scaledOverlay.recycle()

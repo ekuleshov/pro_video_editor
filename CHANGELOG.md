@@ -1,3 +1,8 @@
+## 1.14.4
+- **FIX**(android): Fix image layers crash on Android by recycling intermediate thumbnail bitmaps.
+- **FIX**(android, iOS, macOS): Additional fixes for audio extraction.
+- **CHORE**(android): Bump Android `compileSdk` to 36.
+
 ## 1.14.3
 - **FIX**(iOS, macOS): Resolve crash in `extractToWav()` caused by starting the writer session at `.zero` instead of the actual sample time.
 

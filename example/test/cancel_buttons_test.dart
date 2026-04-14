@@ -94,27 +94,41 @@ class _FakeCancelableEditor extends ProVideoEditor {
   Future<VideoMetadata> getMetadata(
     EditorVideo value, {
     bool checkStreamingOptimization = false,
+    NativeLogLevel? nativeLogLevel,
   }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<List<Uint8List>> getThumbnails(ThumbnailConfigs value) {
+  Future<List<Uint8List>> getThumbnails(
+    ThumbnailConfigs value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<List<Uint8List>> getKeyFrames(KeyFramesConfigs value) {
+  Future<List<Uint8List>> getKeyFrames(
+    KeyFramesConfigs value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Uint8List> renderVideo(VideoRenderData value) {
+  Future<Uint8List> renderVideo(
+    VideoRenderData value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<String> renderVideoToFile(String filePath, VideoRenderData value) {
+  Future<String> renderVideoToFile(
+    String filePath,
+    VideoRenderData value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     throw UnimplementedError();
   }
 }

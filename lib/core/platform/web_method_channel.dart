@@ -11,6 +11,7 @@ import 'package:pro_video_editor/core/models/audio/audio_extract_configs_model.d
 import 'package:pro_video_editor/core/models/video/progress_model.dart';
 import 'package:web/web.dart' as web;
 
+import '/core/models/platform/native_log_level.dart';
 import '/core/models/thumbnail/key_frames_configs_model.dart';
 import '/core/models/thumbnail/single_thumbnail_configs_model.dart';
 import '/core/models/thumbnail/thumbnail_configs_model.dart';
@@ -60,19 +61,26 @@ class ProVideoEditorWeb extends ProVideoEditor {
   Future<VideoMetadata> getMetadata(
     EditorVideo value, {
     bool checkStreamingOptimization = false,
+    NativeLogLevel? nativeLogLevel,
   }) {
     // Web doesn't support streaming optimization check
     return _manager.getMetadata(value);
   }
 
   @override
-  Future<bool> hasAudioTrack(EditorVideo value) {
+  Future<bool> hasAudioTrack(
+    EditorVideo value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     throw UnimplementedError(
         'hasAudioTrack() has not been implemented on web.');
   }
 
   @override
-  Future<List<Uint8List>> getThumbnails(ThumbnailConfigs value) {
+  Future<List<Uint8List>> getThumbnails(
+    ThumbnailConfigs value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     return _manager.getThumbnails(
       value,
       onProgress: (progress) => _updateProgress(value.id, progress),
@@ -80,7 +88,10 @@ class ProVideoEditorWeb extends ProVideoEditor {
   }
 
   @override
-  Future<List<Uint8List>> getKeyFrames(KeyFramesConfigs value) {
+  Future<List<Uint8List>> getKeyFrames(
+    KeyFramesConfigs value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     return _manager.getKeyFrames(
       value,
       onProgress: (progress) => _updateProgress(value.id, progress),
@@ -88,7 +99,10 @@ class ProVideoEditorWeb extends ProVideoEditor {
   }
 
   @override
-  Future<Uint8List?> getSingleThumbnail(SingleThumbnailConfigs value) async {
+  Future<Uint8List?> getSingleThumbnail(
+    SingleThumbnailConfigs value, {
+    NativeLogLevel? nativeLogLevel,
+  }) async {
     Duration timestamp;
     if (value.position == ThumbnailPosition.last) {
       final duration = value.videoDuration ??
@@ -116,29 +130,37 @@ class ProVideoEditorWeb extends ProVideoEditor {
   }
 
   @override
-  Future<Uint8List> extractAudio(AudioExtractConfigs value) {
+  Future<Uint8List> extractAudio(
+    AudioExtractConfigs value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     throw UnimplementedError('extractAudio() has not been implemented on web.');
   }
 
   @override
   Future<String> extractAudioToFile(
     String filePath,
-    AudioExtractConfigs value,
-  ) {
+    AudioExtractConfigs value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     throw UnimplementedError(
         'extractAudioToFile() has not been implemented on web.');
   }
 
   @override
-  Future<Uint8List> renderVideo(VideoRenderData value) {
+  Future<Uint8List> renderVideo(
+    VideoRenderData value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     throw UnimplementedError('renderVideo() has not been implemented.');
   }
 
   @override
   Future<String> renderVideoToFile(
     String filePath,
-    VideoRenderData value,
-  ) {
+    VideoRenderData value, {
+    NativeLogLevel? nativeLogLevel,
+  }) {
     throw UnimplementedError('renderVideoToFile() has not been implemented.');
   }
 

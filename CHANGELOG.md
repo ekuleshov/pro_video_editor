@@ -1,3 +1,6 @@
+## 1.15.2
+- **FIX**(example): Replace deprecated `CompleteParameters.customAudioTrack` usage with `CompleteParameters.audioTracks` in the basic video editor example.
+
 ## 1.15.1
 - **FIX**(iOS, macOS): Refactor audio extraction to use synchronous file writing for improved stability.
 

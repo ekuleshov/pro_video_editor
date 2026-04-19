@@ -307,8 +307,10 @@ class _VideoEditorBasicExamplePageState
     unawaited(_audioService.pause());
     final directory = await getTemporaryDirectory();
 
-    final AudioTrack? customAudioTrack = parameters.customAudioTrack;
-    final double volumeBalance = customAudioTrack?.volumeBalance ?? 0;
+    final AudioTrack? selectedAudioTrack = parameters.audioTracks.isNotEmpty
+        ? parameters.audioTracks.first
+        : null;
+    final double volumeBalance = selectedAudioTrack?.volumeBalance ?? 0;
     double overlayVolume = 1;
     double originalVolume = 1;
     if (volumeBalance < 0) {
@@ -342,11 +344,11 @@ class _VideoEditorBasicExamplePageState
               flipY: parameters.flipY,
             )
           : null,
-      audioTracks: customAudioTrack != null
+      audioTracks: selectedAudioTrack != null
           ? [
               VideoAudioTrack(
                 path: (await _audioService.safeCustomAudioPath(
-                  customAudioTrack,
+                  selectedAudioTrack,
                 ))!,
                 volume: overlayVolume,
               ),

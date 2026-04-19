@@ -30,7 +30,7 @@ class ExtractAudio {
     /// Extracts audio from a video file asynchronously.
     ///
     /// This method uses AVAssetExportSession for fast Passthrough export,
-    /// or AVAssetReader/AVAssetWriter for WAV transcoding.
+    /// or AVAssetReader + FileHandle for WAV transcoding.
     ///
     /// - Parameters:
     ///   - config: Complete extraction configuration
@@ -77,35 +77,25 @@ class ExtractAudio {
         var progressTimer: Timer?
         var isCancelled = false
 
-        // Execute extraction on background queue
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Execute extraction on background task
+        let task = Task.detached(priority: .userInitiated) {
             do {
                 // Load source video asset
                 let sourceURL = URL(fileURLWithPath: config.inputPath)
                 let asset = AVURLAsset(url: sourceURL)
 
                 // Wait for tracks to be loaded
-                let loadSemaphore = DispatchSemaphore(value: 0)
-                var loadError: Error?
+                try await asset.loadValues(forKeys: ["tracks", "duration"])
 
-                asset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) {
-                    let tracksStatus = asset.statusOfValue(forKey: "tracks", error: nil)
-                    let durationStatus = asset.statusOfValue(forKey: "duration", error: nil)
+                let tracksStatus = asset.statusOfValue(forKey: "tracks", error: nil)
+                let durationStatus = asset.statusOfValue(forKey: "duration", error: nil)
 
-                    if tracksStatus == .failed || durationStatus == .failed {
-                        loadError = NSError(
-                            domain: "ExtractAudio",
-                            code: -10,
-                            userInfo: [NSLocalizedDescriptionKey: "Failed to load asset properties"]
-                        )
-                    }
-                    loadSemaphore.signal()
-                }
-
-                loadSemaphore.wait()
-
-                if let error = loadError {
-                    throw error
+                if tracksStatus == .failed || durationStatus == .failed {
+                    throw NSError(
+                        domain: "ExtractAudio",
+                        code: -10,
+                        userInfo: [NSLocalizedDescriptionKey: "Failed to load asset properties"]
+                    )
                 }
 
                 // Determine output file location
@@ -312,6 +302,7 @@ class ExtractAudio {
         // Return cancellation handle
         return {
             isCancelled = true
+            task.cancel()
             exportSession?.cancelExport()
             DispatchQueue.main.async {
                 progressTimer?.invalidate()
@@ -319,48 +310,41 @@ class ExtractAudio {
         }
     }
     
-    /// Extracts audio to WAV format using AVAssetReader/AVAssetWriter for PCM transcoding.
+    /// Extracts audio to WAV format by streaming raw PCM into a RIFF/WAV file.
+    /// Uses AVAssetReader + FileHandle to stream PCM chunks directly to disk with a manually-built WAV header.
     private static func extractToWav(
         config: AudioExtractConfig,
         onProgress: @escaping (Double) -> Void,
         onComplete: @escaping (FlutterStandardTypedData?) -> Void,
         onError: @escaping (Error) -> Void
     ) -> AudioExtractJobHandle {
-        
+
+        /// Maximum PCM data allowed in a WAV file (~4 GB - 36 bytes).
+        let maxWavDataSize: Int64 = 0xFFFF_FFFF - 36
+
         var assetReader: AVAssetReader?
-        var assetWriter: AVAssetWriter?
         var isCancelled = false
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        let task = Task.detached(priority: .userInitiated) {
             do {
                 // Load source video asset
                 let sourceURL = URL(fileURLWithPath: config.inputPath)
                 let asset = AVURLAsset(url: sourceURL)
-                
+
                 // Wait for tracks to be loaded
-                let loadSemaphore = DispatchSemaphore(value: 0)
-                var loadError: Error?
-                
-                asset.loadValuesAsynchronously(forKeys: ["tracks", "duration"]) {
-                    let tracksStatus = asset.statusOfValue(forKey: "tracks", error: nil)
-                    let durationStatus = asset.statusOfValue(forKey: "duration", error: nil)
-                    
-                    if tracksStatus == .failed || durationStatus == .failed {
-                        loadError = NSError(
-                            domain: "ExtractAudio",
-                            code: -10,
-                            userInfo: [NSLocalizedDescriptionKey: "Failed to load asset properties"]
-                        )
-                    }
-                    loadSemaphore.signal()
+                try await asset.loadValues(forKeys: ["tracks", "duration"])
+
+                let tracksStatus = asset.statusOfValue(forKey: "tracks", error: nil)
+                let durationStatus = asset.statusOfValue(forKey: "duration", error: nil)
+
+                if tracksStatus == .failed || durationStatus == .failed {
+                    throw NSError(
+                        domain: "ExtractAudio",
+                        code: -10,
+                        userInfo: [NSLocalizedDescriptionKey: "Failed to load asset properties"]
+                    )
                 }
-                
-                loadSemaphore.wait()
-                
-                if let error = loadError {
-                    throw error
-                }
-                
+
                 // Determine output file location
                 let outputURL: URL
                 if let outputPath = config.outputPath {
@@ -370,16 +354,31 @@ class ExtractAudio {
                     let filename = "audio_\(Date().timeIntervalSince1970).wav"
                     outputURL = tempDir.appendingPathComponent(filename)
                 }
-                
+
                 // Remove existing file if present
                 try? FileManager.default.removeItem(at: outputURL)
-                
+
                 // Get audio track
                 let audioTracks = asset.tracks(withMediaType: .audio)
                 guard let audioTrack = audioTracks.first else {
                     throw NoAudioTrackException()
                 }
-                
+
+                // Get audio format (sample rate, channels)
+                guard let formatDescription = (audioTrack.formatDescriptions as [AnyObject]).first
+                        as! CMAudioFormatDescription? else {
+                    throw NSError(
+                        domain: "ExtractAudio",
+                        code: -8,
+                        userInfo: [NSLocalizedDescriptionKey: "No audio format description found"]
+                    )
+                }
+
+                let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)!.pointee
+                let sampleRate = Int(asbd.mSampleRate)
+                let channels = Int(asbd.mChannelsPerFrame)
+                let bitsPerSample = 16
+
                 // Calculate time range
                 // Use the audio track's actual timeRange for full extraction
                 // Audio tracks may not start at zero due to encoding delays or sync adjustments
@@ -398,24 +397,24 @@ class ExtractAudio {
                     // Use the audio track's actual time range to capture all audio data
                     timeRange = audioTrack.timeRange
                 }
-                
+
                 // Create asset reader
                 let reader = try AVAssetReader(asset: asset)
                 assetReader = reader
                 reader.timeRange = timeRange
-                
+
                 // Configure reader output for PCM
                 let readerOutputSettings: [String: Any] = [
                     AVFormatIDKey: kAudioFormatLinearPCM,
-                    AVLinearPCMBitDepthKey: 16,
+                    AVLinearPCMBitDepthKey: bitsPerSample,
                     AVLinearPCMIsFloatKey: false,
                     AVLinearPCMIsBigEndianKey: false,
                     AVLinearPCMIsNonInterleaved: false,
                 ]
-                
+
                 let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: readerOutputSettings)
                 readerOutput.alwaysCopiesSampleData = false
-                
+
                 guard reader.canAdd(readerOutput) else {
                     throw NSError(
                         domain: "ExtractAudio",
@@ -424,66 +423,34 @@ class ExtractAudio {
                     )
                 }
                 reader.add(readerOutput)
-                
-                // Create asset writer
-                let writer = try AVAssetWriter(outputURL: outputURL, fileType: .wav)
-                assetWriter = writer
-                
-                // Get audio format description for writer input
-                let formatDescriptions = audioTrack.formatDescriptions as! [CMFormatDescription]
-                guard let formatDescription = formatDescriptions.first else {
-                    throw NSError(
-                        domain: "ExtractAudio",
-                        code: -8,
-                        userInfo: [NSLocalizedDescriptionKey: "No audio format description found"]
-                    )
-                }
-                
-                let audioStreamBasicDescription = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee
-                let sampleRate = audioStreamBasicDescription?.mSampleRate ?? 44100
-                let channels = audioStreamBasicDescription?.mChannelsPerFrame ?? 2
-                
-                // Create audio channel layout based on number of channels
-                var channelLayout = AudioChannelLayout()
-                channelLayout.mChannelBitmap = AudioChannelBitmap(rawValue: 0)
-                channelLayout.mNumberChannelDescriptions = 0
-                channelLayout.mChannelLayoutTag = switch channels {
-                    case 1: kAudioChannelLayoutTag_Mono
-                    case 2: kAudioChannelLayoutTag_Stereo
-                    case 3: kAudioChannelLayoutTag_MPEG_3_0_A
-                    case 4: kAudioChannelLayoutTag_Quadraphonic
-                    case 5: kAudioChannelLayoutTag_MPEG_5_0_A
-                    case 6: kAudioChannelLayoutTag_MPEG_5_1_A
-                    case 7: kAudioChannelLayoutTag_MPEG_6_1_A
-                    case 8: kAudioChannelLayoutTag_MPEG_7_1_A
-                    default: kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channels)
-                }
-                
-                // Configure writer input for PCM WAV
-                let writerInputSettings: [String: Any] = [
-                    AVFormatIDKey: kAudioFormatLinearPCM,
-                    AVSampleRateKey: sampleRate,
-                    AVNumberOfChannelsKey: channels,
-                    AVLinearPCMBitDepthKey: 16,
-                    AVLinearPCMIsFloatKey: false,
-                    AVLinearPCMIsBigEndianKey: false,
-                    AVLinearPCMIsNonInterleaved: false,
-                    AVChannelLayoutKey: Data(bytes: &channelLayout, count: MemoryLayout<AudioChannelLayout>.size)
-                ]
-                
-                let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: writerInputSettings)
-                writerInput.expectsMediaDataInRealTime = false
-                
-                guard writer.canAdd(writerInput) else {
+
+                // Create output file and write a placeholder WAV header.
+                // The header will be patched with the correct data size after all PCM is written.
+                let fm = FileManager.default
+                guard fm.createFile(atPath: outputURL.path, contents: nil) else {
                     throw NSError(
                         domain: "ExtractAudio",
                         code: -9,
-                        userInfo: [NSLocalizedDescriptionKey: "Cannot add writer input"]
+                        userInfo: [NSLocalizedDescriptionKey: "Cannot create output file at \(outputURL.path)"]
                     )
                 }
-                writer.add(writerInput)
-                
-                // Start reading and writing
+                let fileHandle = try FileHandle(forWritingTo: outputURL)
+                var writeSuccess = false
+                defer {
+                    try? fileHandle.close()
+                    if !writeSuccess {
+                        try? fm.removeItem(at: outputURL)
+                    }
+                }
+
+                // Write placeholder header (data size = 0, will be patched later)
+                fileHandle.write(buildWavHeader(
+                    pcmDataSize: 0,
+                    sampleRate: sampleRate,
+                    channels: channels,
+                    bitsPerSample: bitsPerSample
+                ))
+
                 guard reader.startReading() else {
                     throw reader.error ?? NSError(
                         domain: "ExtractAudio",
@@ -491,93 +458,58 @@ class ExtractAudio {
                         userInfo: [NSLocalizedDescriptionKey: "Failed to start reading"]
                     )
                 }
-                
-                guard writer.startWriting() else {
-                    throw writer.error ?? NSError(
+
+                DispatchQueue.main.async { onProgress(0.0) }
+
+                let totalDuration = CMTimeGetSeconds(timeRange.duration)
+                var totalPcmBytes: Int64 = 0
+
+                // Stream PCM chunks directly to the file handle
+                while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
+                    if isCancelled { break }
+
+                    if let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
+                        let length = CMBlockBufferGetDataLength(blockBuffer)
+
+                        // Guard against WAV 4 GB size limit
+                        totalPcmBytes += Int64(length)
+                        if totalPcmBytes > maxWavDataSize {
+                            reader.cancelReading()
+                            throw NSError(
+                                domain: "ExtractAudio",
+                                code: -13,
+                                userInfo: [NSLocalizedDescriptionKey:
+                                    "WAV output exceeds maximum size (~4 GB). Consider splitting the audio into shorter segments."]
+                            )
+                        }
+
+                        var chunk = Data(count: length)
+                        _ = chunk.withUnsafeMutableBytes { ptr in
+                            CMBlockBufferCopyDataBytes(
+                                blockBuffer, atOffset: 0, dataLength: length,
+                                destination: ptr.baseAddress!)
+                        }
+                        fileHandle.write(chunk)
+                    }
+
+                    // Update progress based on presentation timestamp
+                    let currentTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                    let elapsed = CMTimeGetSeconds(currentTime) - CMTimeGetSeconds(timeRange.start)
+                    let progress = totalDuration > 0 ? min(max(elapsed / totalDuration, 0.0), 0.99) : 0.0
+                    DispatchQueue.main.async { onProgress(progress) }
+                }
+
+                // Check if the reader failed (as opposed to naturally finishing)
+                if reader.status == .failed {
+                    throw reader.error ?? NSError(
                         domain: "ExtractAudio",
                         code: -11,
-                        userInfo: [NSLocalizedDescriptionKey: "Failed to start writing"]
+                        userInfo: [NSLocalizedDescriptionKey: "AVAssetReader failed during reading"]
                     )
                 }
 
-                // AVAssetWriter.startSession must be called BEFORE requestMediaDataWhenReady
-                // fires — calling it lazily inside the callback is too late on some
-                // AVFoundation versions/media types and causes a crash:
-                //   "Cannot append sample buffer: Must start a session first"
-                //
-                // To correctly handle audio tracks that don't start at zero (encoding delays,
-                // sync offsets), we read the first sample synchronously here to obtain its
-                // exact PTS, then anchor the session to that timestamp. This avoids any
-                // silent gap at the beginning of the output file that would occur if we
-                // unconditionally used timeRange.start when the first sample's PTS differs.
-                let firstSampleBuffer = readerOutput.copyNextSampleBuffer()
-                let sessionStartTime: CMTime
-                if let first = firstSampleBuffer {
-                    sessionStartTime = CMSampleBufferGetPresentationTimeStamp(first)
-                } else {
-                    // No samples available — anchor to timeRange.start as fallback
-                    sessionStartTime = timeRange.start
-                }
-                writer.startSession(atSourceTime: sessionStartTime)
-
-                // Calculate total duration for progress
-                let totalDuration = CMTimeGetSeconds(timeRange.duration)
-                
-                DispatchQueue.main.async {
-                    onProgress(0.0)
-                }
-                
-                // Process samples
-                let processingQueue = DispatchQueue(label: "com.provideo.wav.processing")
-                let semaphore = DispatchSemaphore(value: 0)
-                var processingError: Error?
-                
-                writerInput.requestMediaDataWhenReady(on: processingQueue) {
-                    // Drain any sample that was pre-read before the session was started
-                    var pendingBuffer: CMSampleBuffer? = firstSampleBuffer
-
-                    while writerInput.isReadyForMoreMediaData && !isCancelled {
-                        let sampleBuffer: CMSampleBuffer?
-                        if let pending = pendingBuffer {
-                            sampleBuffer = pending
-                            pendingBuffer = nil
-                        } else {
-                            sampleBuffer = readerOutput.copyNextSampleBuffer()
-                        }
-
-                        if let sampleBuffer = sampleBuffer {
-                            // Update progress
-                            let currentTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                            let elapsed = CMTimeGetSeconds(currentTime) - CMTimeGetSeconds(timeRange.start)
-                            let progress = min(max(elapsed / totalDuration, 0.0), 1.0)
-                            DispatchQueue.main.async {
-                                onProgress(progress)
-                            }
-                            
-                            if !writerInput.append(sampleBuffer) {
-                                processingError = writer.error
-                                break
-                            }
-                        } else {
-                            // No more samples
-                            writerInput.markAsFinished()
-                            break
-                        }
-                    }
-                    
-                    if isCancelled {
-                        reader.cancelReading()
-                        writer.cancelWriting()
-                    }
-                    
-                    semaphore.signal()
-                }
-                
-                // Wait for processing to complete
-                semaphore.wait()
-                
                 if isCancelled {
-                    try? FileManager.default.removeItem(at: outputURL)
+                    reader.cancelReading()
                     DispatchQueue.main.async {
                         onError(NSError(
                             domain: "ExtractAudio",
@@ -587,61 +519,92 @@ class ExtractAudio {
                     }
                     return
                 }
-                
-                if let error = processingError {
-                    try? FileManager.default.removeItem(at: outputURL)
+
+                // Seek back to the start and patch the WAV header with the real data size.
+                // Int cast is safe: totalPcmBytes is validated against maxWavDataSize (< 2^32).
+                fileHandle.seek(toFileOffset: 0)
+                fileHandle.write(buildWavHeader(
+                    pcmDataSize: Int(totalPcmBytes),
+                    sampleRate: sampleRate,
+                    channels: channels,
+                    bitsPerSample: bitsPerSample
+                ))
+
+                writeSuccess = true
+
+                if config.outputPath != nil {
+                    // File output — return nil data
                     DispatchQueue.main.async {
-                        onError(error)
-                    }
-                    return
-                }
-                
-                // Finish writing
-                let finishSemaphore = DispatchSemaphore(value: 0)
-                writer.finishWriting {
-                    finishSemaphore.signal()
-                }
-                finishSemaphore.wait()
-                
-                if writer.status == .completed {
-                    if config.outputPath != nil {
-                        DispatchQueue.main.async {
-                            onProgress(1.0)
-                            onComplete(nil)
-                        }
-                    } else {
-                        let data = try Data(contentsOf: outputURL)
-                        let flutterData = FlutterStandardTypedData(bytes: data)
-                        try? FileManager.default.removeItem(at: outputURL)
-                        DispatchQueue.main.async {
-                            onProgress(1.0)
-                            onComplete(flutterData)
-                        }
+                        onProgress(1.0)
+                        onComplete(nil)
                     }
                 } else {
-                    try? FileManager.default.removeItem(at: outputURL)
-                    let error = writer.error ?? NSError(
-                        domain: "ExtractAudio",
-                        code: -12,
-                        userInfo: [NSLocalizedDescriptionKey: "WAV export failed"]
-                    )
+                    // Memory output — read file back and clean up
+                    let data = try Data(contentsOf: outputURL)
+                    let flutterData = FlutterStandardTypedData(bytes: data)
+                    try? fm.removeItem(at: outputURL)
                     DispatchQueue.main.async {
-                        onError(error)
+                        onProgress(1.0)
+                        onComplete(flutterData)
                     }
                 }
-                
+
             } catch {
                 DispatchQueue.main.async {
                     onError(error)
                 }
             }
         }
-        
+
         // Return cancellation handle
         return {
             isCancelled = true
+            task.cancel()
             assetReader?.cancelReading()
-            assetWriter?.cancelWriting()
         }
+    }
+
+    /// Builds a standard 44-byte RIFF/WAV header for 16-bit PCM audio.
+    ///
+    /// Writes a placeholder header (pcmDataSize = 0) first, then seeks back
+    /// and calls this again with the final size once all PCM data is written.
+    private static func buildWavHeader(
+        pcmDataSize: Int,
+        sampleRate: Int,
+        channels: Int,
+        bitsPerSample: Int
+    ) -> Data {
+        let byteRate = sampleRate * channels * (bitsPerSample / 8)
+        let blockAlign = channels * (bitsPerSample / 8)
+
+        var header = Data()
+        header.append(contentsOf: [UInt8]("RIFF".utf8))
+        header.append(UInt32(36 + pcmDataSize).littleEndianBytes)
+        header.append(contentsOf: [UInt8]("WAVE".utf8))
+        header.append(contentsOf: [UInt8]("fmt ".utf8))
+        header.append(UInt32(16).littleEndianBytes) // PCM sub-chunk size
+        header.append(UInt16(1).littleEndianBytes) // AudioFormat = PCM
+        header.append(UInt16(channels).littleEndianBytes)
+        header.append(UInt32(sampleRate).littleEndianBytes)
+        header.append(UInt32(byteRate).littleEndianBytes)
+        header.append(UInt16(blockAlign).littleEndianBytes)
+        header.append(UInt16(bitsPerSample).littleEndianBytes)
+        header.append(contentsOf: [UInt8]("data".utf8))
+        header.append(UInt32(pcmDataSize).littleEndianBytes)
+        return header
+    }
+}
+
+private extension UInt32 {
+    var littleEndianBytes: Data {
+        var value = self.littleEndian
+        return Data(bytes: &value, count: MemoryLayout<UInt32>.size)
+    }
+}
+
+private extension UInt16 {
+    var littleEndianBytes: Data {
+        var value = self.littleEndian
+        return Data(bytes: &value, count: MemoryLayout<UInt16>.size)
     }
 }

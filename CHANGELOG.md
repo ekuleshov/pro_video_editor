@@ -1,3 +1,6 @@
+## 1.15.1
+- **FIX**(iOS, macOS): Refactor audio extraction to use synchronous file writing for improved stability.
+
 ## 1.15.0
 - **FEAT**(android, iOS, macOS): Add `NativeLogLevel` parameter to all API methods for controlling native log verbosity per call. Supported levels: `none`, `error`, `warning`, `info`, `debug`, `verbose`.
 

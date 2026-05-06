@@ -408,32 +408,6 @@ class VideoRenderData {
     double? scaleX = transform.scaleX;
     double? scaleY = transform.scaleY;
 
-    // // Handle quality config
-    // if (qualityConfig != null && scaleX == null && scaleY == null) {
-    //   // We only skip scale calculation for platforms that explicitly support
-    //   // renderWidth and renderHeight. On other platforms, we still need
-    //   // the scale factor to achieve the target resolution.
-    //   if (defaultTargetPlatform != TargetPlatform.iOS &&
-    //       defaultTargetPlatform != TargetPlatform.macOS &&
-    //       defaultTargetPlatform != TargetPlatform.android) {
-    //     final targetVideo = video ??
-    //         (videoSegments != null && videoSegments!.isNotEmpty
-    //             ? videoSegments!.first.video
-    //             : null);
-    //     if (targetVideo != null) {
-    //       final meta = await ProVideoEditor.instance.getMetadata(targetVideo);
-    //       final originalResolution = meta.resolution;
-    //       final targetResolution =
-    //           qualityConfig!.resolution ?? originalResolution;
-    //       final sx = targetResolution.width / originalResolution.width;
-    //       final sy = targetResolution.height / originalResolution.height;
-    //       final scale = sx < sy ? sx : sy;
-    //       scaleX = scale;
-    //       scaleY = scale;
-    //     }
-    //   }
-    // }
-
     // Convert video clips to map format
     // ignore: deprecated_member_use_from_same_package
     final fallbackVolume = originalAudioVolume;

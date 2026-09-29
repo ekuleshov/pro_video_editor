@@ -1,3 +1,8 @@
+## 2.18.1
+- **FIX**(android): With a custom audio track mixed in, each segment and track keeps its own `volume`. Volumes could swap between sources, and a segment's volume was ignored.
+- **FIX**(android): A layered `VideoComposition` keeps its layers' own audio, placed where each clip plays and at its volume.
+- **FIX**(android): 5.1 audio mixed with stereo no longer fails the render, and its stereo downmix no longer moves front right to the left channel.
+
 ## 2.18.0
 - **FIX**(iOS, macOS): A `VideoAudioTrack` is placed on the exported video, as on Android. With a `VideoRenderData.startTime` trim, its `startTime`/`endTime` count from the trimmed start, and its fades land at the output's edges instead of being cut off.
 

@@ -1,3 +1,6 @@
+## 2.17.0
+- **FEAT**(android, iOS, macOS): `VideoAudioTrack.fadeInDuration` and `fadeOutDuration` fade a custom audio track in from and out to silence. The fade out ends where the track's audio ends.
+
 ## 2.16.0
 - **FEAT**(android): A failed render reports the video formats it read. `NativeFailureDetails.sources` lists MIME type, bit depth and transfer (`sdr`, `hlg`, `pq`), and `hasHdrSource` tells an HDR failure apart from an SDR one. Apple platforms leave it null.
 - **FIX**(android): A render failure's details now fit a crash reporter's message limit: each `cause` entry keeps only the first line of its message, so a GL error no longer carries the whole shader source.

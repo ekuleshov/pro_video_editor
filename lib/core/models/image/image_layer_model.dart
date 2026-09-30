@@ -55,9 +55,16 @@ class ImageLayer with TimeRangeMixin {
   /// When `null`, the image is stretched to fill the entire video frame.
   /// When set to a specific value (e.g., [Offset.zero]), the image is
   /// placed at that position at its original size.
+  ///
+  /// When the video segments differ in resolution, the video frame is the one
+  /// they are composited into: the first segment's size, replaced by each
+  /// later segment that is wider or taller. Every segment is scaled to fit
+  /// inside it and the layer is placed from the scaled segment's top-left
+  /// corner, so a layer keeps its place and size on segments of one shape.
   final Offset? offset;
 
-  /// The display size of the image layer, in pixels.
+  /// The display size of the image layer, in pixels of the same frame as
+  /// [offset].
   ///
   /// [Size.width] is the target width of the image.
   /// [Size.height] is the target height of the image.

@@ -1,5 +1,15 @@
 import 'dart:typed_data';
-import 'dart:ui' show Offset, Size, instantiateImageCodec;
+import 'dart:ui'
+    show
+        Canvas,
+        Color,
+        ImageByteFormat,
+        Offset,
+        Paint,
+        PictureRecorder,
+        Rect,
+        Size,
+        instantiateImageCodec;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_test/flutter_test.dart';
@@ -698,6 +708,155 @@ void main() {
       }
     }, skip: kIsWeb);
   });
+
+  group('Image layers on segments of mixed resolution', () {
+    // demo.mp4 is 1280x720 and demo_world.mp4 480x270: the same 16:9 shape,
+    // so the small segment is scaled up 2.67x into the large one's frame.
+    final worldVideo = EditorVideo.asset(kVideoEditorExampleAssetWorldPath);
+
+    // Laid out in the 1280x720 frame the segments are composited into,
+    // whichever comes first. On the 480x270 segment, the same pixels taken as
+    // its own lie off the frame.
+    const centre = Rect.fromLTWH(560, 300, 160, 120);
+    const lower = Rect.fromLTWH(160, 560, 160, 120);
+
+    /// With [naturalSize] the layers carry no `size` and are drawn at their
+    /// image's own 160x120 pixels instead.
+    Future<Uint8List> renderWithLayers(
+      List<EditorVideo> videos, {
+      bool withCropping = false,
+      bool naturalSize = false,
+      Duration? endTime,
+    }) async {
+      final magenta = EditorLayerImage.memory(
+        naturalSize
+            ? await _solidPng(_magenta, width: 160, height: 120)
+            : await _solidPng(_magenta),
+      );
+      return pve.renderVideo(
+        VideoRenderData(
+          videoSegments: [
+            for (final video in videos)
+              VideoSegment(video: video, endTime: const Duration(seconds: 2)),
+          ],
+          outputFormat: VideoOutputFormat.mp4,
+          endTime: endTime,
+          imageBytesWithCropping: withCropping,
+          qualityConfig: VideoQualityConfig.custom(
+            bitrate: 4000000,
+            resolution: const Size(1280, 720),
+          ),
+          imageLayers: [
+            for (final rect in [centre, lower])
+              ImageLayer(
+                image: magenta,
+                offset: rect.topLeft,
+                size: naturalSize ? null : rect.size,
+                startTime: Duration.zero,
+              ),
+          ],
+        ),
+      );
+    }
+
+    /// Checks that each rect is magenta just inside its edges and not just
+    /// outside them, so both its place and its size are pinned.
+    void expectLayersAt(_Frame frame, String segment) {
+      for (final rect in [centre, lower]) {
+        final r = Rect.fromLTRB(
+          rect.left / 1280,
+          rect.top / 720,
+          rect.right / 1280,
+          rect.bottom / 720,
+        );
+        final insetX = r.width * 0.2;
+        final insetY = r.height * 0.2;
+        final inside = [
+          r.center,
+          Offset(r.left + insetX, r.top + insetY),
+          Offset(r.right - insetX, r.bottom - insetY),
+        ];
+        final outside = [
+          Offset(r.left - insetX, r.center.dy),
+          Offset(r.right + insetX, r.center.dy),
+          Offset(r.center.dx, r.top - insetY),
+          Offset(r.center.dx, r.bottom + insetY),
+        ];
+        for (final p in inside) {
+          expect(
+            _isMagenta(frame.at(p.dx, p.dy)),
+            isTrue,
+            reason:
+                '$segment: $rect not drawn at ${p.dx},${p.dy} '
+                '(${_colorName(frame.at(p.dx, p.dy))})',
+          );
+        }
+        for (final p in outside) {
+          expect(
+            _isMagenta(frame.at(p.dx, p.dy)),
+            isFalse,
+            reason: '$segment: $rect drawn too large, reaching ${p.dx},${p.dy}',
+          );
+        }
+      }
+    }
+
+    Future<void> expectBothSegments(Uint8List bytes) async {
+      final out = EditorVideo.memory(bytes);
+      expectLayersAt(
+        await frameOf(out, at: const Duration(seconds: 1)),
+        'first segment',
+      );
+      expectLayersAt(
+        await frameOf(out, at: const Duration(seconds: 3)),
+        'second segment',
+      );
+    }
+
+    for (final withCropping in [false, true]) {
+      testWidgets('keep their place and size on a smaller later segment '
+          '(imageBytesWithCropping: $withCropping)', (tester) async {
+        await expectBothSegments(
+          await renderWithLayers([
+            h264Video,
+            worldVideo,
+          ], withCropping: withCropping),
+        );
+      }, skip: kIsWeb);
+    }
+
+    testWidgets('are laid out in the frame of a larger later segment', (
+      tester,
+    ) async {
+      await expectBothSegments(await renderWithLayers([worldVideo, h264Video]));
+    }, skip: kIsWeb);
+
+    testWidgets('keep their natural size on a smaller later segment', (
+      tester,
+    ) async {
+      await expectBothSegments(
+        await renderWithLayers([h264Video, worldVideo], naturalSize: true),
+      );
+    }, skip: kIsWeb);
+
+    testWidgets('are laid out in the frame of a segment the trim drops', (
+      tester,
+    ) async {
+      // Only the small segment is left, but the large one still sets the
+      // frame, as iOS and macOS size the composition before trimming it.
+      final bytes = await renderWithLayers([
+        worldVideo,
+        h264Video,
+      ], endTime: const Duration(milliseconds: 1500));
+      expectLayersAt(
+        await frameOf(
+          EditorVideo.memory(bytes),
+          at: const Duration(seconds: 1),
+        ),
+        'trimmed render',
+      );
+    }, skip: kIsWeb);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -793,6 +952,28 @@ String _colorName(List<int> c) {
   if (g > 150 && r < 100 && b < 100) return 'green';
   if (b > 150 && r < 100 && g < 100) return 'blue';
   return 'other($r, $g, $b)';
+}
+
+const _magenta = Color(0xFFFF00FF);
+
+/// Whether a pixel is the opaque magenta of [_magenta], loosely enough to
+/// survive YUV coding. No test source contains it.
+bool _isMagenta(List<int> c) => c[0] > 180 && c[1] < 90 && c[2] > 180;
+
+/// An opaque [width] x [height] PNG filled with [color].
+Future<Uint8List> _solidPng(
+  Color color, {
+  int width = 16,
+  int height = 16,
+}) async {
+  final recorder = PictureRecorder();
+  Canvas(recorder).drawRect(
+    Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    Paint()..color = color,
+  );
+  final image = await recorder.endRecording().toImage(width, height);
+  final data = await image.toByteData(format: ImageByteFormat.png);
+  return data!.buffer.asUint8List();
 }
 
 /// Mean luminance across [points].

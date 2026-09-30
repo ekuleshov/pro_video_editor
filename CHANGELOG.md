@@ -1,3 +1,6 @@
+## 2.19.1
+- **FIX**(android): Image layers keep their place and size on segments of another resolution, as on iOS and macOS, instead of drifting and growing on a smaller segment.
+
 ## 2.19.0
 - **FEAT**(android, iOS, macOS): `ChromaKey` can key a white or light grey wall: a neutral key weighs brightness too, so black and dark greys stay, and `ChromaKey.autoDetect` accepts a bright neutral border. Green and blue screens key exactly as before.
 

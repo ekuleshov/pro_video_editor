@@ -531,7 +531,8 @@ private fun prepareOverlay(
     //
     // A positioned layer with no explicit size is laid out from its own pixel
     // dimensions, so [overlayDecodeSize] does not sample it down and the raster
-    // is not capped here either — capping it would shrink the overlay.
+    // is not capped here either — capping it would shrink the overlay. Only
+    // one converted into a clip of another size is capped (see below).
     val displayWidth: Int
     val displayHeight: Int
     val cappable: Boolean
@@ -547,9 +548,15 @@ private fun prepareOverlay(
             cappable = true
         }
         else -> {
-            displayWidth = rawBitmap.width
-            displayHeight = rawBitmap.height
-            cappable = false
+            // Its own pixels, converted into a clip of another size than the
+            // composition frame (see [scaledToClipFrame]). Converted, it is
+            // resampled anyway, so it is held to the raster budget like a sized
+            // layer: a clip larger than the frame on one axis scales it up.
+            displayWidth = (rawBitmap.width * layer.naturalSizeScale)
+                .roundToInt().coerceAtLeast(1)
+            displayHeight = (rawBitmap.height * layer.naturalSizeScale)
+                .roundToInt().coerceAtLeast(1)
+            cappable = layer.naturalSizeScale != 1.0
         }
     }
 
@@ -564,7 +571,10 @@ private fun prepareOverlay(
 
     // Scale straight to the raster size. A stretched layer goes to the frame
     // (capped) in one step rather than through its declared size first.
-    val sizedBitmap = if (isStretched || hasExplicitSize) {
+    val sizedBitmap = if (
+        isStretched || hasExplicitSize ||
+        rasterWidth != rawBitmap.width || rasterHeight != rawBitmap.height
+    ) {
         val scaled = rawBitmap.scale(rasterWidth, rasterHeight)
         // scale() may return the same object when dimensions already match
         if (scaled !== rawBitmap) rawBitmap.recycle()

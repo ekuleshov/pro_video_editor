@@ -27,7 +27,8 @@ object ChromaKeyMath {
     /**
      * BT.601 chroma projection of a gamma-encoded RGB triple, as `(Cb, Cr)`.
      *
-     * The keyer measures distance in this plane. Note that this is a position,
+     * The keyer measures distance in this plane, plus brightness for a
+     * neutral key (see [lumaWeight]). Note that this is a position,
      * not a pure hue: Cb and Cr scale with brightness, so a dimly lit patch of
      * the screen sits closer to neutral and further from the key point. The
      * default `similarity` of 0.20 covers roughly 40%..100% of the screen's
@@ -37,6 +38,26 @@ object ChromaKeyMath {
         -0.168736 * r - 0.331264 * g + 0.5 * b,
         0.5 * r - 0.418688 * g - 0.081312 * b,
     )
+
+    /** Below this key chroma magnitude, brightness counts fully in the matte. */
+    const val LUMA_WEIGHT_FULL_BELOW = 0.04
+
+    /** Above this key chroma magnitude, brightness does not count at all. */
+    const val LUMA_WEIGHT_NONE_ABOVE = 0.10
+
+    /**
+     * How much the brightness difference counts toward the matte distance, for
+     * a key at chroma `(cb, cr)`.
+     *
+     * A saturated key (a green or blue screen sits near 0.33) gets `0`, so it
+     * keys on chroma alone exactly as before: that is what lets a shadow on the
+     * screen, which changes brightness but not hue, stay under the key. A
+     * neutral key gets `1`. All neutrals share the chroma origin, so without
+     * brightness a white key would also remove black and every gray. In between
+     * the weight ramps smoothly, so a pale wall is neither.
+     */
+    fun lumaWeight(cb: Double, cr: Double): Double =
+        1.0 - smoothstep(LUMA_WEIGHT_FULL_BELOW, LUMA_WEIGHT_NONE_ABOVE, sqrt(cb * cb + cr * cr))
 
     /** Hermite smoothstep, matching GLSL's `smoothstep`. */
     fun smoothstep(edge0: Double, edge1: Double, x: Double): Double {
@@ -53,9 +74,11 @@ object ChromaKeyMath {
      */
     fun evaluate(r: Double, g: Double, b: Double, config: ChromaKeyConfig): DoubleArray {
         val c = chroma(r, g, b)
+        val y = luma(r, g, b)
         val dCb = c[0] - config.keyCb
         val dCr = c[1] - config.keyCr
-        val distance = sqrt(dCb * dCb + dCr * dCr)
+        val dY = (y - config.keyLuma) * config.lumaWeight
+        val distance = sqrt(dCb * dCb + dCr * dCr + dY * dY)
 
         // max() keeps a zero-width ramp from dividing by zero, matching the
         // shader's `max(uSmoothness, 1e-4)`.
@@ -68,15 +91,16 @@ object ChromaKeyMath {
         // Spill suppression. `projection` is how far the pixel leans toward the
         // key hue; only pixels leaning toward it (> 0) are touched, so a
         // complementary color is never desaturated. Y stays untouched, so a
-        // despilled pixel never darkens.
+        // despilled pixel never darkens. The strength fades out with the luma
+        // weight, so a neutral key does not despill at all.
+        val spill = config.effectiveSpill
         val projection = c[0] * config.keyDirCb + c[1] * config.keyDirCr
-        if (config.spill <= 0.0 || projection <= 0.0) {
+        if (spill <= 0.0 || projection <= 0.0) {
             return doubleArrayOf(r, g, b, alpha)
         }
 
-        val y = luma(r, g, b)
-        val cb = c[0] - config.keyDirCb * projection * config.spill
-        val cr = c[1] - config.keyDirCr * projection * config.spill
+        val cb = c[0] - config.keyDirCb * projection * spill
+        val cr = c[1] - config.keyDirCr * projection * spill
 
         return doubleArrayOf(
             clamp01(y + 1.402 * cr),

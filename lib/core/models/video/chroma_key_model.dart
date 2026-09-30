@@ -9,9 +9,10 @@ import 'package:pro_video_editor/shared/utils/parser/int_parser.dart';
 
 /// Removes a solid-colored background (a "green screen") from the video.
 ///
-/// Pixels whose hue is close to [color] are made transparent, with a soft edge
-/// so the matte does not alias, and the key's color cast is pulled back out of
-/// the pixels that remain ([spill]).
+/// Pixels whose hue is close to [color] (for a white or grey wall, hue and
+/// brightness) are made transparent, with a soft edge so the matte does not
+/// alias, and the key's color cast is pulled back out of the pixels that
+/// remain ([spill]).
 ///
 /// ## The algorithm
 ///
@@ -23,16 +24,22 @@ import 'package:pro_video_editor/shared/utils/parser/int_parser.dart';
 /// Cb = -0.168736·r - 0.331264·g + 0.5·b
 /// Cr =  0.5·r - 0.418688·g - 0.081312·b
 ///
-/// d     = distance((Cb, Cr), (Cb_key, Cr_key))
+/// w     = 1 - smoothstep(0.04, 0.10, |(Cb_key, Cr_key)|)
+/// d     = |(Cb - Cb_key, Cr - Cr_key, w·(Y - Y_key))|
 /// alpha = smoothstep(similarity, similarity + smoothness, d)
 /// ```
 ///
-/// The distance is measured in the **Cb/Cr chroma plane**, which is a position,
-/// not a pure hue: Cb and Cr scale with brightness, so a dimly lit patch of the
-/// screen sits closer to neutral and therefore further from the key point. The
-/// default [similarity] covers roughly 40%–100% of the screen's reference
-/// brightness; a badly lit screen needs a wider one. This is the same behaviour
-/// as FFmpeg's `chromakey` and OBS.
+/// For a saturated key `w` is `0`, and the distance is measured in the
+/// **Cb/Cr chroma plane**, which is a position, not a pure hue: Cb and Cr scale
+/// with brightness, so a dimly lit patch of the screen sits closer to neutral
+/// and therefore further from the key point. The default [similarity] covers
+/// roughly 40%–100% of the screen's reference brightness; a badly lit screen
+/// needs a wider one. This is the same behaviour as FFmpeg's `chromakey` and
+/// OBS.
+///
+/// A neutral key (white, grey, black) has no chroma to tell those apart, so
+/// `w` rises to `1` and brightness counts too — see
+/// [ChromaKeyDetector.lumaWeightOf] and "Neutral keys" on [color].
 ///
 /// ## What the keyed area becomes
 ///
@@ -154,7 +161,8 @@ class ChromaKey {
   /// Measures the screen in [video] and returns a key tuned to it.
   ///
   /// This is the most reliable way to build a key, and it is hue-agnostic —
-  /// green, blue or anything else, as long as it is saturated.
+  /// green, blue or anything else, as long as it is saturated, or a bright
+  /// white or light grey wall (see "Neutral keys" on [color]).
   ///
   /// A constant [color] is always a compromise. Paint, fabric, lighting and the
   /// camera's color science all shift the recorded screen away from it, and
@@ -306,11 +314,31 @@ class ChromaKey {
   /// Avoid the darker "digital blue" (`0xFF1A46A8`) — its chroma magnitude is
   /// only `0.25` versus `0.33`, so every subject color crowds it, a white shirt
   /// included.
+  ///
+  /// ## Neutral keys
+  ///
+  /// A white or light grey wall can be keyed too. Every neutral sits at the
+  /// chroma origin, so a neutral key also weighs brightness: a white key keeps
+  /// black and dark greys instead of removing them along with the wall. Keys
+  /// with a chroma magnitude between `0.04` and `0.10`, such as a pale beige
+  /// wall, blend the two.
+  ///
+  /// It is the hard case, for two reasons. A shadow now changes the distance,
+  /// so the subject's own shadow on the wall and the falloff of a room light
+  /// survive unless the wall is lit evenly. And the subject crowds the key:
+  /// against a light grey wall (`0xFFD9D9D9`) skin sits only `0.21` away,
+  /// versus `0.43` from SMPTE green, and anything white or cream the subject
+  /// wears is keyed with the wall. Keep [similarity] near `0.12`; [autoDetect]
+  /// measures the wall and never goes wider than that for a neutral key.
+  ///
+  /// A neutral key does not despill: there is no hue to pull out, so [spill]
+  /// fades out along with the chroma.
   final Color color;
 
   /// How far from [color] a pixel may sit and still be removed completely.
   ///
-  /// Measured as a distance in the Cb/Cr chroma plane. Some anchors for
+  /// Measured as a distance in the Cb/Cr chroma plane, plus brightness for a
+  /// neutral key (see "Neutral keys" on [color]). Some anchors for
   /// calibration, all against the default SMPTE green (whose own chroma
   /// magnitude is `0.33`):
   ///
@@ -352,6 +380,10 @@ class ChromaKey {
   ///
   /// - `0.0`: off
   /// - `1.0`: neutralize the key hue completely
+  ///
+  /// Fades out as [color] approaches neutral, and is off for a white or grey
+  /// wall: the faint tint a camera records on such a wall would otherwise
+  /// desaturate the subject along it. See "Neutral keys" on [color].
   ///
   /// **Default**: `0.5`
   final double spill;

@@ -10,7 +10,8 @@ import kotlin.test.assertTrue
 /**
  * Cross-platform parity guard for the chroma-key formula.
  *
- * The [golden] table below is duplicated verbatim in the Swift test
+ * The [golden], [neutralGolden], [tintedGolden] and [beigeGolden] tables below
+ * are duplicated verbatim in the Swift test
  * (`example/macos/RunnerTests/RunnerTests.swift`, `ChromaKeyMathTests`). Both
  * run it against their own implementation — Kotlin's [ChromaKeyMath], which the
  * GLSL shader mirrors, and Swift's `chromaKeyed(r:g:b:_:)`, which is baked into
@@ -88,6 +89,150 @@ internal class ChromaKeyMathTest {
                 )
             }
         }
+    }
+
+    /**
+     * A light gray wall (`0xD9D9D9`), the neutral key. Same similarity and
+     * smoothness as [config]; spill is irrelevant, a neutral key has no hue.
+     */
+    private val wall = ChromaKeyConfig(
+        keyR = 0xD9 / 255.0,
+        keyG = 0xD9 / 255.0,
+        keyB = 0xD9 / 255.0,
+        similarity = 0.15,
+        smoothness = 0.08,
+        spill = 0.5,
+    )
+
+    private val neutralGolden = listOf(
+        // The wall itself, and the wall a little darker: removed.
+        Golden("key color", 0.85098, 0.85098, 0.85098, 0.85098, 0.85098, 0.85098, 0.0),
+        Golden("wall at 85%", 0.723333, 0.723333, 0.723333, 0.723333, 0.723333, 0.723333, 0.0),
+        Golden("white", 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0),
+        // A deep shadow on the wall survives: brightness now counts.
+        Golden("wall in shadow 60%", 0.510588, 0.510588, 0.510588, 0.510588, 0.510588, 0.510588, 1.0),
+        // What a chroma-only key removed along with the wall, now kept.
+        Golden("black", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+        Golden("mid gray", 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.0),
+        Golden("navy", 0.2, 0.22, 0.35, 0.2, 0.22, 0.35, 1.0),
+        // The hard case, pinned on purpose: skin crowds a light wall.
+        Golden("skin tone", 0.86, 0.65, 0.53, 0.86, 0.65, 0.53, 0.882915),
+        Golden("beige", 0.85, 0.78, 0.65, 0.85, 0.78, 0.65, 0.0),
+        Golden("smpte green", 0.0, 0.694118, 0.25098, 0.0, 0.694118, 0.25098, 1.0),
+    )
+
+    @Test
+    fun neutralGoldenTable_matchesTheSharedFormula() {
+        for (row in neutralGolden) assertGolden(row, wall)
+    }
+
+    /**
+     * A white wall as a camera records it: faintly warm (`0xDCD9D3`), not
+     * exactly neutral. Its chroma is tiny but not zero, so it has a despill
+     * direction; weight 1 must still switch despill off.
+     */
+    private val tintedWall = ChromaKeyConfig(
+        keyR = 0xDC / 255.0,
+        keyG = 0xD9 / 255.0,
+        keyB = 0xD3 / 255.0,
+        similarity = 0.12,
+        smoothness = 0.08,
+        spill = 0.5,
+    )
+
+    /**
+     * A pale beige wall (`0xEDDEC7`), between the two thresholds: weight about
+     * 0.6, so brightness counts partly and despill runs at about 40%.
+     */
+    private val beigeWall = ChromaKeyConfig(
+        keyR = 0xED / 255.0,
+        keyG = 0xDE / 255.0,
+        keyB = 0xC7 / 255.0,
+        similarity = 0.12,
+        smoothness = 0.08,
+        spill = 0.5,
+    )
+
+    private val tintedGolden = listOf(
+        Golden("key color", 0.862745, 0.85098, 0.827451, 0.862745, 0.85098, 0.827451, 0.0),
+        // Leaning toward the wall's faint warm tint, yet not desaturated.
+        Golden("skin tone", 0.86, 0.65, 0.53, 0.86, 0.65, 0.53, 1.0),
+        Golden("red shirt", 0.8, 0.15, 0.15, 0.8, 0.15, 0.15, 1.0),
+        Golden("orange", 0.9, 0.5, 0.1, 0.9, 0.5, 0.1, 1.0),
+        Golden("denim", 0.231373, 0.356863, 0.54902, 0.231373, 0.356863, 0.54902, 1.0),
+    )
+
+    private val beigeGolden = listOf(
+        Golden("key color", 0.929412, 0.870588, 0.780392, 0.918988, 0.872066, 0.80012, 0.0),
+        Golden("black", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+        // Skin crowds a beige wall: the hard case, pinned on purpose.
+        Golden("skin tone", 0.86, 0.65, 0.53, 0.837457, 0.653197, 0.572665, 0.129278),
+        // Despilled, but at the faded strength.
+        Golden("red shirt", 0.8, 0.15, 0.15, 0.757197, 0.15607, 0.231009, 1.0),
+        Golden("orange", 0.9, 0.5, 0.1, 0.844612, 0.507855, 0.204826, 1.0),
+        Golden("denim", 0.231373, 0.356863, 0.54902, 0.231373, 0.356863, 0.54902, 1.0),
+    )
+
+    @Test
+    fun tintedGoldenTable_nearNeutralKeyDoesNotDespill() {
+        assertEquals(1.0, tintedWall.lumaWeight, 0.0)
+        assertEquals(0.0, tintedWall.effectiveSpill, 0.0)
+        for (row in tintedGolden) assertGolden(row, tintedWall)
+    }
+
+    @Test
+    fun beigeGoldenTable_matchesTheSharedFormula() {
+        for (row in beigeGolden) assertGolden(row, beigeWall)
+    }
+
+    private fun assertGolden(row: Golden, key: ChromaKeyConfig) {
+        val out = ChromaKeyMath.evaluate(row.r, row.g, row.b, key)
+        val expected = doubleArrayOf(row.outR, row.outG, row.outB, row.alpha)
+        val labels = listOf("r", "g", "b", "alpha")
+
+        for (i in 0..3) {
+            assertTrue(
+                abs(out[i] - expected[i]) < tolerance,
+                "${row.name}: ${labels[i]} was ${out[i]}, expected ${expected[i]}",
+            )
+        }
+    }
+
+    @Test
+    fun saturatedKeys_ignoreBrightness() {
+        // Weight 0 is what keeps every green- and blue-screen result above
+        // identical to the chroma-only formula.
+        assertEquals(0.0, config.lumaWeight, 0.0)
+        assertEquals(config.spill, config.effectiveSpill, 0.0)
+        val blue = ChromaKeyConfig(keyR = 0x00 / 255.0, keyG = 0x47 / 255.0, keyB = 0xBB / 255.0)
+        assertEquals(0.0, blue.lumaWeight, 0.0)
+        assertEquals(blue.spill, blue.effectiveSpill, 0.0)
+    }
+
+    @Test
+    fun neutralKeys_weighBrightnessFully() {
+        assertEquals(1.0, wall.lumaWeight, 0.0)
+        assertEquals(1.0, ChromaKeyConfig(keyR = 0.0, keyG = 0.0, keyB = 0.0).lumaWeight, 0.0)
+    }
+
+    @Test
+    fun lumaWeight_rampsSmoothlyBetweenNeutralAndSaturated() {
+        // Walk the key from neutral toward a pale blue. The weight must fall
+        // monotonically, with intermediate values, so a pale wall never flips
+        // between two formulas.
+        var previous = 2.0
+        val weights = (0..40).map { step ->
+            val t = step / 40.0
+            val c = ChromaKeyMath.chroma(0.8 - 0.3 * t, 0.8 - 0.1 * t, 0.8)
+            ChromaKeyMath.lumaWeight(c[0], c[1]).also {
+                assertTrue(it <= previous + tolerance, "weight rose at t=$t")
+                previous = it
+            }
+        }
+
+        assertEquals(1.0, weights.first(), tolerance)
+        assertEquals(0.0, weights.last(), tolerance)
+        assertTrue(weights.any { it > 0.01 && it < 0.99 }, "expected a ramp, got a step")
     }
 
     @Test

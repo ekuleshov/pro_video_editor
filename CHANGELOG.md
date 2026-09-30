@@ -1,3 +1,6 @@
+## 2.19.0
+- **FEAT**(android, iOS, macOS): `ChromaKey` can key a white or light grey wall: a neutral key weighs brightness too, so black and dark greys stay, and `ChromaKey.autoDetect` accepts a bright neutral border. Green and blue screens key exactly as before.
+
 ## 2.18.1
 - **FIX**(android): With a custom audio track mixed in, each segment and track keeps its own `volume`. Volumes could swap between sources, and a segment's volume was ignored.
 - **FIX**(android): A layered `VideoComposition` keeps its layers' own audio, placed where each clip plays and at its volume.

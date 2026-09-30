@@ -1211,7 +1211,7 @@ final class SetupStageWatchdogTests: XCTestCase {
 
 /// Cross-platform parity guard for the chroma-key formula.
 ///
-/// The golden table below is duplicated verbatim in the Kotlin test
+/// The golden tables below are duplicated verbatim in the Kotlin test
 /// (`android/src/test/.../ChromaKeyMathTest.kt`). Both run it against their own
 /// implementation — Swift's `chromaKeyed(r:g:b:_:)`, which is baked into the
 /// Core Image color cube, and Kotlin's `ChromaKeyMath`, which the GLSL shader
@@ -1292,6 +1292,164 @@ class ChromaKeyMathTests: XCTestCase {
       XCTAssertEqual(out.b, row.outB, accuracy: tolerance, "\(row.name): b")
       XCTAssertEqual(out.a, row.alpha, accuracy: tolerance, "\(row.name): alpha")
     }
+  }
+
+  /// A light gray wall (`0xD9D9D9`), the neutral key. Same similarity and
+  /// smoothness as `config`; spill is irrelevant, a neutral key has no hue.
+  private let wall = ChromaKeyConfig(
+    keyR: Double(0xD9) / 255.0,
+    keyG: Double(0xD9) / 255.0,
+    keyB: Double(0xD9) / 255.0,
+    similarity: 0.15,
+    smoothness: 0.08,
+    spill: 0.5,
+    backgroundColor: -1,
+    backgroundImage: nil
+  )
+
+  private let neutralGolden: [Golden] = [
+    // The wall itself, and the wall a little darker: removed.
+    Golden(name: "key color", r: 0.85098, g: 0.85098, b: 0.85098,
+           outR: 0.85098, outG: 0.85098, outB: 0.85098, alpha: 0.0),
+    Golden(name: "wall at 85%", r: 0.723333, g: 0.723333, b: 0.723333,
+           outR: 0.723333, outG: 0.723333, outB: 0.723333, alpha: 0.0),
+    Golden(name: "white", r: 1.0, g: 1.0, b: 1.0,
+           outR: 1.0, outG: 1.0, outB: 1.0, alpha: 0.0),
+    // A deep shadow on the wall survives: brightness now counts.
+    Golden(name: "wall in shadow 60%", r: 0.510588, g: 0.510588, b: 0.510588,
+           outR: 0.510588, outG: 0.510588, outB: 0.510588, alpha: 1.0),
+    // What a chroma-only key removed along with the wall, now kept.
+    Golden(name: "black", r: 0.0, g: 0.0, b: 0.0,
+           outR: 0.0, outG: 0.0, outB: 0.0, alpha: 1.0),
+    Golden(name: "mid gray", r: 0.5, g: 0.5, b: 0.5,
+           outR: 0.5, outG: 0.5, outB: 0.5, alpha: 1.0),
+    Golden(name: "navy", r: 0.2, g: 0.22, b: 0.35,
+           outR: 0.2, outG: 0.22, outB: 0.35, alpha: 1.0),
+    // The hard case, pinned on purpose: skin crowds a light wall.
+    Golden(name: "skin tone", r: 0.86, g: 0.65, b: 0.53,
+           outR: 0.86, outG: 0.65, outB: 0.53, alpha: 0.882915),
+    Golden(name: "beige", r: 0.85, g: 0.78, b: 0.65,
+           outR: 0.85, outG: 0.78, outB: 0.65, alpha: 0.0),
+    Golden(name: "smpte green", r: 0.0, g: 0.694118, b: 0.25098,
+           outR: 0.0, outG: 0.694118, outB: 0.25098, alpha: 1.0),
+  ]
+
+  func testNeutralGoldenTableMatchesTheSharedFormula() {
+    for row in neutralGolden { assertGolden(row, wall) }
+  }
+
+  func testSaturatedKeysIgnoreBrightness() {
+    // Weight 0 keeps every green- and blue-screen result identical to the
+    // chroma-only formula.
+    XCTAssertEqual(config.lumaWeight, 0.0)
+    let blue = ChromaKeyConfig(
+      keyR: 0, keyG: Double(0x47) / 255.0, keyB: Double(0xBB) / 255.0,
+      similarity: 0.12, smoothness: 0.08, spill: 0.5,
+      backgroundColor: -1, backgroundImage: nil)
+    XCTAssertEqual(blue.lumaWeight, 0.0)
+  }
+
+  func testNeutralKeysWeighBrightnessFully() {
+    XCTAssertEqual(wall.lumaWeight, 1.0)
+    let black = ChromaKeyConfig(
+      keyR: 0, keyG: 0, keyB: 0,
+      similarity: 0.12, smoothness: 0.08, spill: 0.5,
+      backgroundColor: -1, backgroundImage: nil)
+    XCTAssertEqual(black.lumaWeight, 1.0)
+  }
+
+  func testLumaWeightRampsSmoothlyBetweenNeutralAndSaturated() {
+    // Walk the key from neutral toward a pale blue. The weight must fall
+    // monotonically, with intermediate values, so a pale wall never flips
+    // between two formulas.
+    var previous = 2.0
+    let weights = (0...40).map { step -> Double in
+      let t = Double(step) / 40.0
+      let c = chromaOf(r: 0.8 - 0.3 * t, g: 0.8 - 0.1 * t, b: 0.8)
+      let weight = lumaWeightOf(cb: c.cb, cr: c.cr)
+      XCTAssertLessThanOrEqual(weight, previous + tolerance, "weight rose at t=\(t)")
+      previous = weight
+      return weight
+    }
+
+    XCTAssertEqual(weights.first!, 1.0, accuracy: tolerance)
+    XCTAssertEqual(weights.last!, 0.0, accuracy: tolerance)
+    XCTAssertTrue(weights.contains { $0 > 0.01 && $0 < 0.99 }, "expected a ramp, got a step")
+  }
+
+  /// A white wall as a camera records it: faintly warm (`0xDCD9D3`), not
+  /// exactly neutral. Its chroma is tiny but not zero, so it has a despill
+  /// direction; weight 1 must still switch despill off.
+  private let tintedWall = ChromaKeyConfig(
+    keyR: Double(0xDC) / 255.0,
+    keyG: Double(0xD9) / 255.0,
+    keyB: Double(0xD3) / 255.0,
+    similarity: 0.12,
+    smoothness: 0.08,
+    spill: 0.5,
+    backgroundColor: -1,
+    backgroundImage: nil
+  )
+
+  /// A pale beige wall (`0xEDDEC7`), between the two thresholds: weight about
+  /// 0.6, so brightness counts partly and despill runs at about 40%.
+  private let beigeWall = ChromaKeyConfig(
+    keyR: Double(0xED) / 255.0,
+    keyG: Double(0xDE) / 255.0,
+    keyB: Double(0xC7) / 255.0,
+    similarity: 0.12,
+    smoothness: 0.08,
+    spill: 0.5,
+    backgroundColor: -1,
+    backgroundImage: nil
+  )
+
+  private let tintedGolden: [Golden] = [
+    Golden(name: "key color", r: 0.862745, g: 0.85098, b: 0.827451,
+           outR: 0.862745, outG: 0.85098, outB: 0.827451, alpha: 0.0),
+    // Leaning toward the wall's faint warm tint, yet not desaturated.
+    Golden(name: "skin tone", r: 0.86, g: 0.65, b: 0.53,
+           outR: 0.86, outG: 0.65, outB: 0.53, alpha: 1.0),
+    Golden(name: "red shirt", r: 0.8, g: 0.15, b: 0.15,
+           outR: 0.8, outG: 0.15, outB: 0.15, alpha: 1.0),
+    Golden(name: "orange", r: 0.9, g: 0.5, b: 0.1,
+           outR: 0.9, outG: 0.5, outB: 0.1, alpha: 1.0),
+    Golden(name: "denim", r: 0.231373, g: 0.356863, b: 0.54902,
+           outR: 0.231373, outG: 0.356863, outB: 0.54902, alpha: 1.0),
+  ]
+
+  private let beigeGolden: [Golden] = [
+    Golden(name: "key color", r: 0.929412, g: 0.870588, b: 0.780392,
+           outR: 0.918988, outG: 0.872066, outB: 0.80012, alpha: 0.0),
+    Golden(name: "black", r: 0.0, g: 0.0, b: 0.0,
+           outR: 0.0, outG: 0.0, outB: 0.0, alpha: 1.0),
+    // Skin crowds a beige wall: the hard case, pinned on purpose.
+    Golden(name: "skin tone", r: 0.86, g: 0.65, b: 0.53,
+           outR: 0.837457, outG: 0.653197, outB: 0.572665, alpha: 0.129278),
+    // Despilled, but at the faded strength.
+    Golden(name: "red shirt", r: 0.8, g: 0.15, b: 0.15,
+           outR: 0.757197, outG: 0.15607, outB: 0.231009, alpha: 1.0),
+    Golden(name: "orange", r: 0.9, g: 0.5, b: 0.1,
+           outR: 0.844612, outG: 0.507855, outB: 0.204826, alpha: 1.0),
+    Golden(name: "denim", r: 0.231373, g: 0.356863, b: 0.54902,
+           outR: 0.231373, outG: 0.356863, outB: 0.54902, alpha: 1.0),
+  ]
+
+  func testTintedGoldenTableNearNeutralKeyDoesNotDespill() {
+    XCTAssertEqual(tintedWall.lumaWeight, 1.0)
+    for row in tintedGolden { assertGolden(row, tintedWall) }
+  }
+
+  func testBeigeGoldenTableMatchesTheSharedFormula() {
+    for row in beigeGolden { assertGolden(row, beigeWall) }
+  }
+
+  private func assertGolden(_ row: Golden, _ key: ChromaKeyConfig) {
+    let out = chromaKeyed(r: row.r, g: row.g, b: row.b, key)
+    XCTAssertEqual(out.r, row.outR, accuracy: tolerance, "\(row.name): r")
+    XCTAssertEqual(out.g, row.outG, accuracy: tolerance, "\(row.name): g")
+    XCTAssertEqual(out.b, row.outB, accuracy: tolerance, "\(row.name): b")
+    XCTAssertEqual(out.a, row.alpha, accuracy: tolerance, "\(row.name): alpha")
   }
 
   func testKeyColorIsRemovedCompletely() {

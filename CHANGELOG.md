@@ -1,3 +1,7 @@
+## 2.20.0
+- **FEAT**(android, iOS, macOS): `VideoRenderData.effects` adds effects that distort the picture itself: glitch, RGB split, VHS, TV static, old film, pixelate, pixel pulse, strobe, negative flash and vignette, each with an intensity and an optional time range. A flashing effect on its own stays below the three flashes a second that WCAG 2.3.1 allows.
+- **FEAT**: `VideoEffectPreview` shows the same effects live over a video player, frame for frame what the export renders (Impeller only).
+
 ## 2.19.1
 - **FIX**(android): Image layers keep their place and size on segments of another resolution, as on iOS and macOS, instead of drifting and growing on a smaller segment.
 

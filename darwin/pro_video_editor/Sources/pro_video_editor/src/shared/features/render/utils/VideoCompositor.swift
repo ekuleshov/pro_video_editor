@@ -182,6 +182,9 @@ class VideoCompositor: NSObject, AVVideoCompositing {
   /// Color filter configs for per-frame LUT computation
   private var colorFilterConfigs: [ColorFilterConfig] = []
 
+  /// Video effects (glitch, VHS, pixelate, …) with their time ranges.
+  private var videoEffects: [VideoEffectConfig] = []
+
   /// Dip-to-color windows for fadeToBlack / fadeToWhite clip transitions
   private var fadeWindows: [FadeWindow] = []
 
@@ -267,6 +270,7 @@ class VideoCompositor: NSObject, AVVideoCompositing {
 
     self.setOverlayImageLayers(from: config.imageLayerConfigs)
     self.colorFilterConfigs = config.colorFilterConfigs
+    self.videoEffects = config.videoEffects
     self.fadeWindows = config.fadeWindows
     self.chromaKeyWindows = config.chromaKeyWindows
   }
@@ -432,6 +436,33 @@ class VideoCompositor: NSObject, AVVideoCompositing {
     lutFilter.setValue(lut.data, forKey: "inputCubeData")
     lutFilter.setValue(image, forKey: kCIInputImageKey)
     return lutFilter.outputImage ?? image
+  }
+
+  /// Applies the video effects active at the given composition time.
+  ///
+  /// `orientation` is a flip and rotation still to come after this stage. An
+  /// effect's slices, scanlines and sizes belong to the exported frame, as on
+  /// Android and in the preview, so the stage runs on the frame turned that
+  /// way, and the frame is turned back afterwards.
+  private func applyVideoEffectStage(
+    to image: CIImage, at compositionTime: CMTime, orientation: CGAffineTransform = .identity
+  ) -> CIImage {
+    guard !videoEffects.isEmpty else { return image }
+    let tUs = Int64(CMTimeGetSeconds(compositionTime) * 1_000_000)
+    let frame = VideoEffectConfig.resolve(videoEffects, atUs: tUs)
+    guard !orientation.isIdentity else { return applyVideoEffect(to: image, frame) }
+    return applyVideoEffect(to: image.transformed(by: orientation), frame)
+      .transformed(by: orientation.inverted())
+  }
+
+  /// The flip and then the rotation the `imageBytesWithCropping` path applies
+  /// after the video effects, as an exact matrix: quarter turns built from
+  /// `rotationAngle` carry rounding errors that would resample the frame.
+  private var flipThenRotation: CGAffineTransform {
+    let (cos, sin): (CGFloat, CGFloat) = [(1, 0), (0, 1), (-1, 0), (0, -1)][
+      (rotateTurns % 4 + 4) % 4]
+    return CGAffineTransform(scaleX: flipX ? -1 : 1, y: flipY ? -1 : 1)
+      .concatenating(CGAffineTransform(a: cos, b: sin, c: -sin, d: cos, tx: 0, ty: 0))
   }
 
   /// Applies a chroma key as its own color cube.
@@ -819,6 +850,12 @@ class VideoCompositor: NSObject, AVVideoCompositing {
     // Apply LUT, blur, and flip BEFORE overlay when imageBytesWithCropping is enabled
     // This ensures these effects only affect the video, not the overlay
     if imageBytesWithCropping {
+      // Video effects right before the color filter, as on Android and in the
+      // Flutter preview, so a filter colors the distorted picture. The flip
+      // and rotation only follow after the overlay on this path.
+      outputImage = applyVideoEffectStage(
+        to: outputImage, at: request.compositionTime, orientation: flipThenRotation)
+
       // Apply color filter (timed LUT) to video only
       outputImage = applyColorFilter(to: outputImage, at: request.compositionTime)
 
@@ -965,6 +1002,7 @@ class VideoCompositor: NSObject, AVVideoCompositing {
 
     // Apply color filter (only if NOT imageBytesWithCropping - otherwise already applied before overlay)
     if !imageBytesWithCropping {
+      outputImage = applyVideoEffectStage(to: outputImage, at: request.compositionTime)
       outputImage = applyColorFilter(to: outputImage, at: request.compositionTime)
 
       // Apply blur

@@ -180,17 +180,20 @@ class EditorVideo {
       case EditorVideoType.network:
         byteArray = await fetchVideoAsUint8List(networkUrl!);
       case EditorVideoType.content:
-        throw UnsupportedError('Loading content:// bytes is not supported');
+        throw UnsupportedError('safeByteArray is not supported for content://');
     }
     return byteArray!;
+  }
+
+  /// Returns a [contentUrl] if available, or fall back to [safeFilePath].
+  Future<String> contentOrSafeFilePath() async {
+    return contentUrl ?? await safeFilePath();
   }
 
   /// Safely generates a file path for the video and writes the video data to
   /// a file based on the type of the video.
   Future<String> safeFilePath() async {
     switch (typePreferredFile) {
-      case EditorVideoType.content:
-        return contentUrl!;
       case EditorVideoType.memory:
         file = await writeMemoryVideoToFile(byteArray!, await _tempFilePath());
       case EditorVideoType.asset:
@@ -199,6 +202,9 @@ class EditorVideo {
         file = await fetchVideoToFile(networkUrl!, await _tempFilePath());
       case EditorVideoType.file:
         // file is already present
+        break;
+      case EditorVideoType.content:
+        throw UnsupportedError('safeFilePath is not supported for content://');
     }
     return file!.path;
   }

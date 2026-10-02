@@ -77,7 +77,10 @@ class VideoMetadata {
   /// The [value] map contains metadata values such as duration, resolution,
   /// file size, and others.
   /// The [extension] is the video file format (e.g., 'mp4').
-  factory VideoMetadata.fromMap(Map<dynamic, dynamic> value, String extension) {
+  factory VideoMetadata.fromMap(
+      Map<dynamic, dynamic> value,
+      String? extension,
+  ) {
     // All platforms now return display dimensions (after rotation correction)
     final resolution = Size(
       safeParseDouble(value['width']),
@@ -87,7 +90,7 @@ class VideoMetadata {
 
     return VideoMetadata(
       duration: Duration(milliseconds: safeParseInt(value['duration'])),
-      extension: extension,
+      extension: value['extension'] ?? extension ?? 'mp4',
       fileSize: value['fileSize'] ?? 0,
       resolution: resolution,
       rotation: rotation,

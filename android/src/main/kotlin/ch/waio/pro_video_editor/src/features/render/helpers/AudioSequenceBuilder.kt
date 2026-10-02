@@ -143,7 +143,8 @@ class AudioSequenceBuilder(
             return null
         }
 
-        val preRender = AudioPreRenderer.render(
+        val audioPreRenderer = AudioPreRenderer(context)
+        val preRender = audioPreRenderer.render(
             context = context,
             audioPath = audioPath,
             audioStartUs = startTimeUs,

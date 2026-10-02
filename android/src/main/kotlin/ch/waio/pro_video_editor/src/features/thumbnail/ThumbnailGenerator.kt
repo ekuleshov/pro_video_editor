@@ -47,6 +47,8 @@ class ThumbnailGenerator(private val context: Context) {
     // SupervisorJob ensures that failures don't cancel sibling coroutines
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    private val sequentialFrameDecoder = SequentialFrameDecoder(context)
+
     private companion object {
         /** Upper bound of concurrent hardware decoder sessions. */
         const val MAX_PARALLEL_DECODERS = 3
@@ -270,7 +272,7 @@ class ThumbnailGenerator(private val context: Context) {
         onFrame: (indices: List<Int>, bytes: ByteArray) -> Unit,
     ) = coroutineScope {
         val timestampsUs = config.timestampsUs
-        val scan = SequentialFrameDecoder.scan(config.inputPath)
+        val scan = sequentialFrameDecoder.scan(config.inputPath)
         val sortedIndices = targetIndices.sortedBy { timestampsUs[it] }
 
         // Group the time-sorted targets by the GOP their decode starts in.
@@ -298,7 +300,8 @@ class ThumbnailGenerator(private val context: Context) {
         val jobs = chunks.map { chunkIndices ->
             async(Dispatchers.IO) {
                 val chunkTimestamps = chunkIndices.map { timestampsUs[it] }
-                SequentialFrameDecoder(config.inputPath).decode(
+                sequentialFrameDecoder.decode(
+                    config.inputPath,
                     chunkTimestamps,
                     config.outputWidth,
                     config.outputHeight,

@@ -70,6 +70,11 @@ class MockEditorVideo extends _i1.Mock implements _i2.EditorVideo {
           as bool);
 
   @override
+  bool get hasContentUrl =>
+      (super.noSuchMethod(Invocation.getter(#hasContentUrl), returnValue: false)
+          as bool);
+
+  @override
   bool get hasFile =>
       (super.noSuchMethod(Invocation.getter(#hasFile), returnValue: false)
           as bool);
@@ -133,6 +138,7 @@ class MockEditorVideo extends _i1.Mock implements _i2.EditorVideo {
     _i5.Uint8List? byteArray,
     _i6.File? file,
     String? networkUrl,
+    String? contentUrl,
     String? assetPath,
   }) =>
       (super.noSuchMethod(
@@ -140,6 +146,7 @@ class MockEditorVideo extends _i1.Mock implements _i2.EditorVideo {
               #byteArray: byteArray,
               #file: file,
               #networkUrl: networkUrl,
+              #contentUrl: contentUrl,
               #assetPath: assetPath,
             }),
             returnValue: _FakeEditorVideo_0(
@@ -148,6 +155,7 @@ class MockEditorVideo extends _i1.Mock implements _i2.EditorVideo {
                 #byteArray: byteArray,
                 #file: file,
                 #networkUrl: networkUrl,
+                #contentUrl: contentUrl,
                 #assetPath: assetPath,
               }),
             ),

@@ -27,6 +27,8 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import androidx.core.net.toUri
+import kotlin.text.startsWith
 
 /**
  * Exception thrown when no audio track is found in the video file.
@@ -127,7 +129,7 @@ class ExtractAudio(private val context: Context) {
             try {
                 // Initialize extractor
                 extractor = MediaExtractor()
-                extractor.setDataSource(config.inputPath)
+                setDataSource(extractor, config.inputPath)
 
                 // Find audio track
                 val audioTrackIndex = findAudioTrack(extractor)
@@ -157,7 +159,7 @@ class ExtractAudio(private val context: Context) {
                     var tempExtractor: MediaExtractor? = null
                     try {
                         tempExtractor = MediaExtractor()
-                        tempExtractor.setDataSource(config.inputPath)
+                        setDataSource(tempExtractor, config.inputPath)
                         tempExtractor.selectTrack(audioTrackIndex)
                         val firstSampleTimeUs = tempExtractor.sampleTime
                         
@@ -285,7 +287,7 @@ class ExtractAudio(private val context: Context) {
             try {
                 // Initialize extractor
                 extractor = MediaExtractor()
-                extractor.setDataSource(config.inputPath)
+                setDataSource(extractor, config.inputPath)
 
                 // Find audio track
                 val audioTrackIndex = findAudioTrack(extractor)
@@ -501,7 +503,7 @@ class ExtractAudio(private val context: Context) {
             val hasAudio: Boolean
             try {
                 probe = MediaExtractor()
-                probe.setDataSource(config.inputPath)
+                setDataSource(probe, config.inputPath)
                 hasAudio = findAudioTrack(probe) >= 0
             } catch (e: Exception) {
                 mainHandler.post { onError(e) }
@@ -525,7 +527,12 @@ class ExtractAudio(private val context: Context) {
                 if (canceled.get()) return@post
                 try {
                     val mediaItemBuilder = MediaItem.Builder()
-                        .setUri(Uri.fromFile(File(config.inputPath)))
+
+                    if (config.inputPath.startsWith("content://")) {
+                        mediaItemBuilder.setUri(config.inputPath)
+                    } else {
+                        mediaItemBuilder.setUri(Uri.fromFile(File(config.inputPath)))
+                    }
 
                     if (config.startUs != null || config.endUs != null) {
                         val clipping = MediaItem.ClippingConfiguration.Builder().apply {
@@ -657,6 +664,14 @@ class ExtractAudio(private val context: Context) {
             "ogg" -> MediaMuxer.OutputFormat.MUXER_OUTPUT_OGG
             "webm" -> MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM
             else -> MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4 // Default to MP4 container
+        }
+    }
+
+    private fun setDataSource(extractor: MediaExtractor, path: String) {
+        if (path.startsWith("content://")) {
+            extractor.setDataSource(context, path.toUri(), null)
+        } else {
+            extractor.setDataSource(path)
         }
     }
 }

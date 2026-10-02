@@ -27,7 +27,8 @@ import java.util.concurrent.atomic.AtomicReference
  * we can then safely apply effects like ColorMatrix, Blur, or Overlay.
  */
 @UnstableApi
-object VideoTranscoder {
+class VideoTranscoder(val context: Context) {
+    private val mediaInfoExtractor: MediaInfoExtractor = MediaInfoExtractor(context)
 
     /**
      * Result of a transcoding operation.
@@ -50,7 +51,7 @@ object VideoTranscoder {
      * @return True if transcoding is needed
      */
     fun needsTranscoding(videoPath: String): Boolean {
-        val formatInfo = MediaInfoExtractor.getVideoFormatInfo(videoPath)
+        val formatInfo = mediaInfoExtractor.getVideoFormatInfo(videoPath)
         val needsTranscode = formatInfo.needsTranscodingForEffects()
 
         Log.d(
@@ -109,7 +110,7 @@ object VideoTranscoder {
 
                             // Verify the output is actually H.264
                             val outputInfo =
-                                MediaInfoExtractor.getVideoFormatInfo(outputFile.absolutePath)
+                                mediaInfoExtractor.getVideoFormatInfo(outputFile.absolutePath)
                             Log.i(
                                 RENDER_TAG, "Transcoded output: isHevc=${outputInfo.isHevc}, " +
                                         "bitDepth=${outputInfo.bitDepth}, isHdr=${outputInfo.isHdr}"

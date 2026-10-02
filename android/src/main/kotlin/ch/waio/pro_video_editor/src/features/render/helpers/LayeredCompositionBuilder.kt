@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
@@ -64,6 +65,8 @@ class LayeredCompositionBuilder(
      */
     private val globalChromaKey: ChromaKeyConfig? = null
 ) {
+    val mediaInfoExtractor = MediaInfoExtractor(context)
+
     /** Temp files (source duplicates) to delete after export. */
     val temporaryFiles: MutableList<File> = mutableListOf()
 
@@ -170,7 +173,7 @@ class LayeredCompositionBuilder(
 
             for (clip in layer.clips) {
                 val (displayW, displayH) = readDisplaySize(clip.inputPath)
-                val srcMediaDurationUs = MediaInfoExtractor.getVideoDuration(clip.inputPath)
+                val srcMediaDurationUs = mediaInfoExtractor.getVideoDuration(clip.inputPath)
                 val fullDurationUs =
                     ((clip.endUs ?: srcMediaDurationUs) - (clip.startUs ?: 0L))
                         .coerceAtLeast(0L)
@@ -230,7 +233,7 @@ class LayeredCompositionBuilder(
                     )
                 )
                 val volume = clip.volume ?: 1.0f
-                if (enableAudio && volume > 0f && MediaInfoExtractor.hasAudioTrack(clip.inputPath)) {
+                if (enableAudio && volume > 0f && mediaInfoExtractor.hasAudioTrack(clip.inputPath)) {
                     layerAudio += LayerAudio(
                         path = clip.inputPath,
                         srcStartUs = srcStartUs ?: 0L,
@@ -584,7 +587,7 @@ class LayeredCompositionBuilder(
     private fun readDisplaySize(path: String): Pair<Int, Int> {
         val retriever = MediaMetadataRetriever()
         return try {
-            retriever.setDataSource(path)
+            setDataSource(retriever, path)
             val w = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
                 ?.toIntOrNull() ?: 0
@@ -603,6 +606,14 @@ class LayeredCompositionBuilder(
                 retriever.release()
             } catch (_: Exception) {
             }
+        }
+    }
+
+    private fun setDataSource(retriever: MediaMetadataRetriever, path: String) {
+        if (path.startsWith("content://")) {
+            retriever.setDataSource(context, path.toUri())
+        } else {
+            retriever.setDataSource(path)
         }
     }
 }

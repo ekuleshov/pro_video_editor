@@ -4,12 +4,14 @@ import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
+import androidx.core.net.toUri
 import ch.waio.pro_video_editor.src.features.metadata.models.MetadataConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.InputStream
 
 /**
  * Service for extracting metadata from video files.
@@ -90,15 +92,15 @@ class Metadata(private val context: Context) {
      * @throws Exception if the file cannot be accessed or metadata extraction fails
      */
     private fun processVideo(config: MetadataConfig): Map<String, Any> {
-        val tempFile = File(config.inputPath)
+        // val tempFile = File(config.inputPath)
         val retriever = MediaMetadataRetriever()
 
         try {
-            retriever.setDataSource(tempFile.absolutePath)
+            setDataSource(retriever, config.inputPath)
 
             // Initialize metadata map with file size
             val metadata = mutableMapOf<String, Any>(
-                "fileSize" to tempFile.length()
+                // "fileSize" to tempFile.length()
             )
 
             // Extract duration and bitrate
@@ -138,7 +140,7 @@ class Metadata(private val context: Context) {
             val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
             if (hasAudio == "yes") {
                 // Extract actual audio track duration using MediaExtractor
-                val audioDuration = extractAudioDuration(tempFile.absolutePath)
+                val audioDuration = extractAudioDuration(config.inputPath)
                 if (audioDuration != null) {
                     metadata["audioDuration"] = audioDuration
                 }
@@ -193,7 +195,7 @@ class Metadata(private val context: Context) {
             // Check if video is optimized for streaming (moov before mdat)
             // Only perform this check if explicitly requested (performance optimization)
             if (config.checkStreamingOptimization) {
-                val isOptimizedForStreaming = checkStreamingOptimization(tempFile)
+                val isOptimizedForStreaming = checkStreamingOptimization(config.inputPath)
                 if (isOptimizedForStreaming != null) {
                     metadata["isOptimizedForStreaming"] = isOptimizedForStreaming
                 }
@@ -221,7 +223,7 @@ class Metadata(private val context: Context) {
         val retriever = MediaMetadataRetriever()
 
         try {
-            retriever.setDataSource(tempFile.absolutePath)
+            setDataSource(retriever, tempFile.absolutePath)
 
             // Check if video has audio track
             val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
@@ -276,10 +278,10 @@ class Metadata(private val context: Context) {
      * @param filePath Absolute path to the video file
      * @return Audio duration in milliseconds, or null if no audio track is found
      */
-    private fun extractAudioDuration(filePath: String): Double? {
+    private fun extractAudioDuration(path: String): Double? {
         val extractor = MediaExtractor()
         try {
-            extractor.setDataSource(filePath)
+            setDataSource(extractor, path)
 
             // Find the audio track
             for (i in 0 until extractor.trackCount) {
@@ -315,15 +317,24 @@ class Metadata(private val context: Context) {
      * @return true if optimized for streaming (moov before mdat), false if not,
      *         null if the format doesn't support this check or an error occurred
      */
-    private fun checkStreamingOptimization(file: File): Boolean? {
-        // Only check MP4/MOV/M4V files
-        val extension = file.extension.lowercase()
-        if (extension !in listOf("mp4", "mov", "m4v", "m4a")) {
-            return null
-        }
-
+    private fun checkStreamingOptimization(path: String): Boolean? {
         try {
-            file.inputStream().use { inputStream ->
+            val inputStream : InputStream?
+            if (path.startsWith("content://")) {
+                val mimeType = context.contentResolver.getType(path.toUri())
+                inputStream = context.contentResolver.openInputStream(path.toUri())
+            } else {
+                val file = File(path)
+                // Only check MP4/MOV/M4V files
+                val extension = file.extension.lowercase()
+                if (extension !in listOf("mp4", "mov", "m4v", "m4a")) {
+                    return null
+                }
+
+                inputStream = file.inputStream()
+            }
+
+            return inputStream?.use { inputStream ->
                 val buffer = ByteArray(8)
                 var moovPosition: Long = -1
                 var mdatPosition: Long = -1
@@ -394,4 +405,19 @@ class Metadata(private val context: Context) {
         }
     }
 
+    private fun setDataSource(retriever: MediaMetadataRetriever, path: String) {
+        if (path.startsWith("content://")) {
+            retriever.setDataSource(context, path.toUri())
+        } else {
+            retriever.setDataSource(path)
+        }
+    }
+
+    private fun setDataSource(extractor: MediaExtractor, path: String) {
+        if (path.startsWith("content://")) {
+            extractor.setDataSource(context, path.toUri(), null)
+        } else {
+            extractor.setDataSource(path)
+        }
+    }
 }

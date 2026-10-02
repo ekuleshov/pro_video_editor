@@ -6,6 +6,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
 import android.os.SystemClock
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
@@ -51,7 +52,7 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * Note on stalls: a genuine hang here is almost always contention for the
  * device's limited hardware [android.media.MediaCodec] encoder pool — split and
- * concurrent speed renders both drive their [Transformer] on the main [Looper]
+ * concurrent speed renders both drive their [Transformer] on the main [android.os.Looper]
  * with no global cap on live encoder sessions. A second concurrent encoder can
  * block at `progress == 0`, which the stall bound now catches.
  */
@@ -484,7 +485,11 @@ class SplitVideo(private val context: Context) {
     private fun probeDurationUs(path: String): Long {
         val retriever = MediaMetadataRetriever()
         return try {
-            retriever.setDataSource(path)
+            try {
+                setDataSource(retriever, path)
+            } catch (e: Exception) {
+                throw e
+            }
             val ms = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
@@ -497,6 +502,14 @@ class SplitVideo(private val context: Context) {
                 retriever.release()
             } catch (_: Exception) {
             }
+        }
+    }
+
+    private fun setDataSource(retriever: MediaMetadataRetriever, path: String) {
+        if (path.startsWith("content://")) {
+            retriever.setDataSource(context, path.toUri())
+        } else {
+            retriever.setDataSource(path)
         }
     }
 }

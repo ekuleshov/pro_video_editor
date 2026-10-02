@@ -4,6 +4,7 @@ import RENDER_TAG
 import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
 import ch.waio.pro_video_editor.src.shared.media.PcmRangeDecoder
@@ -45,7 +46,7 @@ import java.nio.ByteOrder
  * encoder pipeline.
  */
 @UnstableApi
-object AudioPreRenderer {
+class AudioPreRenderer(private val context: Context) {
 
     /**
      * Result of a successful pre-render operation.
@@ -281,7 +282,7 @@ object AudioPreRenderer {
         var decodedFully = false
 
         try {
-            extractor.setDataSource(path)
+            setDataSource(extractor, path)
 
             var audioTrackIndex = -1
             var inputFormat: MediaFormat? = null
@@ -388,6 +389,14 @@ object AudioPreRenderer {
             }
             // A range that never made it to a DecodedAudio owns no scratch file.
             if (!decodedFully) pcmFile.delete()
+        }
+    }
+
+    private fun setDataSource(extractor: MediaExtractor, path: String) {
+        if (path.startsWith("content://")) {
+            extractor.setDataSource(context, path.toUri(), null)
+        } else {
+            extractor.setDataSource(path)
         }
     }
 
@@ -626,9 +635,11 @@ object AudioPreRenderer {
         return ByteArray(4) { i -> ((value ushr (8 * i)) and 0xFF).toByte() }
     }
 
-    /** The largest value a RIFF/data chunk size field can hold. */
-    private const val MAX_RIFF_SIZE = 0xFFFFFFFFL
+    companion object {
+        /** The largest value a RIFF/data chunk size field can hold. */
+        private const val MAX_RIFF_SIZE = 0xFFFFFFFFL
 
-    /** Size of the canonical PCM WAV header [writeWavHeader] writes. */
-    private const val WAV_HEADER_BYTES = 44L
+        /** Size of the canonical PCM WAV header [writeWavHeader] writes. */
+        private const val WAV_HEADER_BYTES = 44L
+    }
 }

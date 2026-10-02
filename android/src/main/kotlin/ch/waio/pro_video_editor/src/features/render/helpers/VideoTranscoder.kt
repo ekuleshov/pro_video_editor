@@ -15,6 +15,7 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
+import ch.waio.pro_video_editor.src.shared.media.contentUri
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicReference
@@ -135,7 +136,7 @@ class VideoTranscoder(val context: Context) {
 
                 // Create composition with HDR tonemapping to force SDR output
                 val mediaItem = MediaItem.Builder()
-                    .setUri(inputPath)
+                    .contentUri(inputPath)
                     .build()
 
                 // Use HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL to convert HDR to SDR

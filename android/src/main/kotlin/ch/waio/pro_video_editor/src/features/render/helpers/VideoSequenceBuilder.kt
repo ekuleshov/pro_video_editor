@@ -2,8 +2,7 @@ package ch.waio.pro_video_editor.src.features.render.helpers
 
 import RENDER_TAG
 import android.content.Context
-import android.net.Uri
-import androidx.core.net.toUri
+import ch.waio.pro_video_editor.src.shared.media.contentUri
 import applyChromaKey
 import applyScale
 import androidx.media3.common.C
@@ -24,7 +23,6 @@ import ch.waio.pro_video_editor.src.features.render.models.VideoClip
 import ch.waio.pro_video_editor.src.features.render.utils.getRotatedVideoDimensions
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
 import ch.waio.pro_video_editor.src.shared.media.EncodedImage
-import java.io.File
 
 /**
  * Builder class for creating video sequences with effects in video compositions.
@@ -531,12 +529,7 @@ class VideoSequenceBuilder(
         // }
 
         // Build MediaItem with optional trimming
-        val mediaItemBuilder = MediaItem.Builder()
-        if (clip.inputPath.startsWith("content://")) {
-            mediaItemBuilder.setUri(clip.inputPath.toUri())
-        } else {
-            mediaItemBuilder.setUri(Uri.fromFile(File(clip.inputPath)))
-        }
+        val mediaItemBuilder = MediaItem.Builder().contentUri(clip.inputPath)
 
         if (clip.startUs != null || clip.endUs != null) {
             val startUs = clip.startUs ?: 0L

@@ -7,7 +7,6 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
@@ -24,6 +23,8 @@ import ch.waio.pro_video_editor.src.features.render.models.CompositionConfig
 import ch.waio.pro_video_editor.src.features.render.models.SegmentTransformConfig
 import ch.waio.pro_video_editor.src.features.render.models.VideoClip
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
+import ch.waio.pro_video_editor.src.shared.media.contentDataSource
+import ch.waio.pro_video_editor.src.shared.media.contentUri
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
@@ -363,7 +364,7 @@ class LayeredCompositionBuilder(
         canvasH: Int,
         layerChromaKey: ChromaKeyConfig?
     ): EditedMediaItem {
-        val mediaItemBuilder = MediaItem.Builder().setUri(Uri.fromFile(File(inputPath)))
+        val mediaItemBuilder = MediaItem.Builder().contentUri(inputPath)
         if (srcStartUs != null || srcEndUs != null) {
             val clipping = MediaItem.ClippingConfiguration.Builder()
                 .setStartPositionUs(srcStartUs ?: 0L)
@@ -587,7 +588,7 @@ class LayeredCompositionBuilder(
     private fun readDisplaySize(path: String): Pair<Int, Int> {
         val retriever = MediaMetadataRetriever()
         return try {
-            setDataSource(retriever, path)
+            retriever.contentDataSource(context, path)
             val w = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
                 ?.toIntOrNull() ?: 0
@@ -606,14 +607,6 @@ class LayeredCompositionBuilder(
                 retriever.release()
             } catch (_: Exception) {
             }
-        }
-    }
-
-    private fun setDataSource(retriever: MediaMetadataRetriever, path: String) {
-        if (path.startsWith("content://")) {
-            retriever.setDataSource(context, path.toUri())
-        } else {
-            retriever.setDataSource(path)
         }
     }
 }

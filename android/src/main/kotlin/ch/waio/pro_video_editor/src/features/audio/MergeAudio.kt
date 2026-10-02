@@ -9,7 +9,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -22,6 +21,7 @@ import ch.waio.pro_video_editor.src.features.audio.models.AudioExtractJobHandle
 import ch.waio.pro_video_editor.src.features.audio.models.AudioMergeConfig
 import ch.waio.pro_video_editor.src.features.audio.models.AudioMergeSegmentConfig
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
+import ch.waio.pro_video_editor.src.shared.media.contentDataSource
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -212,7 +212,7 @@ class MergeAudio(private val context: Context) {
         var bytesWritten = 0L
 
         try {
-            setDataSource(extractor, segment.inputPath)
+            extractor.contentDataSource(context, segment.inputPath)
             val audioTrackIndex = findAudioTrack(extractor)
             if (audioTrackIndex < 0) return 0L
 
@@ -525,7 +525,7 @@ class MergeAudio(private val context: Context) {
     private fun probeAudioFormat(path: String): Pair<Int, Int>? {
         val extractor = MediaExtractor()
         try {
-            setDataSource(extractor, path)
+            extractor.contentDataSource(context, path)
             val index = findAudioTrack(extractor)
             if (index < 0) return null
             val format = extractor.getTrackFormat(index)
@@ -546,7 +546,7 @@ class MergeAudio(private val context: Context) {
     private fun hasAudioTrack(path: String): Boolean {
         val extractor = MediaExtractor()
         return try {
-            setDataSource(extractor, path)
+            extractor.contentDataSource(context, path)
             findAudioTrack(extractor) >= 0
         } catch (e: Exception) {
             false
@@ -558,7 +558,7 @@ class MergeAudio(private val context: Context) {
     private fun probeDurationUs(path: String): Long {
         val extractor = MediaExtractor()
         return try {
-            setDataSource(extractor, path)
+            extractor.contentDataSource(context, path)
             val index = findAudioTrack(extractor)
             if (index < 0) return 0L
             val format = extractor.getTrackFormat(index)
@@ -677,12 +677,4 @@ class MergeAudio(private val context: Context) {
 
     private fun intToLittleEndian(value: Int): ByteArray =
         ByteArray(4) { i -> ((value ushr (8 * i)) and 0xFF).toByte() }
-
-    private fun setDataSource(extractor: MediaExtractor, path: String) {
-        if (path.startsWith("content://")) {
-            extractor.setDataSource(context, path.toUri(), null)
-        } else {
-            extractor.setDataSource(path)
-        }
-    }
 }

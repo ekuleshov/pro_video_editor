@@ -5,9 +5,9 @@ import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
-import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
+import ch.waio.pro_video_editor.src.shared.media.contentDataSource
 
 /**
  * Utility class for extracting media information from video and audio files.
@@ -27,7 +27,7 @@ class MediaInfoExtractor(private val context: Context) {
     fun hasAudioTrack(path: String): Boolean {
         val extractor = MediaExtractor()
         return try {
-            setDataSource(extractor, path)
+            extractor.contentDataSource(context, path)
             (0 until extractor.trackCount).any { i ->
                 extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)
                     ?.startsWith("audio/") == true
@@ -48,7 +48,7 @@ class MediaInfoExtractor(private val context: Context) {
     fun getVideoDuration(videoPath: String): Long {
         return try {
             val extractor = MediaExtractor()
-            setDataSource(extractor, videoPath)
+            extractor.contentDataSource(context, videoPath)
             var duration = 0L
 
             for (i in 0 until extractor.trackCount) {
@@ -85,7 +85,7 @@ class MediaInfoExtractor(private val context: Context) {
         try {
             val extractor = MediaExtractor()
             try {
-                setDataSource(extractor, videoPath)
+                extractor.contentDataSource(context, videoPath)
                 for (i in 0 until extractor.trackCount) {
                     val format = extractor.getTrackFormat(i)
                     val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
@@ -107,7 +107,7 @@ class MediaInfoExtractor(private val context: Context) {
         try {
             val retriever = MediaMetadataRetriever()
             try {
-                setDataSource(retriever, videoPath)
+                retriever.contentDataSource(context, videoPath)
                 val rate = retriever
                     .extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
                     ?.toLongOrNull()
@@ -142,7 +142,7 @@ class MediaInfoExtractor(private val context: Context) {
     fun getVideoFrameRate(videoPath: String): Float? {
         return try {
             val extractor = MediaExtractor()
-            setDataSource(extractor, videoPath)
+            extractor.contentDataSource(context, videoPath)
             var frameRate: Float? = null
 
             for (i in 0 until extractor.trackCount) {
@@ -173,7 +173,7 @@ class MediaInfoExtractor(private val context: Context) {
     fun getAudioDuration(audioPath: String): Long {
         return try {
             val extractor = MediaExtractor()
-            setDataSource(extractor, audioPath)
+            extractor.contentDataSource(context, audioPath)
             var duration = 0L
 
             for (i in 0 until extractor.trackCount) {
@@ -203,7 +203,7 @@ class MediaInfoExtractor(private val context: Context) {
     fun getAudioChannelCount(videoPath: String): Int? {
         return try {
             val extractor = MediaExtractor()
-            setDataSource(extractor, videoPath)
+            extractor.contentDataSource(context, videoPath)
             var channelCount: Int? = null
 
             for (i in 0 until extractor.trackCount) {
@@ -233,7 +233,7 @@ class MediaInfoExtractor(private val context: Context) {
     fun getAudioSampleRate(audioPath: String): Int {
         return try {
             val extractor = MediaExtractor()
-            setDataSource(extractor, audioPath)
+            extractor.contentDataSource(context, audioPath)
             var sampleRate = 0
 
             for (i in 0 until extractor.trackCount) {
@@ -301,7 +301,7 @@ class MediaInfoExtractor(private val context: Context) {
     fun getVideoFormatInfo(videoPath: String): VideoFormatInfo {
         return try {
             val extractor = MediaExtractor()
-            setDataSource(extractor, videoPath)
+            extractor.contentDataSource(context, videoPath)
 
             var isHevc = false
             var bitDepth = 8
@@ -399,22 +399,6 @@ class MediaInfoExtractor(private val context: Context) {
             Log.e(RENDER_TAG, "Failed to get video format info for $videoPath: ${e.message}")
             // Return safe defaults - assume no transcoding needed
             VideoFormatInfo(isHevc = false, bitDepth = 8, isHdr = false, profile = null)
-        }
-    }
-
-    private fun setDataSource(retriever: MediaMetadataRetriever, path: String) {
-        if (path.startsWith("content://")) {
-            retriever.setDataSource(context, path.toUri())
-        } else {
-            retriever.setDataSource(path)
-        }
-    }
-
-    private fun setDataSource(extractor: MediaExtractor, path: String) {
-        if (path.startsWith("content://")) {
-            extractor.setDataSource(context, path.toUri(), null)
-        } else {
-            extractor.setDataSource(path)
         }
     }
 }

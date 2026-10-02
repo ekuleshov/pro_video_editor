@@ -18,7 +18,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Process
 import android.view.Surface
-import androidx.core.net.toUri
+import ch.waio.pro_video_editor.src.shared.media.contentDataSource
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.TreeSet
@@ -137,7 +137,7 @@ class SequentialFrameDecoder(private val context: Context) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
 
         try {
-            setDataSource(extractor, inputPath)
+            extractor.contentDataSource(context, inputPath)
             val trackIndex = scan.trackIndex
             extractor.selectTrack(trackIndex)
             val format = extractor.getTrackFormat(trackIndex)
@@ -321,7 +321,7 @@ class SequentialFrameDecoder(private val context: Context) {
     fun scan(inputPath: String): MediaScan {
         val extractor = MediaExtractor()
         try {
-            setDataSource(extractor, inputPath)
+            extractor.contentDataSource(context, inputPath)
 
             val trackIndex = (0 until extractor.trackCount).first {
                 extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)
@@ -361,14 +361,6 @@ class SequentialFrameDecoder(private val context: Context) {
             )
         } finally {
             extractor.release()
-        }
-    }
-
-    fun setDataSource(extractor: MediaExtractor, inputPath: String) {
-        if (inputPath.startsWith("content://")) {
-            extractor.setDataSource(context, inputPath.toUri(), null)
-        } else {
-            extractor.setDataSource(inputPath)
         }
     }
 

@@ -4,10 +4,10 @@ import RENDER_TAG
 import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
 import ch.waio.pro_video_editor.src.shared.media.PcmRangeDecoder
+import ch.waio.pro_video_editor.src.shared.media.contentDataSource
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -282,7 +282,7 @@ class AudioPreRenderer(private val context: Context) {
         var decodedFully = false
 
         try {
-            setDataSource(extractor, path)
+            extractor.contentDataSource(context, path)
 
             var audioTrackIndex = -1
             var inputFormat: MediaFormat? = null
@@ -389,14 +389,6 @@ class AudioPreRenderer(private val context: Context) {
             }
             // A range that never made it to a DecodedAudio owns no scratch file.
             if (!decodedFully) pcmFile.delete()
-        }
-    }
-
-    private fun setDataSource(extractor: MediaExtractor, path: String) {
-        if (path.startsWith("content://")) {
-            extractor.setDataSource(context, path.toUri(), null)
-        } else {
-            extractor.setDataSource(path)
         }
     }
 

@@ -2,7 +2,7 @@ package ch.waio.pro_video_editor.src.features.render.utils
 
 import android.content.Context
 import android.media.MediaMetadataRetriever
-import androidx.core.net.toUri
+import ch.waio.pro_video_editor.src.shared.media.contentDataSource
 
 /**
  * Calculates the actual display dimensions of a video after rotation is applied.
@@ -36,11 +36,7 @@ fun getRotatedVideoDimensions(
 ): Triple<Int, Int, Int> {
     val retriever = MediaMetadataRetriever()
     return try {
-        if (path.startsWith("content://")) {
-            retriever.setDataSource(context, path.toUri())
-        } else {
-            retriever.setDataSource(path)
-        }
+        retriever.contentDataSource(context, path)
 
         // Extract raw video dimensions from file metadata
         val widthRaw =

@@ -3,10 +3,9 @@ package ch.waio.pro_video_editor.src.features.split
 import mapFormatToMimeType
 import android.content.Context
 import android.media.MediaMetadataRetriever
-import android.net.Uri
+import ch.waio.pro_video_editor.src.shared.media.contentUri
 import android.os.Handler
 import android.os.SystemClock
-import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
@@ -19,6 +18,7 @@ import ch.waio.pro_video_editor.src.features.render.helpers.ResilientVideoEncode
 import ch.waio.pro_video_editor.src.features.render.models.RenderJobHandle
 import ch.waio.pro_video_editor.src.shared.concurrency.ExportGate
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
+import ch.waio.pro_video_editor.src.shared.media.contentDataSource
 import java.io.File
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -140,8 +140,7 @@ class SplitVideo(private val context: Context) {
             return handle
         }
 
-        val inputFile = File(inputPath)
-        if (!inputFile.exists()) {
+        if (!inputPath.startsWith("content://") && !File(inputPath).exists()) {
             finishError(IllegalArgumentException("Input file not found: $inputPath"))
             return handle
         }
@@ -288,7 +287,7 @@ class SplitVideo(private val context: Context) {
         if (endUs != null) clipping.setEndPositionUs(endUs)
 
         val mediaItem = MediaItem.Builder()
-            .setUri(Uri.fromFile(File(inputPath)))
+            .contentUri(inputPath)
             .setClippingConfiguration(clipping.build())
             .build()
         val editedMediaItem = EditedMediaItem.Builder(mediaItem)
@@ -485,11 +484,7 @@ class SplitVideo(private val context: Context) {
     private fun probeDurationUs(path: String): Long {
         val retriever = MediaMetadataRetriever()
         return try {
-            try {
-                setDataSource(retriever, path)
-            } catch (e: Exception) {
-                throw e
-            }
+            retriever.contentDataSource(context, path)
             val ms = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
@@ -502,14 +497,6 @@ class SplitVideo(private val context: Context) {
                 retriever.release()
             } catch (_: Exception) {
             }
-        }
-    }
-
-    private fun setDataSource(retriever: MediaMetadataRetriever, path: String) {
-        if (path.startsWith("content://")) {
-            retriever.setDataSource(context, path.toUri())
-        } else {
-            retriever.setDataSource(path)
         }
     }
 }

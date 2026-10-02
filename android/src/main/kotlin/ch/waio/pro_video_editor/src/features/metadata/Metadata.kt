@@ -6,6 +6,7 @@ import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import androidx.core.net.toUri
 import ch.waio.pro_video_editor.src.features.metadata.models.MetadataConfig
+import ch.waio.pro_video_editor.src.shared.media.contentDataSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -96,7 +97,7 @@ class Metadata(private val context: Context) {
         val retriever = MediaMetadataRetriever()
 
         try {
-            setDataSource(retriever, config.inputPath)
+            retriever.contentDataSource(context, config.inputPath)
 
             // Initialize metadata map with file size
             val metadata = mutableMapOf<String, Any>(
@@ -219,11 +220,10 @@ class Metadata(private val context: Context) {
      * @throws Exception if the file cannot be accessed or check fails
      */
     private fun checkAudioTrack(config: MetadataConfig): Boolean {
-        val tempFile = File(config.inputPath)
         val retriever = MediaMetadataRetriever()
 
         try {
-            setDataSource(retriever, tempFile.absolutePath)
+            retriever.contentDataSource(context, config.inputPath)
 
             // Check if video has audio track
             val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
@@ -275,13 +275,13 @@ class Metadata(private val context: Context) {
      * This method provides more accurate audio duration compared to the overall
      * video duration, especially when the audio track is shorter than the video.
      *
-     * @param filePath Absolute path to the video file
+     * @param path A path to the video file
      * @return Audio duration in milliseconds, or null if no audio track is found
      */
     private fun extractAudioDuration(path: String): Double? {
         val extractor = MediaExtractor()
         try {
-            setDataSource(extractor, path)
+            extractor.contentDataSource(context, path)
 
             // Find the audio track
             for (i in 0 until extractor.trackCount) {
@@ -402,22 +402,6 @@ class Metadata(private val context: Context) {
             }
         } catch (e: Exception) {
             return null
-        }
-    }
-
-    private fun setDataSource(retriever: MediaMetadataRetriever, path: String) {
-        if (path.startsWith("content://")) {
-            retriever.setDataSource(context, path.toUri())
-        } else {
-            retriever.setDataSource(path)
-        }
-    }
-
-    private fun setDataSource(extractor: MediaExtractor, path: String) {
-        if (path.startsWith("content://")) {
-            extractor.setDataSource(context, path.toUri(), null)
-        } else {
-            extractor.setDataSource(path)
         }
     }
 }

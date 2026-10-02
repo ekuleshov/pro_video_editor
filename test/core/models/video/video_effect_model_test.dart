@@ -31,6 +31,18 @@ void main() {
           VideoEffectType.signalInterference,
         );
         expect(const VideoEffect.crt().type, VideoEffectType.crt);
+        expect(const VideoEffect.shake().type, VideoEffectType.shake);
+        expect(const VideoEffect.zoomPulse().type, VideoEffectType.zoomPulse);
+        expect(const VideoEffect.mirror().type, VideoEffectType.mirror);
+        expect(
+          const VideoEffect.kaleidoscope().type,
+          VideoEffectType.kaleidoscope,
+        );
+        expect(
+          const VideoEffect.splitScreen().type,
+          VideoEffectType.splitScreen,
+        );
+        expect(const VideoEffect.wave().type, VideoEffectType.wave);
         expect(const VideoEffect.vhs().intensity, 1);
       });
 
@@ -506,7 +518,8 @@ void main() {
           '0.000000, 0.000000, 1.000000, 0.800680, 0.946469, 0.100334, '
           '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
           '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
-          '0.000000, 0.000000, 0.000000',
+          '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
+          '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000',
         );
         expect(
           pin(const VideoEffect.filmGrain()),
@@ -514,7 +527,8 @@ void main() {
           '42.000000, 81.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
           '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
           '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
-          '0.000000, 0.000000, 0.000000',
+          '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
+          '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000',
         );
         expect(
           pin(const VideoEffect.signalInterference()),
@@ -522,7 +536,8 @@ void main() {
           '38.000000, 66.000000, 3.000000, 0.053544, 0.069113, -0.054526, '
           '0.535222, 0.552951, 0.064531, 0.790203, 0.800302, 0.041834, '
           '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
-          '0.000000, 0.000000, 0.000000',
+          '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
+          '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000',
         );
         expect(
           pin(const VideoEffect.crt()),
@@ -530,7 +545,8 @@ void main() {
           '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
           '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
           '0.000000, 0.000000, 0.000000, 0.000000, 0.120000, 0.000000, '
-          '0.000000, 0.350000, 0.450000',
+          '0.000000, 0.350000, 0.450000, 0.000000, 0.000000, 0.000000, '
+          '0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000',
         );
       });
 
@@ -548,6 +564,118 @@ void main() {
         expect(blockGlitch, [0, 1, 2, 3, 18, 19, 20, 24, 25, 26, 36, 37]);
         final interference = bursts(const VideoEffect.signalInterference());
         expect(interference, [0, 1, 8, 9, 16, 17, 18, 32, 40, 41, 42]);
+      });
+
+      test('shake jumps every bucket without showing the edges', () {
+        Duration bucket(int b) => Duration(microseconds: b * 41667 + 1000);
+        final frames = [
+          for (var b = 0; b < 480; b++)
+            const VideoEffect.shake().frameAt(bucket(b)),
+        ];
+        for (final frame in frames) {
+          // The zoomed picture reaches zoom / 2 past each edge.
+          expect(frame.offsetX.abs(), lessThan(frame.zoom / 2));
+          expect(frame.offsetY.abs(), lessThan(frame.zoom / 2));
+          expect(frame.offsetX.abs(), lessThanOrEqualTo(0.02));
+        }
+        expect(frames.map((f) => f.zoom).toSet(), {closeTo(0.044, 1e-12)});
+        expect(frames[0].offsetX, isNot(frames[1].offsetX));
+        expect(frames.map((f) => f.offsetX.sign).toSet(), {-1.0, 1.0});
+        expect(
+          const VideoEffect.shake(intensity: 0.5).frameAt(bucket(3)).offsetY,
+          closeTo(frames[3].offsetY / 2, 1e-12),
+        );
+      });
+
+      test('zoomPulse punches in every half second and eases out', () {
+        const effect = VideoEffect.zoomPulse(intensity: 0.8);
+        Duration bucket(int b) => Duration(microseconds: b * 41667 + 1000);
+        final zooms = [
+          for (var b = 0; b < 12; b++) effect.frameAt(bucket(b)).zoom,
+        ];
+        expect(zooms.first, closeTo(0.2, 1e-12));
+        for (var b = 1; b < 12; b++) {
+          expect(zooms[b], lessThan(zooms[b - 1]));
+        }
+        expect(zooms.last, lessThan(0.002));
+        expect(effect.frameAt(bucket(12)), effect.frameAt(bucket(0)));
+      });
+
+      test('mirror and kaleidoscope stay symmetric and zoom in below full '
+          'intensity', () {
+        expect(
+          const VideoEffect.mirror().frameAt(const Duration(seconds: 9)),
+          const VideoEffectFrame(mirrorX: 0.5),
+        );
+        final mirror = const VideoEffect.mirror(
+          intensity: 0.6,
+        ).frameAt(Duration.zero);
+        expect(mirror.mirrorX, 0.5);
+        expect(mirror.zoom, closeTo(0.4, 1e-12));
+        expect(
+          const VideoEffect.kaleidoscope().frameAt(Duration.zero),
+          const VideoEffectFrame(mirrorX: 0.5, mirrorY: 0.5),
+        );
+      });
+
+      test('splitScreen shows the whole picture four times at full '
+          'intensity and zooms in below it', () {
+        expect(
+          const VideoEffect.splitScreen().frameAt(Duration.zero),
+          const VideoEffectFrame(tiles: 2),
+        );
+        final weak = const VideoEffect.splitScreen(
+          intensity: 0.25,
+        ).frameAt(const Duration(seconds: 4));
+        expect(weak.tiles, 2);
+        expect(weak.zoom, closeTo(0.75, 1e-12));
+      });
+
+      test('wave rolls up by one wave every two seconds', () {
+        const effect = VideoEffect.wave(intensity: 0.4);
+        final start = effect.frameAt(Duration.zero);
+        expect(start.waveAmplitude, closeTo(0.01, 1e-12));
+        // Zoomed in past the bend: the frame's edges show the bent picture
+        // zoom / 2 / (1 + zoom) of the width in from its edges.
+        expect(start.zoom, closeTo(0.022, 1e-12));
+        expect(start.zoom / 2 / (1 + start.zoom), greaterThan(0.01));
+        expect(start.wavePeriod, 0.5);
+        expect(start.wavePhase, 0);
+        expect(
+          effect.frameAt(const Duration(seconds: 1)).wavePhase,
+          closeTo(0.5, 1e-12),
+        );
+        expect(effect.frameAt(const Duration(seconds: 2)), start);
+      });
+
+      // Pins the look of the geometric effects, like the glitch burst below.
+      test('keeps the look of the geometric effects', () {
+        String pin(VideoEffect effect) => effect
+            .frameAt(const Duration(milliseconds: 100))
+            .toList()
+            .sublist(27)
+            .map((v) => v.toStringAsFixed(6))
+            .join(', ');
+        expect(
+          pin(const VideoEffect.shake()),
+          '0.044000, 0.018089, -0.007385, 0.000000, 0.000000, 0.000000, '
+          '0.000000, 0.000000, 0.000000',
+        );
+        expect(
+          pin(const VideoEffect.zoomPulse()),
+          '0.173611, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
+          '0.000000, 0.000000, 0.000000',
+        );
+        expect(
+          pin(const VideoEffect.splitScreen(intensity: 0.7)),
+          '0.300000, 0.000000, 0.000000, 0.000000, 0.000000, 2.000000, '
+          '0.000000, 0.000000, 0.000000',
+        );
+        expect(
+          pin(const VideoEffect.wave()),
+          '0.055000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, '
+          '0.025000, 0.500000, 0.041667',
+        );
       });
 
       // Pins the look: renderers only play frames back, so a change here is a
@@ -583,6 +711,9 @@ void main() {
           '0.000000',
           '0.000000',
           '0.000000',
+          // zoom, offsetX, offsetY, mirrorX, mirrorY, tiles, waveAmplitude,
+          // wavePeriod, wavePhase
+          for (var i = 0; i < 9; i++) '0.000000',
         ]);
       });
     });

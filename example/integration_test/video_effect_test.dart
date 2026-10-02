@@ -285,6 +285,122 @@ void main() {
     });
   });
 
+  group('geometry', () {
+    late EditorVideo stripe;
+    late EditorVideo ramp;
+
+    setUpAll(() async {
+      stripe = await videoFromImage(await stripePng());
+      ramp = await videoFromImage(await rampPng(horizontal: true));
+    });
+
+    testWidgets('mirror shows the left half mirrored on the right', (
+      tester,
+    ) async {
+      final out = await frameOf(
+        await render(ramp, const [VideoEffect.mirror()]),
+        Duration.zero,
+      );
+      for (final x in [20, 100, 250]) {
+        final left = grey(pixel(out, x, 180));
+        final right = grey(pixel(out, 639 - x, 180));
+        expect((left - right).abs(), lessThan(12), reason: 'column $x');
+      }
+      expect(grey(pixel(out, 600, 180)), lessThan(60));
+    });
+
+    // A phone stores a portrait video as landscape pixels plus a rotation
+    // flag. The geometry belongs to the picture as it is shown, so the mirror
+    // runs along the shown rows: left and right match, top and bottom do not.
+    testWidgets('mirror follows the shown picture of a rotated clip', (
+      tester,
+    ) async {
+      // 640x360 pixels, shown as 360x640.
+      final rotated = EditorVideo.asset('assets/tests/test_g.mp4');
+      for (final withCropping in [false, true]) {
+        final out = await frameOf(
+          await pve.renderVideo(
+            VideoRenderData(
+              videoSegments: [VideoSegment(video: rotated)],
+              effects: const [VideoEffect.mirror()],
+              imageBytesWithCropping: withCropping,
+            ),
+          ),
+          Duration.zero,
+          size: const Size(360, 640),
+        );
+        var across = 0;
+        var down = 0;
+        var count = 0;
+        for (var y = 20; y < 320; y += 20) {
+          for (var x = 10; x < 180; x += 20) {
+            final here = grey(pixel(out, x, y));
+            across += (here - grey(pixel(out, 359 - x, y))).abs();
+            down += (here - grey(pixel(out, x, 639 - y))).abs();
+            count++;
+          }
+        }
+        final reason = 'imageBytesWithCropping: $withCropping';
+        expect(across / count, lessThan(8), reason: reason);
+        expect(down / count, greaterThan(20), reason: reason);
+      }
+    });
+
+    testWidgets('splitScreen shows the picture four times at half size', (
+      tester,
+    ) async {
+      final out = await frameOf(
+        await render(stripe, const [VideoEffect.splitScreen()]),
+        Duration.zero,
+      );
+      // The stripe, x = 256..383, lands at 128..191 in the left copies and at
+      // 448..511 in the right ones.
+      for (final (x, y) in [(160, 90), (480, 90), (160, 270), (480, 270)]) {
+        expect(grey(pixel(out, x, y)), greaterThan(200), reason: '($x, $y)');
+      }
+      for (final (x, y) in [(60, 90), (320, 90), (580, 270), (320, 270)]) {
+        expect(grey(pixel(out, x, y)), lessThan(50), reason: '($x, $y)');
+      }
+    });
+
+    testWidgets('zoomPulse opens zoomed in on the center', (tester) async {
+      final out = await frameOf(
+        await render(stripe, const [VideoEffect.zoomPulse()]),
+        Duration.zero,
+      );
+      // Zoomed by 1.25 around x = 320, the stripe spans 240..400.
+      expect(grey(pixel(out, 246, 180)), greaterThan(200));
+      expect(grey(pixel(out, 394, 180)), greaterThan(200));
+      expect(grey(pixel(out, 410, 180)), lessThan(50));
+    });
+
+    testWidgets('wave bends the rows along the wave', (tester) async {
+      const effect = VideoEffect.wave();
+      final frame = effect.frameAt(Duration.zero);
+      final out = await frameOf(
+        await render(stripe, const [effect]),
+        Duration.zero,
+      );
+      // The wave is half the frame tall: its crest is an eighth of the way
+      // down, at row 45, and its trough at row 135. There it moves the
+      // stripe right, and left, by the amplitude, 16 pixels. The zoom that
+      // follows, by 1.055 around the center, puts those rows at 38 and 132,
+      // and the stripe, x = 256..383, at 252..387 where the wave crosses
+      // zero, at row 85.
+      final reach = frame.waveAmplitude * 640;
+      expect(reach, closeTo(16, 1e-9));
+      expect(frame.zoom, closeTo(0.055, 1e-9));
+      // The crest: 269..403.
+      expect(grey(pixel(out, 262, 38)), lessThan(60));
+      expect(grey(pixel(out, 396, 38)), greaterThan(190));
+      // The trough: 236..370.
+      expect(grey(pixel(out, 244, 132)), greaterThan(190));
+      expect(grey(pixel(out, 378, 132)), lessThan(60));
+      expect(grey(pixel(out, 258, 85)), greaterThan(190));
+      expect(grey(pixel(out, 246, 85)), lessThan(60));
+    });
+  });
+
   group('tones', () {
     late EditorVideo darkGrey;
     late EditorVideo midGrey;

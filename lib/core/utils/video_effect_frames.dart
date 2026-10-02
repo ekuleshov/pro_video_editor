@@ -20,15 +20,21 @@ int videoEffectCycleLengthOf(VideoEffectType type) => switch (type) {
   VideoEffectType.oldFilm ||
   VideoEffectType.blockGlitch ||
   VideoEffectType.filmGrain ||
-  VideoEffectType.signalInterference => videoEffectCycleLength,
+  VideoEffectType.signalInterference ||
+  VideoEffectType.shake => videoEffectCycleLength,
   // Two seconds: the channels swap sides every second.
   VideoEffectType.rgbSplit => 2 * videoEffectFrameRate,
   VideoEffectType.pixelPulse ||
   VideoEffectType.negativeFlash => videoEffectFrameRate,
   VideoEffectType.strobe => _strobePeriod,
+  VideoEffectType.zoomPulse => _zoomPulsePeriod,
+  VideoEffectType.wave => _wavePeriodBuckets,
   VideoEffectType.pixelate ||
   VideoEffectType.vignette ||
-  VideoEffectType.crt => 1,
+  VideoEffectType.crt ||
+  VideoEffectType.mirror ||
+  VideoEffectType.kaleidoscope ||
+  VideoEffectType.splitScreen => 1,
 };
 
 /// The bucket of [localTime] into [type]'s cycle.
@@ -81,6 +87,25 @@ VideoEffectFrame videoEffectFrameFor(
       bucket,
     ),
     VideoEffectType.crt => _crt(intensity),
+    VideoEffectType.shake => _shake(intensity, bucket),
+    VideoEffectType.zoomPulse => _zoomPulse(intensity, bucket),
+    // The mirrored and repeated effects keep their symmetry at every
+    // intensity: full intensity shows as much of the picture as fits, less
+    // zooms in on its center, up to twice at the lowest.
+    VideoEffectType.mirror => VideoEffectFrame(
+      mirrorX: 0.5,
+      zoom: 1 - intensity,
+    ),
+    VideoEffectType.kaleidoscope => VideoEffectFrame(
+      mirrorX: 0.5,
+      mirrorY: 0.5,
+      zoom: 1 - intensity,
+    ),
+    VideoEffectType.splitScreen => VideoEffectFrame(
+      tiles: 2,
+      zoom: 1 - intensity,
+    ),
+    VideoEffectType.wave => _wave(intensity, bucket),
   };
 }
 
@@ -364,6 +389,45 @@ VideoEffectFrame _crt(double intensity) => VideoEffectFrame(
   vignette: 0.35 * intensity,
   vignetteRadius: 0.45,
 );
+
+/// The picture jumps to a new spot every bucket, in a random direction, by up
+/// to 2% of the frame at full [intensity]. It is zoomed in by a little more
+/// than twice that, so its edges never come into view.
+VideoEffectFrame _shake(double intensity, int bucket) {
+  final reach = 0.02 * intensity;
+  return VideoEffectFrame(
+    zoom: 2.2 * reach,
+    offsetX: (2 * _random(60, bucket) - 1) * reach,
+    offsetY: (2 * _random(61, bucket) - 1) * reach,
+  );
+}
+
+/// Buckets between two zoom punches: a beat at 120 beats a minute.
+const int _zoomPulsePeriod = videoEffectFrameRate ~/ 2;
+
+/// The picture punches in by up to 25% at the start of every half second and
+/// eases back out until the next punch.
+VideoEffectFrame _zoomPulse(double intensity, int bucket) {
+  final remaining = 1 - (bucket % _zoomPulsePeriod) / _zoomPulsePeriod;
+  return VideoEffectFrame(zoom: 0.25 * intensity * remaining * remaining);
+}
+
+/// Buckets the wave takes to roll up one wave length: two seconds.
+const int _wavePeriodBuckets = 2 * videoEffectFrameRate;
+
+/// Rows bend sideways by up to 2.5% of the frame width along a wave half the
+/// frame tall, which rolls up the picture by one wave every two seconds. The
+/// picture is zoomed in by a little more than twice the bend, so the edges the
+/// rows move away from never come into view.
+VideoEffectFrame _wave(double intensity, int bucket) {
+  final amplitude = 0.025 * intensity;
+  return VideoEffectFrame(
+    zoom: 2.2 * amplitude,
+    waveAmplitude: amplitude,
+    wavePeriod: 0.5,
+    wavePhase: bucket / _wavePeriodBuckets,
+  );
+}
 
 /// A uniform value in `[0, 1)` for the given keys.
 double _random(int a, int b, [int c = 0]) {

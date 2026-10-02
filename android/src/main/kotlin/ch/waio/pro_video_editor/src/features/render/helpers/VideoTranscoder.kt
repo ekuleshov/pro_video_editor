@@ -4,7 +4,6 @@ import RENDER_TAG
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -15,6 +14,7 @@ import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
+import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicReference
@@ -86,7 +86,7 @@ object VideoTranscoder {
 
         val outputFile = File(
             context.cacheDir,
-            "transcoded_${System.currentTimeMillis()}.mp4"
+            "transcoded_${System.currentTimeMillis()}_${java.util.UUID.randomUUID()}.mp4"
         )
 
         val resultRef = AtomicReference<TranscodeResult>()

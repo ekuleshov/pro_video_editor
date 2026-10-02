@@ -46,10 +46,14 @@ class VideoQualityConfig {
   /// Creates a custom configuration with specific bitrate and resolution.
   ///
   /// Useful when you need fine-grained control over quality settings.
-  factory VideoQualityConfig.custom({
-    required int bitrate,
-    Size? resolution,
-  }) {
+  ///
+  /// When [resolution] is set, it becomes the **exact output canvas size** for
+  /// the `videoSegments` export: the video is scaled to fit inside it
+  /// (preserving its aspect ratio), centered, and the remaining space is filled
+  /// with black padding (letterbox/pillarbox). For example, a 720x720 source
+  /// with `resolution: Size(1080, 1920)` exports a 1080x1920 video with the
+  /// content centered and black bars top and bottom.
+  factory VideoQualityConfig.custom({required int bitrate, Size? resolution}) {
     return VideoQualityConfig(
       bitrate: bitrate,
       resolution: resolution,
@@ -57,9 +61,13 @@ class VideoQualityConfig {
     );
   }
 
-  /// The target bitrate in bits per second.
+  /// The maximum bitrate in bits per second.
   ///
-  /// Higher bitrates generally result in better quality but larger file sizes.
+  /// This is an upper limit, not a target: a source already within the cap
+  /// (plus a small tolerance) is exported losslessly over the fast path and
+  /// keeps its own lower bitrate; a source above it is re-encoded down to
+  /// the cap. Higher caps generally result in better quality but larger
+  /// file sizes.
   final int bitrate;
 
   /// The target resolution (width x height) for the video.

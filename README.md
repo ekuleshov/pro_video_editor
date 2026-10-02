@@ -103,11 +103,13 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 #### 🎥 Video Editing Capabilities
 
 - 📈 **Metadata**: Extract detailed metadata from the video file.
-- 🖼️ **Thumbnails**: Generate one or multiple thumbnails from the video.
+- 🖼️ **Thumbnails**: Generate one or multiple thumbnails from the video, in one call or streamed frame by frame.
 - 🎞️ **Keyframes**: Retrieve keyframe information from the video.
 - ✂️ **Trim**: Cut the video to a specified start and end time.
 - 🔗 **Merge Videos**: Concatenate multiple video clips into a single output.
+- 🎬 **Stop-Motion**: Turn a sequence of still images into a video, each frame held for a configurable duration.
 - ⏩ **Playback Speed**: Adjust the playback speed of the video.
+- ⏪ **Reverse Video**: Play a video segment backwards.
 - 🔇 **Mute Audio**: Remove or mute the audio track from the video.
 - 📊 **Waveform**: Generate audio waveform data for visualization, with support for streaming mode.
 
@@ -121,15 +123,23 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 - 🖼️ **Layers**: Overlay a image like a text or drawings on the video.
 - 🕐 **Timed Image Layers**: Position image overlays at specific coordinates with optional start/end times.
 - 📐 **Layer Size**: Scale image layers to custom dimensions via the `size` property.
-- 🎬 **Layer Animations**: Animate image layers with fade, slide, and scale effects, configurable easing curves, and in/out/inOut phases.
+- 🔄 **Layer Rotation**: Rotate image layers around their center via the `rotation` property (radians).
+- 🔄 **Segment Rotation**: Rotate a composition clip around its own center via `SegmentTransform.rotation` (radians). The `offset`/`size` keep describing the unrotated box, so a `pro_image_editor` layer rotation can be forwarded straight through.
+- 🎞️ **Animated GIF Layers**: Overlay animated GIFs — detected automatically and played frame by frame, with optional `loop`. `animationOffset` starts playback part-way in, so one animation can run on across several layers.
+- 🎬 **Layer Animations**: Animate image layers with fade, slide, and scale effects, configurable easing curves, and in/out/inOut phases. A slide travels to a canvas edge or to a start point you pick yourself.
+- 🎞️ **Clip Transitions**: Add transitions between adjacent clips — `dissolve`, `fadeToBlack`, `fadeToWhite`, `slide`, `push`, and `wipe` — with configurable duration, easing curve, and direction.
 - 🧮 **Color Matrix**: Apply one or multiple 4x5 color matrices (e.g., for filters).
 - 💧 **Blur**: Add a blur effect to the video.
-- 📡 **Bitrate**: Set a custom video bitrate. If constant bitrate (CBR) isn't supported, it will gracefully fall back to the next available mode.
+- ✨ **Video Effects**: `glitch` (channel split and slices that jump sideways), `rgbSplit` (a pulsing color fringe), `vhs` (scanlines, grain and a rolling tracking band), `tvStatic` (heavy flickering grain), `oldFilm` (sepia, grain and flicker), `pixelate`, `pixelPulse` (blocks that sharpen again every second), `strobe`, `negativeFlash`, `vignette`, `blockGlitch` (coarse blocks and slipping slices in short bursts), `filmGrain` (fine, calm grain), `signalInterference` (thin flickering slices and bursts of noise), `crt` (strong scanlines and a slight fringe), `shake`, `zoomPulse` (punches in every half second), `mirror`, `kaleidoscope`, `splitScreen` (the picture four times in a 2×2 grid), `wave` (rows bending along a rolling wave) and `glow` (the brightest areas bloom softly), each with an intensity and an optional time range. `VideoEffectPreview` shows the same frames live over a video player.
+- 🟩 **Chroma Key**: Remove a green (or blue, or any saturated hue) screen, or a bright white or light grey wall, with a soft edge and spill suppression, and fill it with a color, an image, or — in a `VideoComposition` — the layer below. `ChromaKey.autoDetect` measures the key straight off the footage; `greenScreen()`/`blueScreen()` presets are there when you already know. Configurable globally, per `VideoLayer`, or per `VideoSegment`.
+- 📡 **Bitrate**: Cap the video bitrate. Sources already below the cap are exported losslessly over the fast path; sources above it are re-encoded down to the cap. If constant bitrate (CBR) isn't supported, it will gracefully fall back to the next available mode.
 - 🌐 **Streaming Optimization**: Optimize video for progressive playback by placing metadata (moov atom) at the start of the file.
 
 #### 📱 **Runtime Features**
 - 📊 **Progress**: Track the progress of one or multiple running tasks.
 - 🧵 **Multi-Tasking**: Execute multiple video processing tasks concurrently.
+- 🔇 **Native Log Level**: Control native log verbosity per API call with `NativeLogLevel` (`none`, `error`, `warning`, `info`, `debug`, `verbose`).
+- 🪵 **Native Log Stream**: Receive native logs (including renderer diagnostics) back in Dart via `logStream` to pipe into your own logger and export.
 
 
 ### Platform Support
@@ -137,6 +147,7 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 |----------------------------|---------|------|--------|----------|--------|-------|
 | `Metadata`                 | ✅      | ✅  | ✅     | ✅      | ⚠️     | ✅   |
 | `Thumbnails`               | ✅      | ✅  | ✅     | ❌      | ❌     | ✅   |
+| `Thumbnail Streaming`      | ✅      | ✅  | ✅     | ❌      | ❌     | ✅   |
 | `KeyFrames`                | ✅      | ✅  | ✅     | ❌      | ❌     | ✅   |
 | `Rotate`                   | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Flip`                     | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
@@ -148,12 +159,16 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 | `Overlay Layers`           | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Timed Image Layers`       | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Layer Animations`          | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
+| `Clip Transitions`          | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Layer Size`                | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Multiple ColorMatrix 4x5` | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Cancel export task`       | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Blur background`          | 🧪      | 🧪  | 🧪     | ❌      | ❌     | 🚫   |
+| `Chroma Key (Greenscreen)` | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
+| `Video Effects`            | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Custom Audio Tracks`      | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Merge Videos`             | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
+| `Stop-Motion (Images→Video)`| ✅     | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Extract Audio`            | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Waveform`                 | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Waveform Streaming`       | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
@@ -202,6 +217,28 @@ Uint8List result = await ProVideoEditor.instance.renderVideo(data);
 /// String outputPath = '${directory.path}/my_video.mp4';
 ///
 /// await ProVideoEditor.instance.renderVideoToFile('${directory.path}/my_video.mp4', data);
+
+/// Video effects, over the whole video or a time range. Animated effects start
+/// at `startTime` and repeat after at most 20 seconds.
+final effectTask = VideoRenderData(
+    videoSegments: [VideoSegment(video: video)],
+    effects: const [
+        VideoEffect.vhs(intensity: 0.6),
+        VideoEffect.glitch(
+            startTime: Duration(seconds: 2),
+            endTime: Duration(milliseconds: 2500),
+        ),
+    ],
+);
+
+/// The same effects, live over a player. `position` is the playhead on the
+/// timeline the effects' time ranges use. Needs Impeller; elsewhere the child
+/// shows unchanged and the export still applies the effects.
+VideoEffectPreview(
+    effects: effectTask.effects,
+    position: playheadNotifier,
+    child: videoPlayer,
+);
 
 /// Listen progress
 StreamBuilder<ProgressModel>(
@@ -266,6 +303,142 @@ Uint8List result = await ProVideoEditor.instance.renderVideo(data);
 
 /// Note: You must use either 'video' (single video) OR 'videoSegments' (multiple videos),
 /// but not both. The clips will be joined in the order they appear in the list.
+```
+
+#### Stop-Motion Example
+```dart
+/// Turn a sequence of still images into a video.
+/// Each frame is held for 1 / frameRate seconds, unless a per-frame
+/// duration is provided.
+var data = StopMotionRenderData(
+    frames: [
+        StopMotionFrame(image: EditorLayerImage.file(File('/path/to/frame1.png'))),
+        StopMotionFrame(image: EditorLayerImage.file(File('/path/to/frame2.png'))),
+        StopMotionFrame(
+            image: EditorLayerImage.memory(frame3Bytes),
+            duration: const Duration(milliseconds: 500), // hold this frame longer
+        ),
+    ],
+    frameRate: 12,                  // default frame duration = 1/12s
+    fit: StopMotionFit.contain,     // contain | cover | stretch
+    // resolution: Size(1080, 1920), // optional, defaults to the first frame size
+);
+
+Uint8List result = await ProVideoEditor.instance.renderStopMotion(data);
+
+/// For long sequences, write directly to a file to avoid high memory usage:
+/// await ProVideoEditor.instance.renderStopMotionToFile(outputPath, data);
+
+/// The stop-motion output is silent. To add background music, pass the result
+/// through renderVideo with `audioTracks`.
+```
+
+#### Reverse Video Example
+```dart
+/// Render a segment backwards by setting reverseVideo to true.
+/// Other segments keep their original direction.
+var data = VideoRenderData(
+    videoSegments: [
+        VideoSegment(
+            video: EditorVideo.file(File('/path/to/clip.mp4')),
+            reverseVideo: true,
+        ),
+    ],
+    outputFormat: VideoOutputFormat.mp4,
+);
+
+Uint8List result = await ProVideoEditor.instance.renderVideo(data);
+```
+
+#### Clip Transitions Example
+```dart
+/// Add a transition between adjacent clips via `VideoSegment.transition`.
+/// The transition describes how a clip moves into the NEXT clip and is
+/// ignored on the last segment.
+///
+/// Overlap transitions (dissolve, slide, push, wipe) blend the two clips and
+/// shorten the total output by the transition duration. Dip transitions
+/// (fadeToBlack, fadeToWhite) dip through a color and keep the duration.
+var data = VideoRenderData(
+    videoSegments: [
+        VideoSegment(
+            video: EditorVideo.asset('assets/clip-a.mp4'),
+            endTime: const Duration(seconds: 5),
+            transition: const ClipTransition(
+                type: ClipTransitionType.dissolve,
+                duration: Duration(milliseconds: 800),
+                curve: AnimationCurve.easeInOut,
+            ),
+        ),
+        VideoSegment(
+            video: EditorVideo.asset('assets/clip-b.mp4'),
+            // A directional transition (slide / push / wipe) uses `direction`.
+            transition: const ClipTransition(
+                type: ClipTransitionType.wipe,
+                duration: Duration(milliseconds: 700),
+                direction: ClipTransitionDirection.right,
+            ),
+        ),
+        VideoSegment(video: EditorVideo.asset('assets/clip-c.mp4')),
+    ],
+    outputFormat: VideoOutputFormat.mp4,
+);
+
+Uint8List result = await ProVideoEditor.instance.renderVideo(data);
+
+/// Note: overlap transitions require the neighbouring clips to show at the
+/// same size (split clips from one source always do; a rotation flag on one
+/// of them is fine); otherwise the boundary falls back to a hard cut.
+```
+
+#### Composition (Layers) Example
+```dart
+/// While `videoSegments` concatenates clips into ONE track, a `VideoComposition`
+/// stacks several tracks (layers) on a fixed canvas so they overlap in time and
+/// space — picture-in-picture, side-by-side, grids, etc.
+///
+/// Layers are composited bottom-to-top (the last layer is drawn on top). Each
+/// layer is placed via `transform` (or per-clip `VideoSegment.transform`) and
+/// can have its own `opacity`. Uncovered areas show `backgroundColor`.
+var data = VideoRenderData(
+    composition: VideoComposition(
+        canvasSize: const Size(1080, 1920),
+        backgroundColor: const Color(0xFF000000),
+        layers: [
+            // Bottom layer: full-canvas background video.
+            VideoLayer(
+                clips: [VideoSegment(video: EditorVideo.asset('assets/main.mp4'))],
+            ),
+            // Top layer: a picture-in-picture overlay, muted, top-right.
+            VideoLayer(
+                opacity: 1.0,
+                transform: const SegmentTransform(
+                    offset: Offset(700, 60),
+                    size: Size(320, 568),
+                    fit: SegmentFit.cover,
+                    // Clockwise, in radians (like Transform.rotate). The box
+                    // above stays the unrotated layout box, and `cover`
+                    // overflow is cut at its edge before the turn.
+                    rotation: 0.15,
+                ),
+                clips: [
+                    VideoSegment(
+                        video: EditorVideo.asset('assets/pip.mp4'),
+                        volume: 0,
+                        timelineStart: const Duration(seconds: 2), // appears at +2s
+                    ),
+                ],
+            ),
+        ],
+    ),
+    outputFormat: VideoOutputFormat.mp4,
+);
+
+Uint8List result = await ProVideoEditor.instance.renderVideo(data);
+
+/// Note: provide exactly one of `video`, `videoSegments` or `composition`.
+/// Per-clip `transition`, `playbackSpeed` and `reverseVideo` are not applied
+/// inside a composition — use `videoSegments` if you need those.
 ```
 
 #### Extract Audio Example
@@ -430,6 +603,30 @@ if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
 }
 ```
 
+A cancel answers at once, and the cancelled job's future completes before the cancel's does. The job's id is free again from that moment — a retry can start the same id right after cancelling it without being refused as already running. The cancelled pipeline may still be unwinding at that point, so a job restarted under the same id is accepted at once but begins only after that pipeline has finished — its output can never be removed by the old job's cleanup. Reuse the id for a retry to get that guarantee.
+
+#### Find out why a render failed
+
+A render that fails for any other reason throws a `PlatformException` (or, for encoder failures, a `RenderEncoderException`). Its message is the platform's own description of the failure — written for a person, and on iOS/macOS in that person's language, so it is nothing to branch on. `NativeFailureDetails` reads what is: the error's domain and code, and the chain of causes underneath.
+
+```dart
+try {
+  await ProVideoEditor.instance.renderVideoToFile(outputPath, renderModel);
+} on PlatformException catch (e) {
+  final details = NativeFailureDetails.of(e);
+  if (details?.isOutOfStorage ?? false) {
+    // Ask the user to free up space; a retry would hit the same wall.
+  } else {
+    // details?.domain, details?.code, details?.codeName, details?.cause
+  }
+}
+```
+
+| Platform | `domain` | `code` / `codeName` | `cause` |
+|---|---|---|---|
+| iOS, macOS | `NSError.domain`, e.g. `AVFoundationErrorDomain`, `NSPOSIXErrorDomain`, `ExportWatchdog` | `NSError.code` (`-11807` for `AVErrorDiskFull`) | the `NSUnderlyingErrorKey` chain |
+| Android | the outermost throwable's class, e.g. `androidx.media3.transformer.ExportException` | `ExportException.errorCode` and its name, e.g. `ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED` | the Java cause chain |
+
 #### Advanced Example
 ```dart
 /// Every option except videoSegments is optional.
@@ -439,27 +636,31 @@ var task = VideoRenderData(
         VideoSegment(
             video: EditorVideo.asset('assets/my-video.mp4'),
             volume: 0.7, // Original audio at 70%
+            playbackSpeed: 2, // Double speed
         ),
     ],
     imageLayers: [
       ImageLayer(
-        imageBytes: layerBytes,
+        image: EditorLayerImage.memory(layerBytes),
         offset: const Offset(100, 50),
+        rotation: 45 * pi / 180, // clockwise, in radians (like Transform.rotate)
         startTime: const Duration(seconds: 2),
         endTime: const Duration(seconds: 8),
       ),
     ],
     outputFormat: VideoOutputFormat.mp4,
-    playbackSpeed: 2,
     startTime: const Duration(seconds: 5),
     endTime: const Duration(seconds: 20),
     blur: 10,
     bitrate: 5000000,
+    maxFrameRate: 30, // cap output at 30 fps (drops surplus frames)
     enableAudio: false,
     audioTracks: [
       VideoAudioTrack(
         path: customAudioPath,
         volume: 0.3, // Background music at 30%
+        fadeInDuration: const Duration(milliseconds: 500), // ease it in
+        fadeOutDuration: const Duration(seconds: 1), // and out at the end
       ),
     ],
     transform: const ExportTransform(
@@ -477,12 +678,78 @@ var task = VideoRenderData(
          ColorFilter(matrix: [ 1.0, 0.0, 0.0, 0.0, 50.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0 ]),
          ColorFilter(matrix: [ 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0 ]),
     ],
+    chromaKey: const ChromaKey(
+        // Defaults to SMPTE "chroma key green". Brightness matters as well as
+        // hue, so measure it with `ChromaKey.autoDetect` when you can.
+        color: Color(0xFF00B140),
+        similarity: 0.20,  // raise it if the screen survives the key
+        smoothness: 0.08,  // width of the soft edge
+        spill: 0.5,        // pull the green cast off the subject's edges
+        backgroundColor: Color(0xFF000000),
+    ),
 );
 
 Uint8List result = await ProVideoEditor.instance.renderVideo(task);
 
 /// Note: Blur is an experimental feature (🧪 in platform matrix)
 /// The blur effect may render differently than in Flutter's preview.
+
+/// Chroma key: the most reliable key is measured, not guessed. Paint, lighting
+/// and the camera all shift the recorded screen away from any constant, and
+/// that shift has to be paid for with a wider `similarity` — the very margin
+/// that protects the subject. On a real studio clip the SMPTE constant sat
+/// 0.10–0.20 away from the screen and needed `similarity: 0.20`; the measured
+/// color sat within 0.05 and 0.10 was plenty.
+final key = await ChromaKey.autoDetect(
+    greenScreenVideo,
+    backgroundColor: Colors.black,
+);
+
+/// When you already know the screen, the presets carry the measured values.
+/// Note that blue is not green with a different hue: it separates skin better,
+/// but denim (0.19), blue eyes (0.20) and light blue shirts (0.21) all crowd
+/// it, so `blueScreen()` keys tighter and despills more gently.
+const greenKey = ChromaKey.greenScreen(backgroundColor: Color(0xFF000000));
+const blueKey = ChromaKey.blueScreen(backgroundColor: Color(0xFF000000));
+
+/// Chroma key: to put a *video* behind the green screen, leave the key
+/// transparent and place the keyed clip on a layer above another one. In the
+/// single-track `videoSegments` path there is nothing underneath and the codec
+/// carries no alpha, so a key there needs a `backgroundColor` or
+/// `backgroundImage`.
+final keyedTask = VideoRenderData(
+    composition: VideoComposition(
+        layers: [
+            VideoLayer(clips: [VideoSegment(video: backgroundVideo)]),
+            VideoLayer(
+                clips: [VideoSegment(video: greenScreenVideo)],
+                chromaKey: const ChromaKey(),
+            ),
+        ],
+    ),
+);
+
+/// Video effects: glitch, VHS and pixelate, over the whole video or a time
+/// range. Animated effects start at `startTime` and repeat every 20 seconds.
+final effectTask = VideoRenderData(
+    videoSegments: [VideoSegment(video: video)],
+    effects: const [
+        VideoEffect.vhs(intensity: 0.6),
+        VideoEffect.glitch(
+            startTime: Duration(seconds: 2),
+            endTime: Duration(milliseconds: 2500),
+        ),
+    ],
+);
+
+/// The same effects, live over a player. `position` is the playhead on the
+/// timeline the effects' time ranges use. Needs Impeller; elsewhere the child
+/// shows unchanged and the export still applies the effects.
+VideoEffectPreview(
+    effects: effectTask.effects,
+    position: playheadNotifier,
+    child: videoPlayer,
+);
 
 /// Listen progress
 StreamBuilder<ProgressModel>(
@@ -527,9 +794,13 @@ Represents a video clip segment for merging multiple videos.
 
 ```dart
 VideoSegment({
-  required EditorVideo video,  // Video source (file, asset, network, memory)
-  Duration? startTime,          // Optional: Start time for trimming
-  Duration? endTime,            // Optional: End time for trimming
+  required EditorVideo video,    // Video source (file, asset, network, memory)
+  Duration? startTime,           // Optional: Start time for trimming
+  Duration? endTime,             // Optional: End time for trimming
+  double? volume,                // Optional: Per-clip volume multiplier
+  double? playbackSpeed,         // Optional: Per-clip playback speed
+  bool reverseVideo = false,     // Optional: Play this clip backwards
+  ClipTransition? transition,    // Optional: Transition into the NEXT clip
 })
 ```
 
@@ -537,6 +808,10 @@ VideoSegment({
 - `video` (required): The video source using `EditorVideo.file()`, `EditorVideo.asset()`, `EditorVideo.network()`, or `EditorVideo.memory()`.
 - `startTime` (optional): The starting point for this clip. If omitted, starts from the beginning (0:00).
 - `endTime` (optional): The ending point for this clip. If omitted, uses the full video duration.
+- `volume` (optional): Per-clip audio volume multiplier (`0.0` = mute, `1.0` = original).
+- `playbackSpeed` (optional): Per-clip playback speed (e.g. `0.5` = half, `2.0` = double).
+- `reverseVideo` (optional): Renders this clip backwards when `true`.
+- `transition` (optional): A `ClipTransition` describing how this clip transitions into the **next** clip (dissolve, fade-to-black, slide, etc.). Ignored on the last segment.
 
 **Usage Example:**
 ```dart
@@ -578,6 +853,38 @@ List<Uint8List> result = await ProVideoEditor.instance.getThumbnails(
 );
 ```
 
+#### Thumbnail Stream Example
+
+For a timeline strip — dozens of frames per clip — ask for them all at once and
+consume them as they are decoded. The whole request is a single native decode
+pass, so it is far cheaper than splitting it into small `getThumbnails` calls
+for the sake of progressive fill, and cancelling the subscription stops the
+decoder immediately.
+
+```dart
+final configs = ThumbnailConfigs(
+    video: EditorVideo.file('/path/to/video.mp4'),
+    outputSize: const Size(96, 108),
+    timestamps: [
+        for (var ms = 0; ms < 6300; ms += 77) Duration(milliseconds: ms),
+    ],
+    // Android decodes with up to three hardware sessions in parallel. When
+    // a preview player shares the decoder pool, keep it to one.
+    maxParallelDecoders: 1,
+);
+
+final frames = List<Uint8List?>.filled(configs.timestamps.length, null);
+
+await for (final frame in ProVideoEditor.instance.getThumbnailStream(configs)) {
+    // Frames arrive in decode order; `indices` maps each one back onto
+    // `configs.timestamps`. Several timestamps can share one source frame.
+    for (final index in frame.indices) {
+        frames[index] = frame.bytes;
+    }
+    updateStrip(frames);
+}
+```
+
 #### Keyframes Example
 
 ```dart
@@ -590,6 +897,56 @@ List<Uint8List> result = await ProVideoEditor.instance.getKeyFrames(
         boxFit: ThumbnailBoxFit.cover,
     ),
 );
+```
+
+#### Native Log Level Example
+
+Control native log verbosity per API call on Android, iOS, and macOS.
+
+```dart
+/// Silence all native logs for this call
+List<Uint8List> thumbnails = await ProVideoEditor.instance.getThumbnails(
+    ThumbnailConfigs(
+        video: EditorVideo.asset('assets/my-video.mp4'),
+        outputSize: const Size(200, 200),
+        timestamps: const [Duration(seconds: 5)],
+    ),
+    nativeLogLevel: NativeLogLevel.none,
+);
+
+/// Show only errors
+VideoMetadata metadata = await ProVideoEditor.instance.getMetadata(
+    video: EditorVideo.asset('assets/my-video.mp4'),
+    nativeLogLevel: NativeLogLevel.error,
+);
+
+/// Available levels: none, error, warning, info, debug, verbose
+```
+
+#### Native Log Stream Example
+
+Capture native logs (including the renderer diagnostics) in Dart so you can
+forward them to your own logger and let users export them. The stream emits a
+`NativeLogEntry` for every native log on Android, iOS, and macOS, gated by the
+`nativeLogLevel` you pass to the operation. On Web, Windows, and Linux the
+stream stays empty.
+
+```dart
+final subscription = ProVideoEditor.instance.logStream.listen((entry) {
+    // entry: level, tag, message, timestamp, optional stackTrace
+    myLogger.log(entry.level.name, entry.message,
+        tag: entry.tag, stackTrace: entry.stackTrace);
+});
+
+// Emit the rich renderer logs by raising the level for the call.
+await ProVideoEditor.instance.renderVideoToFile(
+    outputPath,
+    renderData,
+    nativeLogLevel: NativeLogLevel.debug,
+);
+
+// Cancel when no longer needed.
+await subscription.cancel();
 ```
 
 

@@ -1,22 +1,28 @@
 package ch.waio.pro_video_editor.src.features.render.helpers
 
 import RENDER_TAG
+import android.content.Context
 import android.net.Uri
-import android.util.Log
+import applyChromaKey
 import applyScale
 import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.common.audio.ChannelMixingAudioProcessor
-import androidx.media3.common.audio.ChannelMixingMatrix
+import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.Presentation
+import androidx.media3.effect.SpeedChangeEffect
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
+import ch.waio.pro_video_editor.src.features.render.models.ChromaKeyConfig
 import ch.waio.pro_video_editor.src.features.render.models.LayerAnimationConfig
 import ch.waio.pro_video_editor.src.features.render.models.VideoClip
 import ch.waio.pro_video_editor.src.features.render.utils.getRotatedVideoDimensions
+import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
+import ch.waio.pro_video_editor.src.shared.media.EncodedImage
 import java.io.File
 
 /**
@@ -27,8 +33,16 @@ import java.io.File
  */
 @UnstableApi
 class VideoSequenceBuilder(
-    private val videoClips: List<VideoClip>
+    private val videoClips: List<VideoClip>,
+    private val context: Context? = null,
 ) {
+    /**
+     * Paths to temp files produced while building the sequence (currently:
+     * reversed-segment MP4s pre-rendered by [VideoReverser]). The caller MUST
+     * delete these after the Transformer export finishes.
+     */
+    val temporaryFiles: MutableList<java.io.File> = mutableListOf()
+
     private var videoEffects: List<Effect> = emptyList()
     private var audioEffects: List<AudioProcessor> = emptyList()
     private var rotationDegrees: Float = 0f
@@ -41,9 +55,13 @@ class VideoSequenceBuilder(
     private var forceRemoveAudio: Boolean = false
     private var globalStartUs: Long? = null
     private var globalEndUs: Long? = null
-    private var hasCustomAudio: Boolean = false
+    private var globalPlaybackSpeed: Float? = null
     private var scaleX: Float? = null
     private var scaleY: Float? = null
+    private var outputWidth: Int? = null
+    private var outputHeight: Int? = null
+    private var globalChromaKey: ChromaKeyConfig? = null
+    private val rotatedDimensionsCache = mutableMapOf<String, Triple<Int, Int, Int>>()
 
     data class CropConfig(
         val width: Int?,
@@ -53,7 +71,7 @@ class VideoSequenceBuilder(
     )
 
     data class ImageLayerConfig(
-        val imageBytes: ByteArray?,
+        val image: EncodedImage?,
         val scaleX: Float?,
         val scaleY: Float?,
         val withCropping: Boolean = false,
@@ -63,7 +81,19 @@ class VideoSequenceBuilder(
         val y: Int? = null,
         val width: Double? = null,
         val height: Double? = null,
-        val animations: List<LayerAnimationConfig> = emptyList()
+        /** Clockwise rotation around the layer center, in radians. */
+        val rotation: Double = 0.0,
+        /** Whether an animated image (GIF) repeats while the layer is visible. */
+        val loop: Boolean = true,
+        /** How far into an animated image (GIF) playback begins, in µs. */
+        val animationOffsetUs: Long = 0L,
+        val animations: List<LayerAnimationConfig> = emptyList(),
+        /**
+         * Size a positioned layer without an explicit [width]/[height] is laid
+         * out at, relative to its image's own pixels. Only a clip of another
+         * size than the composition frame sets it; see [scaledToClipFrame].
+         */
+        val naturalSizeScale: Double = 1.0
     )
 
     /**
@@ -80,6 +110,26 @@ class VideoSequenceBuilder(
     fun setScale(scaleX: Float?, scaleY: Float?): VideoSequenceBuilder {
         this.scaleX = scaleX
         this.scaleY = scaleY
+        return this
+    }
+
+    /**
+     * Sets the chroma key applied to every clip that carries none of its own.
+     *
+     * A [VideoClip.chromaKey] overrides this per clip; the two are never merged.
+     */
+    fun setChromaKey(chromaKey: ChromaKeyConfig?): VideoSequenceBuilder {
+        this.globalChromaKey = chromaKey
+        return this
+    }
+
+    /**
+     * Sets the exact output canvas size. When set, each clip is scaled to fit
+     * inside it (preserving aspect ratio), centered, and padded with black.
+     */
+    fun setOutputResolution(width: Int?, height: Int?): VideoSequenceBuilder {
+        this.outputWidth = width
+        this.outputHeight = height
         return this
     }
 
@@ -153,17 +203,6 @@ class VideoSequenceBuilder(
     }
 
     /**
-     * Sets whether custom audio will be mixed with video audio.
-     *
-     * When true, volume control is handled by VolumeControlAudioMixer.
-     * When false, volume control uses VolumeAudioProcessor on the video sequence.
-     */
-    fun setHasCustomAudio(hasCustom: Boolean): VideoSequenceBuilder {
-        this.hasCustomAudio = hasCustom
-        return this
-    }
-
-    /**
      * Sets global trim for the entire composition output.
      *
      * This trims the final concatenated result, not individual clips.
@@ -173,6 +212,20 @@ class VideoSequenceBuilder(
     fun setGlobalTrim(startUs: Long?, endUs: Long?): VideoSequenceBuilder {
         this.globalStartUs = startUs
         this.globalEndUs = endUs
+        return this
+    }
+
+    /**
+     * Sets the composition-wide playback speed.
+     *
+     * The global trim window is expressed in OUTPUT time, so [applyGlobalTrim]
+     * needs the composition-wide speed (combined with each clip's own
+     * [VideoClip.playbackSpeed]) to map the trim onto the source timeline.
+     *
+     * @param speed Speed multiplier applied to the whole composition (null/<=0 = 1x)
+     */
+    fun setGlobalPlaybackSpeed(speed: Float?): VideoSequenceBuilder {
+        this.globalPlaybackSpeed = speed
         return this
     }
 
@@ -209,12 +262,11 @@ class VideoSequenceBuilder(
     }
 
     /**
-     * Calculates total duration of all video clips combined.
-     *
-     * @return Total duration in microseconds
-     */
-    /**
      * Calculates total duration of all video clips combined after global trim.
+     * Playback speed is included so parallel custom audio sequences are
+     * constrained to the rendered video timeline, not the source timeline.
+     *
+     * Uses the composition-wide speed set via [setGlobalPlaybackSpeed].
      *
      * @return Total duration in microseconds
      */
@@ -228,10 +280,17 @@ class VideoSequenceBuilder(
                 clip.endUs != null && clip.startUs != null -> clip.endUs - clip.startUs
                 clip.endUs != null -> clip.endUs
                 else -> MediaInfoExtractor.getVideoDuration(clip.inputPath)
-            }
-            totalDurationUs += clipDurationUs
+            }.coerceAtLeast(0L)
+            totalDurationUs += VideoTimelineDurationCalculator.renderedClipDurationUs(
+                sourceDurationUs = clipDurationUs,
+                clipPlaybackSpeed = clip.playbackSpeed,
+                globalPlaybackSpeed = globalPlaybackSpeed
+            )
         }
-        Log.d(RENDER_TAG, "Total video duration (after global trim): ${totalDurationUs / 1000} ms")
+        Log.d(
+            RENDER_TAG,
+            "Total rendered video duration (after trim/speed): ${totalDurationUs / 1000} ms"
+        )
         return totalDurationUs
     }
 
@@ -247,6 +306,18 @@ class VideoSequenceBuilder(
         // Apply global trim to clips if set
         val trimmedClips = applyGlobalTrim(videoClips)
         Log.d(RENDER_TAG, "After global trim: ${trimmedClips.size} clips (was ${videoClips.size})")
+        val timelineClips = expandReversedClips(trimmedClips)
+        Log.d(RENDER_TAG, "After reverse expansion: ${timelineClips.size} timeline clips")
+
+        // Resolve layers that run "until the end" (endUs == -1) with an out-phase
+        // animation to a concrete end so their animateOut can play. Only for a
+        // single-clip sequence, where "until end" == that clip's output duration
+        // is unambiguous; multi-clip sequences keep their prior behavior.
+        if (timelineClips.size == 1) {
+            timedImageLayers = resolveOpenEndedOutAnimations(
+                timedImageLayers, clipOutputDurationUs(timelineClips[0])
+            )
+        }
 
         // Prepare normalized audio effects with channel mixing if needed
         val normalizedAudioEffects = if (needsAudioNormalization) {
@@ -256,9 +327,29 @@ class VideoSequenceBuilder(
             audioEffects.toList()
         }
 
+        // Compute per-clip fade-to-black windows from clip transitions.
+        val fadeInfos = computeFadeInfos(timelineClips)
+
+        // The frame the image layers' pixel values are laid out in. Only read
+        // when there are layers, since it costs a metadata read per clip.
+        // Every clip counts, also one the global trim drops: iOS and macOS
+        // size the composition before they trim it.
+        val layerFrame = if (timedImageLayers.isEmpty()) {
+            null
+        } else {
+            LayerReferenceFrame.of(
+                videoClips.map { clip ->
+                    val (width, height) = rotatedDimensions(File(clip.inputPath))
+                    Pair(width, height)
+                }
+            )
+        }
+
         // Build EditedMediaItems for each clip
-        val editedMediaItems = trimmedClips.mapIndexed { index, clip ->
-            buildEditedMediaItem(index, clip, normalizedAudioEffects)
+        val editedMediaItems = timelineClips.mapIndexed { index, clip ->
+            buildEditedMediaItem(
+                index, clip, normalizedAudioEffects, fadeInfos[index], layerFrame
+            )
         }
 
         Log.d(RENDER_TAG, "Total EditedMediaItems created: ${editedMediaItems.size}")
@@ -292,97 +383,140 @@ class VideoSequenceBuilder(
     }
 
     /**
-     * Builds channel normalization effects (channel mixer + audio processors).
-     *
-     * Uses boosted ITU-R BS.775 coefficients for multi-channel downmixing.
-     * 
-     * The standard ITU-R BS.775 coefficients (1.0, 0.707, 0.707) cause volume loss
-     * because the energy distributed across multiple channels doesn't fully translate
-     * to stereo. We apply a boost factor of ~1.4 (sqrt(2)) to compensate.
-     * 
-     * This ensures that surround content maintains similar perceived loudness
-     * when mixed with stereo custom audio tracks.
+     * Builds channel normalization effects: a stereo fold ([StereoDownmix])
+     * followed by the global audio processors, so clips with different channel
+     * layouts and custom tracks all reach the mix as stereo.
      */
     private fun buildChannelNormalizationEffects(): List<AudioProcessor> {
-        val channelMixer = ChannelMixingAudioProcessor()
+        return mutableListOf<AudioProcessor>(StereoDownmix.processor()).apply {
+            addAll(audioEffects)
+        }
+    }
 
-        // Boost factor to compensate for energy loss during downmixing
-        // sqrt(2) ≈ 1.414 compensates for the typical ~70% volume loss
-        val boost = 1.4f
+    /**
+     * Per-clip dip (fade-to-black / fade-to-white) windows, expressed in
+     * output-local time.
+     *
+     * @property clipDurationUs Output duration of the clip (after per-clip speed)
+     * @property fadeInUs Fade-in-from-color window at the clip's head (0 = none)
+     * @property fadeOutUs Fade-out-to-color window at the clip's tail (0 = none)
+     * @property curve Easing curve for the fade
+     * @property dipColor ARGB color the clip dips to/from
+     */
+    private data class ClipFadeInfo(
+        val clipDurationUs: Long,
+        val fadeInUs: Long,
+        val fadeOutUs: Long,
+        val curve: String,
+        val dipColor: Int
+    )
 
-        // 7.1 Surround (8 channels) to Stereo (2 channels)
-        // Channel order: FL, FR, FC, LFE, BL, BR, SL, SR
-        // Boosted coefficients to maintain loudness
-        val eightToTwo = floatArrayOf(
-            1.0f * boost,
-            0.0f,
-            0.707f * boost,
-            0.0f,
-            0.707f * boost,
-            0.0f,
-            0.707f * boost,
-            0.0f,  // Left output
-            0.0f,
-            1.0f * boost,
-            0.707f * boost,
-            0.0f,
-            0.0f,
-            0.707f * boost,
-            0.0f,
-            0.707f * boost   // Right output
-        )
-        channelMixer.putChannelMixingMatrix(
-            ChannelMixingMatrix(8, 2, eightToTwo)
-        )
+    /** Returns the dip color for a "fadeTo*" transition, or null otherwise. */
+    private fun dipColorFor(transition: ch.waio.pro_video_editor.src.features
+        .render.models.TransitionConfig?): Int? = when (transition?.type) {
+        "fadeToBlack" -> android.graphics.Color.BLACK
+        "fadeToWhite" -> android.graphics.Color.WHITE
+        else -> null
+    }
 
-        // 5.1 Surround (6 channels) to Stereo (2 channels)
-        // Channel order: FL, FR, FC, LFE, BL, BR
-        // Boosted ITU-R BS.775: L' = (L + 0.707*C + 0.707*Ls) * boost
-        val sixToTwo = floatArrayOf(
-            1.0f * boost, 0.0f, 0.707f * boost, 0.0f, 0.707f * boost, 0.0f,  // Left output
-            0.0f, 1.0f * boost, 0.707f * boost, 0.0f, 0.0f, 0.707f * boost   // Right output
-        )
-        channelMixer.putChannelMixingMatrix(
-            ChannelMixingMatrix(6, 2, sixToTwo)
-        )
+    /**
+     * Source duration of a clip after trimming (microseconds).
+     */
+    private fun clipSourceDurationUs(clip: VideoClip): Long {
+        return when {
+            clip.endUs != null && clip.startUs != null -> clip.endUs - clip.startUs
+            clip.endUs != null -> clip.endUs
+            else -> MediaInfoExtractor.getVideoDuration(clip.inputPath)
+        }.coerceAtLeast(0L)
+    }
 
-        // Quad (4 channels) to Stereo (2 channels)
-        // Channel order: FL, FR, BL, BR
-        // Slightly lower boost for quad (less energy distributed)
-        val boostQuad = 1.2f
-        val fourToTwo = floatArrayOf(
-            1.0f * boostQuad, 0.0f, 0.707f * boostQuad, 0.0f,  // Left output
-            0.0f, 1.0f * boostQuad, 0.0f, 0.707f * boostQuad   // Right output
-        )
-        channelMixer.putChannelMixingMatrix(
-            ChannelMixingMatrix(4, 2, fourToTwo)
-        )
+    /**
+     * Output duration of a clip after per-clip playback speed (microseconds).
+     */
+    private fun clipOutputDurationUs(clip: VideoClip): Long {
+        val src = clipSourceDurationUs(clip)
+        val speed = clip.playbackSpeed?.takeIf { it > 0f } ?: 1.0f
+        return (src / speed).toLong()
+    }
 
-        // Stereo (2 channels) to Stereo (2 channels) - passthrough (no boost needed)
-        channelMixer.putChannelMixingMatrix(
-            ChannelMixingMatrix.createForConstantGain(2, 2)
-        )
+    /**
+     * Computes dip (fade-to-black / fade-to-white) windows for each timeline
+     * clip.
+     *
+     * A `fadeToBlack`/`fadeToWhite` transition on clip *i* dips the boundary
+     * between clip *i* and *i+1*: clip *i* fades out to the color over its last
+     * `duration/2`, and clip *i+1* fades in from the color over its first
+     * `duration/2`. Overlap transitions (dissolve/slide/push/wipe) are handled
+     * separately by [ClipTransitionRenderer] and never reach this method.
+     *
+     * A dip transition on the **last** clip is the loop wrap: it fades that clip
+     * out to the color at the very end AND fades the **first** clip in from the
+     * color at the very start, so a looping player dips through the color at the
+     * restart seam. (Overlap wraps are baked into an appended blend clip by
+     * [ClipTransitionRenderer], so by the time they reach here the last entry is
+     * that blend and carries no transition.)
+     */
+    private fun computeFadeInfos(clips: List<VideoClip>): List<ClipFadeInfo?> {
+        return clips.indices.map { i ->
+            val clip = clips[i]
+            val prev = clips.getOrNull(i - 1)
+            // The first clip has no previous clip; its fade-in is seeded by the
+            // loop wrap (the last clip's dip transition) instead.
+            val incomingTransition =
+                prev?.transition ?: if (i == 0) clips.lastOrNull()?.transition else null
 
-        // Mono (1 channel) to Stereo (2 channels)
-        channelMixer.putChannelMixingMatrix(
-            ChannelMixingMatrix.createForConstantGain(1, 2)
-        )
+            val outgoingColor = dipColorFor(clip.transition)
+            val incomingColor = dipColorFor(incomingTransition)
 
-        Log.d(
-            RENDER_TAG,
-            "Channel normalization configured with boosted coefficients for loudness preservation"
-        )
+            val outgoingUs = if (outgoingColor != null) clip.transition!!.durationUs else 0L
+            val incomingUs = if (incomingColor != null) incomingTransition!!.durationUs else 0L
 
-        return mutableListOf<AudioProcessor>(channelMixer).apply { addAll(audioEffects) }
+            if (outgoingColor == null && incomingColor == null) {
+                null
+            } else {
+                val outDur = clipOutputDurationUs(clip)
+                // When a clip both ends and starts with a dip, the outgoing
+                // (this clip's) transition wins for color/curve.
+                val curve = if (outgoingColor != null) {
+                    clip.transition!!.curve
+                } else {
+                    incomingTransition!!.curve
+                }
+                ClipFadeInfo(
+                    clipDurationUs = outDur,
+                    fadeInUs = (incomingUs / 2).coerceAtMost(outDur),
+                    fadeOutUs = (outgoingUs / 2).coerceAtMost(outDur),
+                    curve = curve,
+                    dipColor = outgoingColor ?: incomingColor!!
+                )
+            }
+        }
+    }
+
+    /**
+     * Width, height and total rotation of [inputFile] once the configured
+     * rotation is applied, read once per file.
+     */
+    private fun rotatedDimensions(inputFile: File): Triple<Int, Int, Int> {
+        val key = "${inputFile.absolutePath}|$rotationDegrees"
+        return rotatedDimensionsCache.getOrPut(key) {
+            getRotatedVideoDimensions(inputFile, rotationDegrees)
+        }
     }
 
     /**
      * Builds an EditedMediaItem for a single video clip with all effects.
+     *
+     * @param layerFrame The composition frame the image layers are laid out
+     *   in (see [LayerReferenceFrame]); `null` when there are no layers or no
+     *   clip size could be read.
      */
     private fun buildEditedMediaItem(
         index: Int,
         clip: VideoClip,
-        normalizedAudioEffects: List<AudioProcessor>
+        normalizedAudioEffects: List<AudioProcessor>,
+        fadeInfo: ClipFadeInfo?,
+        layerFrame: Pair<Int, Int>?
     ): EditedMediaItem {
         Log.d(RENDER_TAG, "Processing clip $index: ${clip.inputPath}")
         val inputFile = File(clip.inputPath)
@@ -397,8 +531,8 @@ class VideoSequenceBuilder(
         val mediaItemBuilder = MediaItem.Builder().setUri(Uri.fromFile(inputFile))
 
         if (clip.startUs != null || clip.endUs != null) {
-            val startMs = (clip.startUs ?: 0L) / 1000
-            val endMs = clip.endUs?.div(1000) ?: C.TIME_END_OF_SOURCE
+            val startUs = clip.startUs ?: 0L
+            val endUs = clip.endUs ?: C.TIME_END_OF_SOURCE
             val expectedDurationMs = if (clip.endUs != null && clip.startUs != null) {
                 (clip.endUs - clip.startUs) / 1000
             } else if (clip.endUs != null) {
@@ -409,13 +543,17 @@ class VideoSequenceBuilder(
 
             Log.d(
                 RENDER_TAG,
-                "Applying trim to clip ${clip.inputPath}: start=$startMs ms, end=$endMs ms, expectedDuration=$expectedDurationMs ms"
+                "Applying trim to clip ${clip.inputPath}: start=${startUs / 1000} ms, end=${if (endUs == C.TIME_END_OF_SOURCE) "source end" else "${endUs / 1000} ms"}, expectedDuration=$expectedDurationMs ms"
             )
 
-            val clippingConfig = MediaItem.ClippingConfiguration.Builder()
-                .setStartPositionMs(startMs)
-                .setEndPositionMs(endMs)
-                .build()
+            val clippingConfigBuilder = MediaItem.ClippingConfiguration.Builder()
+                .setStartPositionUs(startUs)
+            if (clip.endUs != null) {
+                clippingConfigBuilder.setEndPositionUs(clip.endUs)
+            } else {
+                clippingConfigBuilder.setEndPositionMs(C.TIME_END_OF_SOURCE)
+            }
+            val clippingConfig = clippingConfigBuilder.build()
 
             mediaItemBuilder.setClippingConfiguration(clippingConfig)
         }
@@ -424,14 +562,34 @@ class VideoSequenceBuilder(
 
         // Build video effects
         val clipVideoEffects = mutableListOf<Effect>()
-        clipVideoEffects.addAll(videoEffects)
+
+        // Chroma key first, so it sees the original decoded colors — before
+        // rotation, flip, the color LUT and blur. A clip's own key wins over
+        // the global one; they are never merged.
+        //
+        // flattenTransparency is on because this is the single-track path:
+        // there is no layer underneath, so a key without a background is filled
+        // with opaque black instead (see applyChromaKey for why).
+        applyChromaKey(
+            clipVideoEffects,
+            if (clip.suppressChromaKey) null else clip.chromaKey ?: globalChromaKey,
+            flattenTransparency = true,
+        )
+
+        // The video effects run ahead of this clip's speed change (added below)
+        // but have to follow the output timeline, so they learn its speed.
+        clipVideoEffects.addAll(
+            videoEffects.map {
+                if (it is VideoEffectGlEffect) it.withSpeedChange(clip.playbackSpeed) else it
+            }
+        )
 
         // Calculate video dimensions for image layer positioning
         // This must be done before applying any effects
-        var (videoWidth, videoHeight, videoRotation) = getRotatedVideoDimensions(
-            inputFile,
-            rotationDegrees
-        )
+        val dimensions = rotatedDimensions(inputFile)
+        var videoWidth = dimensions.first
+        var videoHeight = dimensions.second
+        val videoRotation = dimensions.third
 
         // Adjust dimensions based on rotation
         val isRotated90Deg = videoRotation == 90 || videoRotation == 270
@@ -448,11 +606,38 @@ class VideoSequenceBuilder(
             croppedHeight = null
         }
 
+        // Layer pixel values are laid out in the composition frame. Drawn onto
+        // this clip's own, uncropped frame they are converted into its pixels
+        // first (see LayerReferenceFrame); unchanged when the clip has the
+        // frame's size, as every clip of a single-resolution render does.
+        val layerScale = LayerReferenceFrame.layoutScale(videoWidth, videoHeight, layerFrame)
+        val layersOnClipFrame = if (layerScale == 1.0) {
+            timedImageLayers
+        } else {
+            Log.d(
+                RENDER_TAG,
+                "Clip $index: ${videoWidth}x$videoHeight in the " +
+                        "${layerFrame?.first}x${layerFrame?.second} layer frame, " +
+                        "laying image layers out at ${layerScale}x"
+            )
+            timedImageLayers.map { it.scaledToClipFrame(layerScale) }
+        }
+
         // Apply timed image layers BEFORE crop if withCropping is enabled
         // This makes the images get cropped together with the video
         val hasWithCropping = timedImageLayers.any { it.withCropping }
         if (hasWithCropping && timedImageLayers.isNotEmpty()) {
-            applyTimedImageLayers(clipVideoEffects, timedImageLayers, videoWidth, videoHeight)
+            applyTimedImageLayers(
+                clipVideoEffects, layersOnClipFrame, videoWidth, videoHeight,
+                outputWidth, outputHeight,
+                // The crop below throws away everything outside its rectangle,
+                // so only that rectangle is scaled into the output. The raster
+                // ceiling is the output against the cropped frame, not the full
+                // one — sizing it against the full frame would raster these
+                // overlays below what the export can still show.
+                frameWidth = croppedWidth ?: videoWidth,
+                frameHeight = croppedHeight ?: videoHeight
+            )
         }
 
         // Apply crop if configured
@@ -477,30 +662,82 @@ class VideoSequenceBuilder(
         // Apply timed image layers AFTER crop if withCropping is disabled (default)
         // This makes the images stretch to the final cropped size
         if (!hasWithCropping && timedImageLayers.isNotEmpty()) {
-            applyTimedImageLayers(clipVideoEffects, timedImageLayers, videoWidth, videoHeight)
+            // A crop frame is sized by the crop values on every platform, so
+            // layers drawn onto it keep theirs.
+            val cropReplacedFrame = croppedWidth != null || croppedHeight != null
+            applyTimedImageLayers(
+                clipVideoEffects,
+                if (cropReplacedFrame) timedImageLayers else layersOnClipFrame,
+                videoWidth, videoHeight,
+                outputWidth, outputHeight
+            )
         }
 
         // Apply scale AFTER overlay and crop to match the iOS/macOS pipeline.
         // This prevents the overlay from being distorted by a pre-applied scale.
         applyScale(clipVideoEffects, scaleX, scaleY)
 
-        // Per-clip volume control:
-        // - Without custom audio: VolumeAudioProcessor per clip works (single sequence)
-        // - With custom audio: AudioProcessors don't work with parallel sequences,
-        //   so per-clip volume is best-effort (applied via VolumeControlAudioMixer globally)
-        val clipVolume = clip.volume
-        val finalAudioEffects = if (!hasCustomAudio && clipVolume != null && clipVolume != 1.0f) {
-            Log.d(
-                RENDER_TAG,
-                "Clip $index volume: ${clipVolume}x (applied via VolumeAudioProcessor)"
+        // Letterbox to the exact output canvas (after scale/crop/overlay) when a
+        // custom resolution was requested. SCALE_TO_FIT preserves aspect ratio
+        // and pads the remaining space with black.
+        val outW = outputWidth
+        val outH = outputHeight
+        if (outW != null && outH != null) {
+            clipVideoEffects += Presentation.createForWidthAndHeight(
+                outW, outH, Presentation.LAYOUT_SCALE_TO_FIT
             )
-            val volumeProcessor = VolumeAudioProcessor(clipVolume)
-            mutableListOf<AudioProcessor>().apply {
-                addAll(normalizedAudioEffects)
-                add(volumeProcessor)
+        }
+
+        // Per-clip volume, applied to this clip's own audio before it reaches the
+        // mixer, so it holds whether or not custom audio tracks are mixed in.
+        val clipVolume = clip.volume
+        val perClipAudioProcessors = mutableListOf<AudioProcessor>().apply {
+            addAll(normalizedAudioEffects)
+            if (clipVolume != null && clipVolume != 1.0f) {
+                Log.d(
+                    RENDER_TAG,
+                    "Clip $index volume: ${clipVolume}x (applied via VolumeAudioProcessor)"
+                )
+                add(VolumeAudioProcessor(clipVolume))
+            }
+        }
+
+        // Per-clip playback speed:
+        // - Video: SpeedChangeEffect on the EditedMediaItem
+        // - Audio: SonicAudioProcessor on this clip's own audio
+        val clipSpeed = clip.playbackSpeed
+        val finalAudioEffects: List<AudioProcessor> = if (clipSpeed != null && clipSpeed > 0f && clipSpeed != 1.0f) {
+            Log.d(RENDER_TAG, "Clip $index playback speed: ${clipSpeed}x")
+            clipVideoEffects += SpeedChangeEffect(clipSpeed)
+            perClipAudioProcessors.apply {
+                add(SonicAudioProcessor().apply { setSpeed(clipSpeed) })
             }
         } else {
-            normalizedAudioEffects
+            perClipAudioProcessors
+        }
+
+        // Attach the dip (fade-to-black/white) overlay LAST so the entire
+        // composed frame — including any image-layer overlays and the
+        // letterbox a custom output resolution adds — dips to the transition
+        // color at the clip boundary. The overlay sizes itself to the frame it
+        // is drawn onto, whatever scale, crop or Presentation came before it.
+        fadeInfo?.let { info ->
+            clipVideoEffects += OverlayEffect(
+                listOf(
+                    ClipFadeOverlay(
+                        dipColor = info.dipColor,
+                        clipDurationUs = info.clipDurationUs,
+                        fadeInUs = info.fadeInUs,
+                        fadeOutUs = info.fadeOutUs,
+                        curve = info.curve,
+                    )
+                )
+            )
+            Log.d(
+                RENDER_TAG,
+                "Clip $index dip transition: fadeInUs=${info.fadeInUs}, " +
+                        "fadeOutUs=${info.fadeOutUs}, color=${info.dipColor}"
+            )
         }
 
         val effects = Effects(finalAudioEffects, clipVideoEffects)
@@ -541,91 +778,110 @@ class VideoSequenceBuilder(
 
         Log.d(
             RENDER_TAG,
-            "Applying global trim: start=${globalStartUs?.div(1000)}ms, end=${globalEndUs?.div(1000)}ms"
+            "Applying global trim: start=${globalStartUs?.div(1000)}ms, " +
+                    "end=${globalEndUs?.div(1000)}ms, globalSpeed=$globalPlaybackSpeed"
+        )
+
+        // Resolve each clip's source range here (MediaInfoExtractor is Android-only)
+        // and hand pure values to the dependency-free calculator, which resolves the
+        // trim against the OUTPUT (post-speed) timeline and maps it back to source.
+        val inputs = clips.map { clip ->
+            VideoGlobalTrimCalculator.ClipInput(
+                sourceStartUs = clip.startUs ?: 0L,
+                sourceEndUs = clip.endUs ?: MediaInfoExtractor.getVideoDuration(clip.inputPath),
+                playbackSpeed = clip.playbackSpeed,
+                reverseVideo = clip.reverseVideo,
+            )
+        }
+
+        val trims = VideoGlobalTrimCalculator.applyGlobalTrim(
+            clips = inputs,
+            globalStartUs = globalStartUs,
+            globalEndUs = globalEndUs,
+            globalPlaybackSpeed = globalPlaybackSpeed,
         )
 
         val result = mutableListOf<VideoClip>()
-        var compositionTimeUs = 0L
-
-        for (clip in clips) {
-            // Calculate clip's duration in the composition
-            val clipStartInSource = clip.startUs ?: 0L
-            val clipEndInSource = clip.endUs ?: MediaInfoExtractor.getVideoDuration(clip.inputPath)
-            val clipDurationUs = clipEndInSource - clipStartInSource
-
-            // Calculate clip's position in the composition timeline
-            val clipStartInComposition = compositionTimeUs
-            val clipEndInComposition = compositionTimeUs + clipDurationUs
-
-            // Check if clip overlaps with global trim range
-            val globalStart = globalStartUs ?: 0L
-            val globalEnd = globalEndUs ?: Long.MAX_VALUE
-
-            if (clipEndInComposition <= globalStart || clipStartInComposition >= globalEnd) {
-                // Clip is completely outside the global trim range - skip it
+        clips.forEachIndexed { index, clip ->
+            val trim = trims[index]
+            if (trim == null) {
                 Log.d(RENDER_TAG, "Skipping clip (outside global trim range): ${clip.inputPath}")
             } else {
-                // Clip overlaps with global trim range - adjust boundaries
-                var newStartInSource = clipStartInSource
-                var newEndInSource = clipEndInSource
-
-                // Adjust start if global start cuts into this clip
-                if (clipStartInComposition < globalStart) {
-                    val offsetUs = globalStart - clipStartInComposition
-                    newStartInSource = clipStartInSource + offsetUs
-                    Log.d(RENDER_TAG, "Adjusting clip start by ${offsetUs / 1000}ms")
-                }
-
-                // Adjust end if global end cuts into this clip
-                if (clipEndInComposition > globalEnd) {
-                    val offsetUs = clipEndInComposition - globalEnd
-                    newEndInSource = clipEndInSource - offsetUs
-
-                    // Subtract ~1 frame (33ms for 30fps) to ensure encoder doesn't overshoot
-                    // This compensates for encoder rounding to next frame/audio sample boundary
-                    val frameCompensationUs = 33333L // ~33ms = 1 frame at 30fps
-                    newEndInSource = maxOf(newStartInSource, newEndInSource - frameCompensationUs)
-
-                    Log.d(
-                        RENDER_TAG,
-                        "Adjusting clip end by ${offsetUs / 1000}ms (with frame compensation)"
-                    )
-                }
-
-                // Only add if there's still content left
-                if (newEndInSource > newStartInSource) {
-                    result.add(
-                        VideoClip(
-                            inputPath = clip.inputPath,
-                            startUs = newStartInSource,
-                            endUs = newEndInSource,
-                            volume = clip.volume
-                        )
-                    )
-                    val trimmedDuration = newEndInSource - newStartInSource
-                    Log.d(
-                        RENDER_TAG,
-                        "Added trimmed clip: start=${newStartInSource / 1000}ms, end=${newEndInSource / 1000}ms, duration=${trimmedDuration / 1000}ms"
-                    )
-                }
+                result.add(clip.copy(startUs = trim.sourceStartUs, endUs = trim.sourceEndUs))
+                Log.d(
+                    RENDER_TAG,
+                    "Added trimmed clip: start=${trim.sourceStartUs / 1000}ms, " +
+                            "end=${trim.sourceEndUs / 1000}ms, " +
+                            "duration=${(trim.sourceEndUs - trim.sourceStartUs) / 1000}ms"
+                )
             }
-
-            compositionTimeUs += clipDurationUs
         }
 
-        // Log total duration after global trim
-        val totalTrimmedDuration = result.sumOf { clip ->
-            val start = clip.startUs ?: 0L
-            val end = clip.endUs ?: 0L
-            end - start
+        return result
+    }
+
+    /**
+     * Materializes any clip still flagged as reversed. In normal operation
+     * [RenderVideo] pre-renders reversed clips BEFORE the sequence is built
+     * (so it can report progress on the slow MediaCodec pre-render). This
+     * fallback only triggers if a reversed clip somehow reaches the builder
+     * directly (e.g. tests bypassing [RenderVideo]).
+     */
+    private fun expandReversedClips(clips: List<VideoClip>): List<VideoClip> {
+        if (clips.none { it.reverseVideo }) return clips
+        val ctx = context
+        if (ctx == null) {
+            Log.w(
+                RENDER_TAG,
+                "Reverse requested but no Context provided to VideoSequenceBuilder; " +
+                        "leaving clips unchanged."
+            )
+            return clips
         }
-        Log.d(
+        Log.w(
             RENDER_TAG,
-            "Total duration after global trim: ${totalTrimmedDuration / 1000}ms (target: ${
-                globalEndUs?.minus(globalStartUs ?: 0L)?.div(1000)
-            }ms)"
+            "Reversed clip reached VideoSequenceBuilder — pre-render fallback engaged " +
+                    "(progress will NOT be reported for this stage)."
         )
 
+        val result = mutableListOf<VideoClip>()
+        for (clip in clips) {
+            if (!clip.reverseVideo) {
+                result.add(clip)
+                continue
+            }
+            val sourceStartUs = clip.startUs ?: 0L
+            val sourceEndUs = clip.endUs ?: MediaInfoExtractor.getVideoDuration(clip.inputPath)
+            if (sourceEndUs <= sourceStartUs) {
+                Log.w(RENDER_TAG, "Skipping reversed clip with invalid range: ${clip.inputPath}")
+                continue
+            }
+            try {
+                val reversed = VideoReverser.reverseSync(
+                    context = ctx,
+                    inputPath = clip.inputPath,
+                    segmentStartUs = sourceStartUs,
+                    segmentEndUs = sourceEndUs,
+                    includeAudio = enableAudio && (clip.volume ?: 1.0f) > 0f,
+                )
+                temporaryFiles.add(java.io.File(reversed.outputPath))
+                result.add(
+                    clip.copy(
+                        inputPath = reversed.outputPath,
+                        startUs = 0L,
+                        endUs = reversed.durationUs.takeIf { it > 0 },
+                        reverseVideo = false
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(
+                    RENDER_TAG,
+                    "Reverse pre-render failed for ${clip.inputPath}: ${e.message}. " +
+                            "Falling back to forward playback."
+                )
+                result.add(clip.copy(reverseVideo = false))
+            }
+        }
         return result
     }
 }

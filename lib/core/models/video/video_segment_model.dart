@@ -16,14 +16,24 @@ class VideoSegment {
     this.startTime,
     this.endTime,
     this.volume,
-  })  : assert(
-          startTime == null || endTime == null || startTime < endTime,
-          'startTime must be before endTime',
-        ),
-        assert(
-          volume == null || volume >= 0,
-          '[volume] must be greater than or equal to 0',
-        );
+    this.playbackSpeed,
+    this.reverseVideo = false,
+    this.transition,
+    this.timelineStart,
+    this.transform,
+    this.chromaKey,
+  }) : assert(
+         startTime == null || endTime == null || startTime < endTime,
+         'startTime must be before endTime',
+       ),
+       assert(
+         volume == null || volume >= 0,
+         '[volume] must be greater than or equal to 0',
+       ),
+       assert(
+         playbackSpeed == null || playbackSpeed > 0,
+         '[playbackSpeed] must be greater than 0',
+       );
 
   /// The video source for this clip.
   ///
@@ -50,7 +60,84 @@ class VideoSegment {
   /// If null, the original volume is used.
   final double? volume;
 
+  /// Playback speed of this segment.
+  ///
+  /// For example, `0.5` for half speed, `2.0` for double speed.
+  ///
+  /// If null, the original speed is used.
+  ///
+  /// **Not supported inside a [VideoComposition]:** per-clip playback speed is
+  /// ignored for composition clips. Pre-render the speed change into the source
+  /// or use [videoSegments] instead.
+  final double? playbackSpeed;
+
+  /// Whether to render this segment backwards.
+  ///
+  /// When `true`, this segment plays from its trimmed end back to its trimmed
+  /// start. Other segments keep their own order and direction.
+  ///
+  /// **Default**: `false`
+  ///
+  /// **Not supported inside a [VideoComposition]:** reverse playback is ignored
+  /// for composition clips. Pre-render the reversed source or use
+  /// [videoSegments] instead.
+  final bool reverseVideo;
+
+  /// The transition played between this clip and the **next** clip.
+  ///
+  /// Describes how this segment transitions into the following segment (e.g. a
+  /// dissolve or fade-to-black).
+  ///
+  /// **On the last (or only) segment** there is no following clip, so the
+  /// transition instead **wraps back into the first segment**, turning the
+  /// whole track into a seamless loop: the end dissolves (or dips) into the
+  /// beginning, so a looping player restarts without a visible cut. For overlap
+  /// transitions (dissolve/slide/push/wipe) the output is shortened by the
+  /// transition duration — exactly like an overlap transition between two clips
+  /// — and for a single segment the clip must be longer than twice the
+  /// transition duration (otherwise the wrap is skipped and the loop restarts
+  /// hard). Dip transitions (fadeToBlack/fadeToWhite) keep the duration and dip
+  /// through the color at the restart seam.
+  ///
+  /// Currently supported on Android and iOS/macOS only; other platforms
+  /// ignore this field.
+  ///
+  /// **Not supported inside a [VideoComposition]:** transitions are ignored for
+  /// composition clips. Use [videoSegments] when you need clip transitions.
+  final ClipTransition? transition;
+
+  /// Start position of this clip on its layer's timeline.
+  ///
+  /// Only used when the segment is part of a [VideoComposition]. It defines
+  /// when the clip begins relative to the start of the composition. Any gap
+  /// before it is filled with the composition's background.
+  ///
+  /// When `null`, the clip starts right after the previous clip on the same
+  /// layer (back-to-back concatenation).
+  final Duration? timelineStart;
+
+  /// Position and scale of this clip within the composition canvas.
+  ///
+  /// Only used when the segment is part of a [VideoComposition]. Overrides the
+  /// [VideoLayer.transform]. When `null`, the clip uses its layer's transform,
+  /// or fills the entire canvas if neither is set.
+  final SegmentTransform? transform;
+
+  /// Removes a solid-colored background from this clip only.
+  ///
+  /// Overrides [VideoLayer.chromaKey] and [VideoRenderData.chromaKey] for this
+  /// clip; the three are never merged. When `null`, the clip falls back to its
+  /// layer's key, then to the global one.
+  ///
+  /// **Ignored inside an overlap [transition]** (dissolve/slide/push/wipe) when
+  /// the two clips at that boundary carry different keys — that blend is
+  /// pre-rendered from the raw sources and is emitted unkeyed with a warning.
+  final ChromaKey? chromaKey;
+
   /// Converts this clip to a map for platform channel communication.
+  ///
+  /// Resolves the input path and any chroma-key background image, so this is
+  /// asynchronous.
   Future<Map<String, dynamic>> toAsyncMap() async {
     final inputPath = await video.safeFilePath();
 
@@ -59,6 +146,12 @@ class VideoSegment {
       'startUs': startTime?.inMicroseconds,
       'endUs': endTime?.inMicroseconds,
       'volume': volume,
+      'playbackSpeed': playbackSpeed,
+      'reverseVideo': reverseVideo,
+      'transition': transition?.toMap(),
+      'timelineStartUs': timelineStart?.inMicroseconds,
+      'transform': transform?.toMap(),
+      'chromaKey': await chromaKey?.toAsyncMap(),
     };
   }
 
@@ -68,12 +161,24 @@ class VideoSegment {
     Duration? startTime,
     Duration? endTime,
     double? volume,
+    double? playbackSpeed,
+    bool? reverseVideo,
+    ClipTransition? transition,
+    Duration? timelineStart,
+    SegmentTransform? transform,
+    ChromaKey? chromaKey,
   }) {
     return VideoSegment(
       video: video ?? this.video,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       volume: volume ?? this.volume,
+      playbackSpeed: playbackSpeed ?? this.playbackSpeed,
+      reverseVideo: reverseVideo ?? this.reverseVideo,
+      transition: transition ?? this.transition,
+      timelineStart: timelineStart ?? this.timelineStart,
+      transform: transform ?? this.transform,
+      chromaKey: chromaKey ?? this.chromaKey,
     );
   }
 
@@ -84,7 +189,13 @@ class VideoSegment {
     return other.video == video &&
         other.startTime == startTime &&
         other.endTime == endTime &&
-        other.volume == volume;
+        other.volume == volume &&
+        other.playbackSpeed == playbackSpeed &&
+        other.reverseVideo == reverseVideo &&
+        other.transition == transition &&
+        other.timelineStart == timelineStart &&
+        other.transform == transform &&
+        other.chromaKey == chromaKey;
   }
 
   @override
@@ -92,7 +203,13 @@ class VideoSegment {
     return video.hashCode ^
         startTime.hashCode ^
         endTime.hashCode ^
-        volume.hashCode;
+        volume.hashCode ^
+        playbackSpeed.hashCode ^
+        reverseVideo.hashCode ^
+        transition.hashCode ^
+        timelineStart.hashCode ^
+        transform.hashCode ^
+        chromaKey.hashCode;
   }
 
   @override
@@ -100,7 +217,13 @@ class VideoSegment {
     return 'VideoSegment(video: $video, '
         'startTime: $startTime, '
         'endTime: $endTime, '
-        'volume: $volume)';
+        'volume: $volume, '
+        'playbackSpeed: $playbackSpeed, '
+        'reverseVideo: $reverseVideo, '
+        'transition: $transition, '
+        'timelineStart: $timelineStart, '
+        'transform: $transform, '
+        'chromaKey: $chromaKey)';
   }
 
   Map<String, dynamic> toMap() {
@@ -109,6 +232,12 @@ class VideoSegment {
       'startTime': startTime?.inMicroseconds,
       'endTime': endTime?.inMicroseconds,
       'volume': volume,
+      'playbackSpeed': playbackSpeed,
+      'reverseVideo': reverseVideo,
+      'transition': transition?.toMap(),
+      'timelineStart': timelineStart?.inMicroseconds,
+      'transform': transform?.toMap(),
+      'chromaKey': chromaKey?.toMap(),
     };
   }
 
@@ -122,6 +251,20 @@ class VideoSegment {
           ? Duration(microseconds: safeParseInt(map['endTime']))
           : null,
       volume: tryParseDouble(map['volume']),
+      playbackSpeed: tryParseDouble(map['playbackSpeed']),
+      reverseVideo: map['reverseVideo'] as bool? ?? false,
+      transition: map['transition'] != null
+          ? ClipTransition.fromMap(map['transition'] as Map<String, dynamic>)
+          : null,
+      timelineStart: map['timelineStart'] != null
+          ? Duration(microseconds: safeParseInt(map['timelineStart']))
+          : null,
+      transform: map['transform'] != null
+          ? SegmentTransform.fromMap(map['transform'] as Map<String, dynamic>)
+          : null,
+      chromaKey: map['chromaKey'] != null
+          ? ChromaKey.fromMap(map['chromaKey'] as Map<String, dynamic>)
+          : null,
     );
   }
 

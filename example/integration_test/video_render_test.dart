@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:pro_video_editor/pro_video_editor.dart';
 import 'package:pro_video_editor_example/core/constants/example_constants.dart';
 import 'package:pro_video_editor_example/core/constants/example_filters.dart';
@@ -44,6 +45,23 @@ Future<Uint8List> createTestOverlayImage({
   return byteData!.buffer.asUint8List();
 }
 
+/// Copies an audio asset to a temporary file so native renderers can read it
+/// through a filesystem path.
+Future<String> copyAssetToTempFile(String assetPath) async {
+  final byteData = await rootBundle.load(assetPath);
+  final tempDir = await getTemporaryDirectory();
+  final ext = assetPath.split('.').last;
+  final tempFile = File(
+    '${tempDir.path}/render_audio_'
+    '${DateTime.now().microsecondsSinceEpoch}.$ext',
+  );
+  await tempFile.writeAsBytes(
+    byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
+    flush: true,
+  );
+  return tempFile.path;
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -58,8 +76,9 @@ void main() {
 
   final isIOS = defaultTargetPlatform == TargetPlatform.iOS;
   final isMacOS = defaultTargetPlatform == TargetPlatform.macOS;
+  final isAndroid = !kIsWeb && Platform.isAndroid;
   final supportsCancel =
-      !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS);
+      !kIsWeb && (isAndroid || Platform.isIOS || Platform.isMacOS);
 
   Future<VideoMetadata> testRender({
     required String description,
@@ -186,6 +205,50 @@ void main() {
     expect(originalMeta.resolution / factor, meta.resolution);
   });
 
+  testWidgets('limit frame rate (max 15 fps)', (tester) async {
+    final originalMeta = await ProVideoEditor.instance.getMetadata(inputVideo);
+    final meta = await testRender(
+      description: 'Limit fps to 15',
+      renderModel: VideoRenderData(
+        videoSegments: [VideoSegment(video: inputVideo)],
+        outputFormat: VideoOutputFormat.mp4,
+        maxFrameRate: 15,
+      ),
+    );
+
+    // Only meaningful when the source actually plays faster than the cap.
+    if ((originalMeta.frameRate ?? 0) > 15) {
+      expect(meta.frameRate, isNotNull, reason: 'fps missing in output');
+      expect(
+        meta.frameRate!,
+        lessThanOrEqualTo(16.5),
+        reason: 'output fps should be capped near 15',
+      );
+    }
+  });
+
+  testWidgets('custom quality resolution letterboxes to exact output', (
+    tester,
+  ) async {
+    // A square target differs in aspect from the (landscape) source, so the
+    // output must be exactly the requested size with black padding — not the
+    // aspect-scaled size the old behavior produced.
+    const target = Size(1080, 1080);
+    final meta = await testRender(
+      description: 'Custom resolution 1080x1080 (letterbox)',
+      renderModel: VideoRenderData(
+        videoSegments: [VideoSegment(video: inputVideo)],
+        outputFormat: VideoOutputFormat.mp4,
+        qualityConfig: VideoQualityConfig.custom(
+          bitrate: 8000000,
+          resolution: target,
+        ),
+      ),
+    );
+
+    expect(meta.resolution, target);
+  });
+
   // Note: This test uses h264Video (demo.mp4, ~30s) since hevcVideo
   // is only ~2.5s
   testWidgets('trim video (7s - 20s)', (tester) async {
@@ -210,9 +273,8 @@ void main() {
 
     Future<void> testSpeed(double speed) async {
       final renderModel = VideoRenderData(
-        videoSegments: [VideoSegment(video: inputVideo)],
+        videoSegments: [VideoSegment(video: inputVideo, playbackSpeed: speed)],
         outputFormat: VideoOutputFormat.mp4,
-        playbackSpeed: speed,
       );
       final meta = await testRender(
         description: 'Speed x$speed',
@@ -228,6 +290,186 @@ void main() {
 
     await testSpeed(2.0); // Speed up
     await testSpeed(0.8); // Slow down
+  });
+
+  testWidgets('per-clip speed: 2x on single segment', (tester) async {
+    final originalMeta = await ProVideoEditor.instance.getMetadata(inputVideo);
+    const speedFactor = 2.0;
+
+    final meta = await testRender(
+      description: 'Per-clip speed x$speedFactor',
+      renderModel: VideoRenderData(
+        outputFormat: VideoOutputFormat.mp4,
+        videoSegments: [
+          VideoSegment(video: inputVideo, playbackSpeed: speedFactor),
+        ],
+      ),
+    );
+
+    expect(
+      meta.duration.inSeconds,
+      closeTo(originalMeta.duration.inSeconds / speedFactor, 1),
+      reason: 'Duration should be halved with per-clip speed x$speedFactor',
+    );
+  });
+
+  testWidgets('per-clip speed: different speeds per segment', (tester) async {
+    // Use two non-overlapping trim windows so we can predict output duration.
+    // segment A: 3 s at 2× → contributes ~1.5 s
+    // segment B: 3 s at 0.5× → contributes ~6 s  → total ~7.5 s
+    final meta = await testRender(
+      description: 'Per-clip mixed speeds (2× + 0.5×)',
+      renderModel: VideoRenderData(
+        outputFormat: VideoOutputFormat.mp4,
+        videoSegments: [
+          VideoSegment(
+            video: inputVideo,
+            startTime: const Duration(seconds: 0),
+            endTime: const Duration(seconds: 3),
+            playbackSpeed: 2.0,
+          ),
+          VideoSegment(
+            video: inputVideo,
+            startTime: const Duration(seconds: 3),
+            endTime: const Duration(seconds: 6),
+            playbackSpeed: 0.5,
+          ),
+        ],
+      ),
+    );
+
+    expect(
+      meta.duration.inSeconds,
+      closeTo(7, 2),
+      reason: 'Total duration should be ~7.5 s (1.5 s + 6 s)',
+    );
+  });
+
+  group('Playback speed with custom audio', () {
+    late String audioPath;
+
+    setUp(() async {
+      audioPath = await copyAssetToTempFile(kVideoEditorExampleAudio1Path);
+    });
+
+    tearDown(() async {
+      try {
+        await File(audioPath).delete();
+      } catch (_) {}
+    });
+
+    testWidgets(
+      'global speed keeps custom audio duration in sync',
+      (tester) async {
+        final meta = await testRender(
+          description: 'Global speed 2x with looped custom audio',
+          renderModel: VideoRenderData(
+            outputFormat: VideoOutputFormat.mp4,
+            videoSegments: [
+              VideoSegment(
+                video: inputVideo,
+                startTime: Duration.zero,
+                endTime: const Duration(seconds: 4),
+                playbackSpeed: 2.0,
+              ),
+            ],
+            audioTracks: [
+              VideoAudioTrack(path: audioPath, volume: 1, loop: true),
+            ],
+          ),
+        );
+
+        expect(
+          meta.duration.inMilliseconds,
+          closeTo(2000, 800),
+          reason: 'Custom audio must not extend a 4s clip sped up to 2s',
+        );
+      },
+      skip: !isAndroid && !isIOS && !isMacOS,
+    );
+
+    testWidgets(
+      'per-clip speed keeps custom audio duration in sync',
+      (tester) async {
+        final meta = await testRender(
+          description: 'Per-clip speed 2x with looped custom audio',
+          renderModel: VideoRenderData(
+            outputFormat: VideoOutputFormat.mp4,
+            videoSegments: [
+              VideoSegment(
+                video: inputVideo,
+                startTime: Duration.zero,
+                endTime: const Duration(seconds: 4),
+                playbackSpeed: 2.0,
+              ),
+            ],
+            audioTracks: [
+              VideoAudioTrack(path: audioPath, volume: 1, loop: true),
+            ],
+          ),
+        );
+
+        expect(
+          meta.duration.inMilliseconds,
+          closeTo(2000, 800),
+          reason: 'Custom audio must not extend a 4s segment sped up to 2s',
+        );
+      },
+      skip: !isAndroid && !isIOS && !isMacOS,
+    );
+  });
+
+  testWidgets('per-clip reverse: single trimmed segment', (tester) async {
+    final meta = await testRender(
+      description: 'Per-clip reverse single segment',
+      renderModel: VideoRenderData(
+        outputFormat: VideoOutputFormat.mp4,
+        videoSegments: [
+          VideoSegment(
+            video: h264Video,
+            startTime: const Duration(seconds: 2),
+            endTime: const Duration(seconds: 3),
+            reverseVideo: true,
+          ),
+        ],
+      ),
+    );
+
+    expect(
+      meta.duration.inMilliseconds,
+      closeTo(1000, 400),
+      reason: 'Reversed 2s–3s trim should keep roughly the same duration',
+    );
+  });
+
+  testWidgets('per-clip reverse: mixed forward and reversed segments', (
+    tester,
+  ) async {
+    final meta = await testRender(
+      description: 'Per-clip reverse mixed segments',
+      renderModel: VideoRenderData(
+        outputFormat: VideoOutputFormat.mp4,
+        videoSegments: [
+          VideoSegment(
+            video: h264Video,
+            startTime: const Duration(seconds: 0),
+            endTime: const Duration(seconds: 2),
+          ),
+          VideoSegment(
+            video: h264Video,
+            startTime: const Duration(seconds: 2),
+            endTime: const Duration(seconds: 3),
+            reverseVideo: true,
+          ),
+        ],
+      ),
+    );
+
+    expect(
+      meta.duration.inMilliseconds,
+      closeTo(3000, 600),
+      reason: 'Forward 2s + reversed 1s should render as roughly 3s',
+    );
   });
 
   testWidgets('remove audio', (tester) async {
@@ -263,30 +505,30 @@ void main() {
     );
   });
 
-  testWidgets('Bitrate is applied correctly (2.5 Mbps)', (tester) async {
-    const expectedBitrate = 2500000; // 2.5 Mbps
+  testWidgets('Bitrate cap is not exceeded (2.5 Mbps)', (tester) async {
+    // The bitrate is a maximum, not a target: a source already below the cap
+    // keeps its own (lower) bitrate via the lossless fast path, so only the
+    // upper bound is asserted. bitrate_cap_test.dart covers the over-cap
+    // re-encode cases.
+    const bitrateCap = 2500000; // 2.5 Mbps
     const tolerance = 0.42; // ±42% Important if CBR isn't supported
 
     var meta = await testRender(
-      description: 'Bitrate set to 2.5 Mbps',
+      description: 'Bitrate capped at 2.5 Mbps',
       renderModel: VideoRenderData(
         videoSegments: [VideoSegment(video: inputVideo)],
         outputFormat: VideoOutputFormat.mp4,
-        bitrate: expectedBitrate,
+        bitrate: bitrateCap,
       ),
     );
 
     final actualBitrate = meta.bitrate; // in bits per second
-    const minBitrate = expectedBitrate * (1 - tolerance);
-    const maxBitrate = expectedBitrate * (1 + tolerance);
-
-    final bitrateValid =
-        actualBitrate >= minBitrate && actualBitrate <= maxBitrate;
+    const maxBitrate = bitrateCap * (1 + tolerance);
 
     expect(
-      bitrateValid,
-      isTrue,
-      reason: 'Bitrate validation failed. The Bitrate is $actualBitrate.',
+      actualBitrate,
+      lessThanOrEqualTo(maxBitrate),
+      reason: 'Bitrate cap exceeded. The Bitrate is $actualBitrate.',
     );
   });
 
@@ -631,13 +873,41 @@ void main() {
       );
     });
 
+    // iOS/macOS pre-transcode only this window of the source. That export
+    // ends its audio track ~40 ms before its video, which trimToCommonTrackEnd
+    // once cut off the clip, last frame included.
+    testWidgets('trim keeps its length with trimToCommonTrackEnd', (_) async {
+      final result = await ProVideoEditor.instance.renderVideo(
+        VideoRenderData(
+          videoSegments: [
+            VideoSegment(
+              video: hevcVideo,
+              startTime: const Duration(seconds: 1),
+              endTime: const Duration(seconds: 3),
+            ),
+          ],
+          outputFormat: VideoOutputFormat.mp4,
+          trimToCommonTrackEnd: true,
+        ),
+      );
+
+      final meta = await ProVideoEditor.instance.getMetadata(
+        EditorVideo.memory(result),
+      );
+      // One frame is 33 ms.
+      expect(
+        meta.duration.inMilliseconds,
+        closeTo(2000, 10),
+        reason: 'the trimmed HDR window lost its end',
+      );
+    }, skip: !isIOS && !isMacOS);
+
     testWidgets('export with speed change 2x', (_) async {
       final originalMeta = await ProVideoEditor.instance.getMetadata(hevcVideo);
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
-          videoSegments: [VideoSegment(video: hevcVideo)],
+          videoSegments: [VideoSegment(video: hevcVideo, playbackSpeed: 2.0)],
           outputFormat: VideoOutputFormat.mp4,
-          playbackSpeed: 2.0,
         ),
       );
       expect(result, isNotNull, reason: 'HEVC with speed change failed');
@@ -661,10 +931,10 @@ void main() {
               video: hevcVideo,
               startTime: Duration.zero,
               endTime: const Duration(seconds: 2),
+              playbackSpeed: 0.5,
             ),
           ],
           outputFormat: VideoOutputFormat.mp4,
-          playbackSpeed: 0.5,
         ),
       );
       expect(result, isNotNull, reason: 'HEVC with slow motion failed');
@@ -696,6 +966,60 @@ void main() {
       );
       expect(result, isNotNull, reason: 'HEVC with combined effects failed');
       expect(result.lengthInBytes, greaterThan(50000));
+    });
+
+    testWidgets('per-clip speed 2x', (_) async {
+      final result = await ProVideoEditor.instance.renderVideo(
+        VideoRenderData(
+          outputFormat: VideoOutputFormat.mp4,
+          videoSegments: [
+            VideoSegment(
+              video: hevcVideo,
+              startTime: Duration.zero,
+              endTime: const Duration(seconds: 2),
+              playbackSpeed: 2.0,
+            ),
+          ],
+        ),
+      );
+      expect(result, isNotNull, reason: 'HEVC per-clip speed 2x failed');
+      expect(result.lengthInBytes, greaterThan(10000));
+
+      final meta = await ProVideoEditor.instance.getMetadata(
+        EditorVideo.memory(result),
+      );
+      expect(
+        meta.duration.inSeconds,
+        closeTo(1, 1),
+        reason: 'HEVC per-clip speed 2x: 2s input → ~1s output',
+      );
+    });
+
+    testWidgets('per-clip speed 0.5x', (_) async {
+      final result = await ProVideoEditor.instance.renderVideo(
+        VideoRenderData(
+          outputFormat: VideoOutputFormat.mp4,
+          videoSegments: [
+            VideoSegment(
+              video: hevcVideo,
+              startTime: Duration.zero,
+              endTime: const Duration(seconds: 1),
+              playbackSpeed: 0.5,
+            ),
+          ],
+        ),
+      );
+      expect(result, isNotNull, reason: 'HEVC per-clip speed 0.5x failed');
+      expect(result.lengthInBytes, greaterThan(10000));
+
+      final meta = await ProVideoEditor.instance.getMetadata(
+        EditorVideo.memory(result),
+      );
+      expect(
+        meta.duration.inSeconds,
+        closeTo(2, 1),
+        reason: 'HEVC per-clip speed 0.5x: 1s input → ~2s output',
+      );
     });
 
     // Note: hevc.mp4 is only ~2.5s, so use 0-1s and 1-2s segments
@@ -892,9 +1216,8 @@ void main() {
       final originalMeta = await ProVideoEditor.instance.getMetadata(h264Video);
       final result = await ProVideoEditor.instance.renderVideo(
         VideoRenderData(
-          videoSegments: [VideoSegment(video: h264Video)],
+          videoSegments: [VideoSegment(video: h264Video, playbackSpeed: 2.0)],
           outputFormat: VideoOutputFormat.mp4,
-          playbackSpeed: 2.0,
         ),
       );
       expect(result, isNotNull, reason: 'H.264 with speed change failed');
@@ -918,10 +1241,10 @@ void main() {
               video: h264Video,
               startTime: Duration.zero,
               endTime: const Duration(seconds: 2),
+              playbackSpeed: 0.5,
             ),
           ],
           outputFormat: VideoOutputFormat.mp4,
-          playbackSpeed: 0.5,
         ),
       );
       expect(result, isNotNull, reason: 'H.264 with slow motion failed');
@@ -953,6 +1276,60 @@ void main() {
       );
       expect(result, isNotNull, reason: 'H.264 with combined effects failed');
       expect(result.lengthInBytes, greaterThan(50000));
+    });
+
+    testWidgets('per-clip speed 2x', (_) async {
+      final result = await ProVideoEditor.instance.renderVideo(
+        VideoRenderData(
+          outputFormat: VideoOutputFormat.mp4,
+          videoSegments: [
+            VideoSegment(
+              video: h264Video,
+              startTime: const Duration(seconds: 1),
+              endTime: const Duration(seconds: 5),
+              playbackSpeed: 2.0,
+            ),
+          ],
+        ),
+      );
+      expect(result, isNotNull, reason: 'H.264 per-clip speed 2x failed');
+      expect(result.lengthInBytes, greaterThan(50000));
+
+      final meta = await ProVideoEditor.instance.getMetadata(
+        EditorVideo.memory(result),
+      );
+      expect(
+        meta.duration.inSeconds,
+        closeTo(2, 1),
+        reason: 'H.264 per-clip speed 2x: 4s input → ~2s output',
+      );
+    });
+
+    testWidgets('per-clip speed 0.5x', (_) async {
+      final result = await ProVideoEditor.instance.renderVideo(
+        VideoRenderData(
+          outputFormat: VideoOutputFormat.mp4,
+          videoSegments: [
+            VideoSegment(
+              video: h264Video,
+              startTime: const Duration(seconds: 1),
+              endTime: const Duration(seconds: 3),
+              playbackSpeed: 0.5,
+            ),
+          ],
+        ),
+      );
+      expect(result, isNotNull, reason: 'H.264 per-clip speed 0.5x failed');
+      expect(result.lengthInBytes, greaterThan(50000));
+
+      final meta = await ProVideoEditor.instance.getMetadata(
+        EditorVideo.memory(result),
+      );
+      expect(
+        meta.duration.inSeconds,
+        closeTo(4, 1),
+        reason: 'H.264 per-clip speed 0.5x: 2s input → ~4s output',
+      );
     });
 
     testWidgets('merge two H.264 videos', (_) async {
@@ -1237,10 +1614,10 @@ void main() {
                 video: video,
                 startTime: Duration.zero,
                 endTime: end,
+                playbackSpeed: 2.0,
               ),
             ],
             outputFormat: VideoOutputFormat.mp4,
-            playbackSpeed: 2.0,
           ),
         );
       }
@@ -1636,5 +2013,83 @@ void main() {
         reason: 'Author metadata should be stripped after rendering',
       );
     }, skip: true);
+  });
+
+  // ===========================================================================
+  // Regression Tests
+  // ===========================================================================
+  group('Regression tests', () {
+    // Issue #131 – reported by @rabble
+    // Certain H.264 MP4 files have a container duration that is slightly longer
+    // than the video track's actual decoded frames. This caused AVFoundation to
+    // call the custom compositor for a time slot where no pixel buffer was
+    // available (sourceTrackIDs empty), resulting in the crash:
+    //   PlatformException(RENDER_ERROR,
+    //     No source tracks available for compositing
+    // (sourceTrackIDs: 0, configTrackID: 1))
+    // Fix: clamp ClipInstruction.timeRange to the video track's actual
+    // timeRange in VideoSequenceBuilder before inserting into the composition.
+    group('#131 – H.264 MP4 with container duration > track duration', () {
+      final divineVideo = EditorVideo.asset(kVideoEditorExampleDivinePath);
+
+      testWidgets('plain export succeeds (no effects)', (_) async {
+        final result = await ProVideoEditor.instance.renderVideo(
+          VideoRenderData(
+            videoSegments: [VideoSegment(video: divineVideo)],
+            outputFormat: VideoOutputFormat.mp4,
+            shouldOptimizeForNetworkUse: true,
+          ),
+        );
+        expect(result.lengthInBytes, greaterThan(10000));
+      }, skip: !isIOS && !isMacOS);
+
+      testWidgets(
+        'export with image layer (original crash scenario)',
+        (_) async {
+          final watermark = await createTestOverlayImage(
+            width: 200,
+            height: 100,
+          );
+          final result = await ProVideoEditor.instance.renderVideo(
+            VideoRenderData(
+              videoSegments: [VideoSegment(video: divineVideo)],
+              outputFormat: VideoOutputFormat.mp4,
+              shouldOptimizeForNetworkUse: true,
+              imageLayers: [
+                ImageLayer(image: EditorLayerImage.memory(watermark)),
+              ],
+            ),
+          );
+          expect(result.lengthInBytes, greaterThan(10000));
+        },
+        skip: !isIOS && !isMacOS,
+      );
+
+      testWidgets('export with color filter + image layer', (_) async {
+        final watermark = await createTestOverlayImage(width: 200, height: 100);
+        final result = await ProVideoEditor.instance.renderVideo(
+          VideoRenderData(
+            videoSegments: [VideoSegment(video: divineVideo)],
+            outputFormat: VideoOutputFormat.mp4,
+            colorFilters: kBasicFilterMatrix,
+            imageLayers: [
+              ImageLayer(image: EditorLayerImage.memory(watermark)),
+            ],
+          ),
+        );
+        expect(result.lengthInBytes, greaterThan(10000));
+      }, skip: !isIOS && !isMacOS);
+
+      testWidgets('export with blur', (_) async {
+        final result = await ProVideoEditor.instance.renderVideo(
+          VideoRenderData(
+            videoSegments: [VideoSegment(video: divineVideo)],
+            outputFormat: VideoOutputFormat.mp4,
+            blur: 3,
+          ),
+        );
+        expect(result.lengthInBytes, greaterThan(10000));
+      }, skip: !isIOS && !isMacOS);
+    });
   });
 }

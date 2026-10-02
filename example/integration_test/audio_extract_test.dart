@@ -140,6 +140,70 @@ void main() {
       },
       skip: skipPlatform || !isFormatSupported(format),
     );
+
+    testWidgets(
+      'extractAudio with $format at 2x speed produces valid, shorter output',
+      (tester) async {
+        if (!isFormatSupported(format)) return;
+
+        final directory = await getTemporaryDirectory();
+        final ts = DateTime.now().millisecondsSinceEpoch;
+        final normalPath =
+            '${directory.path}/test_audio_1x_$ts.${format.extension}';
+        final fastPath =
+            '${directory.path}/test_audio_2x_$ts.${format.extension}';
+
+        await pve.extractAudioToFile(
+          normalPath,
+          AudioExtractConfigs(video: testVideo, format: format),
+        );
+        await pve.extractAudioToFile(
+          fastPath,
+          AudioExtractConfigs(video: testVideo, format: format, speed: 2.0),
+        );
+
+        final normalFile = File(normalPath);
+        final fastFile = File(fastPath);
+
+        expect(
+          await fastFile.exists(),
+          isTrue,
+          reason: 'Sped-up audio file should exist',
+        );
+
+        // Extension-based MIME detection (see notes on the base test).
+        final mimeType = lookupMimeType(fastPath);
+        final expectedMimeTypes = switch (format) {
+          AudioFormat.aac => [format.mimeType, 'audio/mp4'],
+          AudioFormat.wav => [format.mimeType, 'audio/wav'],
+          _ => [format.mimeType],
+        };
+        expect(expectedMimeTypes, contains(mimeType));
+
+        expect(
+          await fastFile.length(),
+          greaterThan(1000),
+          reason: 'Sped-up audio should have content (>1KB)',
+        );
+
+        // WAV is uncompressed, so 2x speed roughly halves the PCM data. A
+        // generous bound keeps this robust across sample rates / bit depths.
+        if (format == AudioFormat.wav) {
+          final normalSize = await normalFile.length();
+          final fastSize = await fastFile.length();
+          expect(
+            fastSize,
+            lessThan(normalSize * 0.75),
+            reason: '2x WAV should be markedly smaller than the 1x extraction',
+          );
+        }
+
+        // Clean up
+        if (await normalFile.exists()) await normalFile.delete();
+        if (await fastFile.exists()) await fastFile.delete();
+      },
+      skip: skipPlatform || !isFormatSupported(format),
+    );
   }
 
   testWidgets('extractAudio emits progress updates', (tester) async {
@@ -215,28 +279,50 @@ void main() {
     // Small delay to let extraction start
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    // Cancel the task — extraction may already be finished on fast machines,
-    // so handle TASK_NOT_FOUND gracefully.
-    bool cancelledInTime = true;
+    // Cancel the task. On fast machines the extraction may already have
+    // finished, leaving no active task to cancel — that surfaces as a no-op
+    // (Android) or a TASK_NOT_FOUND error (iOS/macOS); both are tolerated here.
     try {
       await ProVideoEditor.instance.cancel(config.id);
     } on PlatformException catch (e) {
-      if (e.code == 'TASK_NOT_FOUND') {
-        cancelledInTime = false;
-      } else {
-        rethrow;
-      }
+      if (e.code != 'TASK_NOT_FOUND') rethrow;
     }
 
+    // Whether the cancel landed in time is derived from the extraction outcome,
+    // not from the cancel call: a cancelled extraction fails with
+    // RenderCanceledException, a completed one resolves without error.
     final error = await capturedError;
-    if (cancelledInTime) {
+    if (error != null) {
       expect(error, isA<RenderCanceledException>());
-    } else {
-      // Task completed before cancel — no error expected
-      expect(error, isNull);
     }
+    // else: extraction completed before the cancel arrived — no error expected.
 
     // Clean up if file was created
+    final file = File(outputPath);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }, skip: skipPlatform);
+
+  testWidgets('extractAudio throws on a video without an audio track', (
+    tester,
+  ) async {
+    final format = Platform.isAndroid ? AudioFormat.mp3 : AudioFormat.m4a;
+
+    final directory = await getTemporaryDirectory();
+    final outputPath =
+        '${directory.path}/test_audio_noaudio_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';
+
+    final config = AudioExtractConfigs(
+      video: EditorVideo.asset('assets/demo_muted.mp4'),
+      format: format,
+    );
+
+    await expectLater(
+      ProVideoEditor.instance.extractAudioToFile(outputPath, config),
+      throwsA(isA<AudioNoTrackException>()),
+    );
+
     final file = File(outputPath);
     if (await file.exists()) {
       await file.delete();

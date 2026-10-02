@@ -1,5 +1,9 @@
+import AVFoundation
 import Cocoa
+import CoreGraphics
+import CoreMedia
 import FlutterMacOS
+import ImageIO
 import XCTest
 
 
@@ -25,4 +29,2636 @@ class RunnerTests: XCTestCase {
     waitForExpectations(timeout: 1)
   }
 
+  // MARK: - Failure details and cancellation
+
+  func testFailureDetailsCarryTheDomainCodeAndUnderlyingChain() {
+    let status = NSError(domain: NSOSStatusErrorDomain, code: -17512)
+    let diskFull = NSError(
+      domain: AVFoundationErrorDomain, code: AVError.diskFull.rawValue,
+      userInfo: [NSUnderlyingErrorKey: status])
+
+    let details = FailureDetails.of(diskFull)
+
+    XCTAssertEqual(details["domain"] as? String, AVFoundationErrorDomain)
+    XCTAssertEqual(details["code"] as? Int, -11807)
+    XCTAssertEqual(
+      details["cause"] as? String,
+      "\(NSOSStatusErrorDomain) -17512: \(status.localizedDescription)")
+  }
+
+  func testFailureDetailsOmitTheCauseWhenThereIsNone() {
+    let details = FailureDetails.of(NSError(domain: "ExportWatchdog", code: 408))
+
+    XCTAssertEqual(details["domain"] as? String, "ExportWatchdog")
+    XCTAssertEqual(details["code"] as? Int, 408)
+    XCTAssertNil(details["cause"])
+  }
+
+  func testFailureDetailsCutTheUnderlyingChainAtTheDepthCap() {
+    var error = NSError(domain: "Test", code: 0)
+    for depth in 1...20 {
+      error = NSError(domain: "Test", code: depth, userInfo: [NSUnderlyingErrorKey: error])
+    }
+
+    let cause = FailureDetails.of(error)["cause"] as? String
+
+    XCTAssertEqual(cause?.components(separatedBy: " <- ").count, 8)
+  }
+
+  // A cancel used to answer before the job it cancelled did: the export
+  // session unwinds asynchronously, and only its completion removed the task,
+  // so a caller that cancelled and immediately started the same id again — a
+  // retry after a stalled export — was refused with TASK_ALREADY_RUNNING.
+  func testCancelledJobAnswersBeforeItsCancelDoesAndFreesItsId() throws {
+    let videoURL = try ThumbnailTimestampFixture.makeColorVideo(
+      colors: Array(ThumbnailTimestampFixture.palette.prefix(3)))
+    defer { try? FileManager.default.removeItem(at: videoURL) }
+    let plugin = ProVideoEditorPlugin()
+    let id = "cancel-then-restart"
+    let render = FlutterMethodCall(
+      methodName: "renderVideo",
+      arguments: [
+        "id": id,
+        "videoClips": [["inputPath": videoURL.path]],
+        "outputFormat": "mp4",
+      ])
+
+    let firstAnswered = expectation(description: "the cancelled render answers exactly once")
+    firstAnswered.assertForOverFulfill = true
+    var firstAnswer: Any?
+    plugin.handle(render) { result in
+      firstAnswer = result
+      firstAnswered.fulfill()
+    }
+
+    // Everything below runs before the main queue gets to drain, so the
+    // pipeline's own unwinding cannot have answered yet: whatever has been
+    // answered here was answered by the cancel itself.
+    var cancelAnswered = false
+    plugin.handle(FlutterMethodCall(methodName: "cancelTask", arguments: ["id": id])) { _ in
+      cancelAnswered = true
+    }
+    XCTAssertTrue(cancelAnswered)
+    XCTAssertEqual((firstAnswer as? FlutterError)?.code, "CANCELED")
+
+    let secondAnswered = expectation(description: "the restarted render answers")
+    var secondAnswer: Any?
+    plugin.handle(render) { result in
+      secondAnswer = result
+      secondAnswered.fulfill()
+    }
+    XCTAssertNotEqual(
+      (secondAnswer as? FlutterError)?.code, "TASK_ALREADY_RUNNING",
+      "the id is free the moment the cancel has answered")
+    plugin.handle(FlutterMethodCall(methodName: "cancelTask", arguments: ["id": id])) { _ in }
+    wait(for: [firstAnswered, secondAnswered], timeout: 5)
+
+    // The first job's own unwinding must not answer its call a second time;
+    // `assertForOverFulfill` above would trip. Give it time to try.
+    let unwound = expectation(description: "the cancelled sessions had time to unwind")
+    unwound.isInverted = true
+    wait(for: [unwound], timeout: 2)
+  }
+
+  // A cancel answers at once, but the pipeline behind the cancelled job is
+  // still unwinding and may yet remove the output it was writing. A job
+  // restarted under the same id must not run into that.
+  func testAJobRestartedUnderACancelledIdWaitsForItsPredecessorToUnwind() {
+    let registry = JobRegistry<FakeJob>()
+    var started: [String] = []
+    let first = FakeJob()
+    registry.start(first, id: "x") { started.append("first") }
+    XCTAssertEqual(started, ["first"])
+
+    XCTAssertTrue(registry.cancel("x") === first)
+    XCTAssertTrue(first.isCanceled)
+    XCTAssertFalse(registry.isRunning("x"), "the cancel frees the id at once")
+
+    let second = FakeJob()
+    registry.start(second, id: "x") { started.append("second") }
+    XCTAssertTrue(registry.isRunning("x"))
+    XCTAssertEqual(started, ["first"], "the restart waits for the cancelled pipeline")
+
+    registry.settle(first, id: "x")
+    XCTAssertEqual(started, ["first", "second"])
+    XCTAssertTrue(registry.isRunning("x"), "the cancelled job's report leaves the restart alone")
+
+    registry.settle(first, id: "x")
+    XCTAssertEqual(started, ["first", "second"], "a duplicate report starts nothing twice")
+
+    registry.settle(second, id: "x")
+    XCTAssertFalse(registry.isRunning("x"))
+  }
+
+  func testAJobCancelledWhileWaitingNeverStartsAndDoesNotBlockTheNext() {
+    let registry = JobRegistry<FakeJob>()
+    var started: [String] = []
+    let first = FakeJob()
+    registry.start(first, id: "x") { started.append("first") }
+    _ = registry.cancel("x")
+
+    let second = FakeJob()
+    registry.start(second, id: "x") { started.append("second") }
+    XCTAssertTrue(registry.cancel("x") === second)
+    XCTAssertTrue(second.isCanceled)
+
+    let third = FakeJob()
+    registry.start(third, id: "x") { started.append("third") }
+    XCTAssertEqual(started, ["first"], "the first job is still unwinding")
+
+    registry.settle(first, id: "x")
+    XCTAssertEqual(started, ["first", "third"], "the cancelled second job never starts")
+  }
+
+  func testCancelAllDropsWhatWasWaiting() {
+    let registry = JobRegistry<FakeJob>()
+    var started: [String] = []
+    let first = FakeJob()
+    registry.start(first, id: "x") { started.append("first") }
+    _ = registry.cancel("x")
+    let second = FakeJob()
+    registry.start(second, id: "x") { started.append("second") }
+
+    registry.cancelAll()
+    XCTAssertTrue(second.isCanceled)
+    registry.settle(first, id: "x")
+    XCTAssertEqual(started, ["first"])
+    XCTAssertFalse(registry.isRunning("x"))
+  }
+
+  // MARK: - Slide animation geometry
+
+  // Frame 1000×500, a small layer (200×100) centered at (400, 200) in
+  // Core Graphics (Y bottom-up) coordinates.
+  private let slideFrame = CGRect(x: 0, y: 0, width: 1000, height: 500)
+  private let slideOverlay = CGRect(x: 400, y: 200, width: 200, height: 100)
+
+  func testSlideMovesLayerFullyOutAtInvPOne() {
+    let left = slideOffset(
+      direction: "left", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    let right = slideOffset(
+      direction: "right", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    let top = slideOffset(
+      direction: "top", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    let bottom = slideOffset(
+      direction: "bottom", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+
+    // Edge-aware distance, not the old overlay-size-relative one.
+    XCTAssertEqual(left.x, -600, accuracy: 1e-6)
+    XCTAssertEqual(right.x, 600, accuracy: 1e-6)
+    XCTAssertEqual(top.y, 300, accuracy: 1e-6)
+    XCTAssertEqual(bottom.y, -300, accuracy: 1e-6)
+  }
+
+  func testSlideTrailingEdgeLandsOnFrameEdge() {
+    let left = slideOffset(
+      direction: "left", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    let right = slideOffset(
+      direction: "right", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    let top = slideOffset(
+      direction: "top", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    let bottom = slideOffset(
+      direction: "bottom", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+
+    XCTAssertEqual(slideOverlay.maxX + left.x, slideFrame.minX, accuracy: 1e-6)
+    XCTAssertEqual(slideOverlay.minX + right.x, slideFrame.maxX, accuracy: 1e-6)
+    XCTAssertEqual(slideOverlay.minY + top.y, slideFrame.maxY, accuracy: 1e-6)
+    XCTAssertEqual(slideOverlay.maxY + bottom.y, slideFrame.minY, accuracy: 1e-6)
+  }
+
+  func testSlideIsZeroAtRestAndLinearInInvP() {
+    let rest = slideOffset(
+      direction: "left", invP: 0, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    XCTAssertEqual(rest.x, 0, accuracy: 1e-6)
+    XCTAssertEqual(rest.y, 0, accuracy: 1e-6)
+
+    let full = slideOffset(
+      direction: "left", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    let half = slideOffset(
+      direction: "left", invP: 0.5, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    XCTAssertEqual(half.x, full.x / 2, accuracy: 1e-6)
+  }
+
+  func testSlideUnknownDirectionProducesNoOffset() {
+    let off = slideOffset(
+      direction: "diagonal", invP: 1, overlayExtent: slideOverlay, frameExtent: slideFrame)
+    XCTAssertEqual(off.x, 0, accuracy: 1e-6)
+    XCTAssertEqual(off.y, 0, accuracy: 1e-6)
+  }
+
+  // MARK: - Custom slide start point
+
+  func testCustomSlideStartPointTravelsThePixelDelta() {
+    // The layer rests with its top-left at (400, 200) in Flutter coordinates
+    // (Y down); the start point sits 300px left and 150px above it.
+    let off = slideFromOffset(
+      invP: 1, slideFrom: CGPoint(x: 100, y: 50), layerOrigin: CGPoint(x: 400, y: 200))
+
+    XCTAssertEqual(off.x, -300, accuracy: 1e-6)
+    // Core Graphics counts Y upwards, so a smaller Flutter Y moves up.
+    XCTAssertEqual(off.y, 150, accuracy: 1e-6)
+  }
+
+  func testCustomSlideStartPointIsZeroAtRestAndLinearInInvP() {
+    let from = CGPoint(x: 100, y: 50)
+    let origin = CGPoint(x: 400, y: 200)
+
+    let rest = slideFromOffset(invP: 0, slideFrom: from, layerOrigin: origin)
+    XCTAssertEqual(rest.x, 0, accuracy: 1e-6)
+    XCTAssertEqual(rest.y, 0, accuracy: 1e-6)
+
+    let full = slideFromOffset(invP: 1, slideFrom: from, layerOrigin: origin)
+    let half = slideFromOffset(invP: 0.5, slideFrom: from, layerOrigin: origin)
+    XCTAssertEqual(half.x, full.x / 2, accuracy: 1e-6)
+    XCTAssertEqual(half.y, full.y / 2, accuracy: 1e-6)
+  }
+
+  func testCustomSlideStartPointOnTheRestingCornerNeverMoves() {
+    let origin = CGPoint(x: 400, y: 200)
+    let off = slideFromOffset(invP: 1, slideFrom: origin, layerOrigin: origin)
+    XCTAssertEqual(off.x, 0, accuracy: 1e-6)
+    XCTAssertEqual(off.y, 0, accuracy: 1e-6)
+  }
+
+  // MARK: - Animated layer frame lookup
+
+  // Four frames of 500 ms each: one playthrough lasts 2 s.
+  private let gifFrameEndsUs: [Int64] = [500_000, 1_000_000, 1_500_000, 2_000_000]
+
+  private func gifFrame(
+    at timeUs: Int64, startUs: Int64 = 1_000_000, offsetUs: Int64 = 0, loop: Bool = true
+  ) -> Int {
+    animatedFrameIndex(
+      atUs: timeUs, startUs: startUs, animationOffsetUs: offsetUs,
+      frameEndsUs: gifFrameEndsUs, loop: loop)
+  }
+
+  func testAnimatedLayerWithoutAnOffsetOpensOnItsFirstFrame() {
+    XCTAssertEqual(gifFrame(at: 1_000_000), 0)
+    XCTAssertEqual(gifFrame(at: 1_250_000), 0)
+    XCTAssertEqual(gifFrame(at: 1_750_000), 1)
+  }
+
+  func testAnimationOffsetStartsPlaybackThatFarIn() {
+    XCTAssertEqual(gifFrame(at: 1_000_000, offsetUs: 1_000_000), 2)
+    XCTAssertEqual(gifFrame(at: 1_750_000, offsetUs: 1_000_000), 3)
+  }
+
+  func testALayerPickingUpWhereAnotherLeftOffContinuesItsAnimation() {
+    let times = stride(from: Int64(0), to: 3_000_000, by: 40_000)
+    let single = times.map { gifFrame(at: $0, startUs: 0) }
+    let split = times.map {
+      $0 < 1_000_000
+        ? gifFrame(at: $0, startUs: 0)
+        : gifFrame(at: $0, startUs: 1_000_000, offsetUs: 1_000_000)
+    }
+    XCTAssertEqual(single, split)
+  }
+
+  func testAnimationOffsetWrapsAroundALoopingAnimation() {
+    XCTAssertEqual(gifFrame(at: 1_250_000, offsetUs: 2_500_000), 1)
+    XCTAssertEqual(gifFrame(at: 1_000_000, offsetUs: 4_000_000), 0)
+  }
+
+  func testAnimationOffsetPastTheEndHoldsTheLastFrameWithoutLooping() {
+    XCTAssertEqual(gifFrame(at: 1_000_000, offsetUs: 5_000_000, loop: false), 3)
+    XCTAssertEqual(gifFrame(at: 1_000_000, offsetUs: 1_000_000, loop: false), 2)
+  }
+
+  func testAnimatedLayerBeforeItAppearsShowsTheFrameItOpensOn() {
+    XCTAssertEqual(gifFrame(at: 0, offsetUs: 1_000_000), 2)
+  }
+
+  func testAnimatedLayerFromTheStartOfTheVideoCountsFromZero() {
+    XCTAssertEqual(gifFrame(at: 250_000, startUs: -1, offsetUs: 500_000), 1)
+  }
+
+  // Int64.max µs lands 775_807 µs into a 2 s playthrough. Adding it to the
+  // elapsed time unreduced traps on overflow and takes the app down.
+  func testHugeAnimationOffsetDoesNotOverflow() {
+    XCTAssertEqual(gifFrame(at: 1_250_000, offsetUs: .max), 2)
+    XCTAssertEqual(gifFrame(at: 3_000_000, offsetUs: .max, loop: false), 3)
+  }
+
+  func testNegativeAnimationOffsetIsTreatedAsNone() {
+    XCTAssertEqual(gifFrame(at: 1_250_000, offsetUs: -700_000), 0)
+  }
+
+  func testStaticLayerAlwaysShowsItsOnlyFrame() {
+    XCTAssertEqual(
+      animatedFrameIndex(
+        atUs: 5_000_000, startUs: 0, animationOffsetUs: 1_000_000, frameEndsUs: [0], loop: true),
+      0)
+  }
+
+  // MARK: - Engine-detach result delivery
+
+  // Before detach a captured FlutterResult delivers normally.
+  func testDeliverResultInvokesClosureBeforeDetach() {
+    let plugin = ProVideoEditorPlugin()
+
+    var deliveredCount = 0
+    var deliveredValue: Any?
+    plugin.deliverResult({ value in
+      deliveredCount += 1
+      deliveredValue = value
+    }, "payload")
+
+    XCTAssertEqual(deliveredCount, 1)
+    XCTAssertEqual(deliveredValue as? String, "payload")
+  }
+
+  // Regression guard for the `else`-after-detach hole: once the engine has been
+  // torn down, a late async delivery must be a terminal no-op so it never
+  // messages a no-longer-running FlutterEngine.
+  func testDeliverResultIsNoOpAfterDetach() {
+    let plugin = ProVideoEditorPlugin()
+
+    plugin.tearDownForEngineDetach()
+
+    var deliveredCount = 0
+    plugin.deliverResult({ _ in
+      deliveredCount += 1
+    }, "payload")
+
+    XCTAssertEqual(deliveredCount, 0)
+  }
+
+  // MARK: - Thumbnail timestamp alignment (concurrent-callback regression)
+
+  // A synthetic video is authored with one distinct solid color per second.
+  // Thumbnails are then requested for many timestamps, in shuffled order, and
+  // every returned frame must decode to the color of the second it was
+  // requested for. This exercises the path where
+  // `generateCGImagesAsynchronously(forTimes:)` (and the ordered async
+  // sequence) delivers callbacks concurrently / out of order — the regression
+  // that previously mapped frames to the wrong timestamps or never completed.
+  //
+  // The result must (a) always arrive (no hang), (b) equal the requested count,
+  // and (c) map index-for-index to the requested timestamps with no reordering,
+  // dropped, or duplicated frames — verified across a stress loop.
+  func testThumbnailsAlignToRequestedTimestampsUnderConcurrency() throws {
+    let palette = ThumbnailTimestampFixture.palette
+    let videoURL = try ThumbnailTimestampFixture.makeColorVideo(colors: palette)
+    defer { try? FileManager.default.removeItem(at: videoURL) }
+
+    // Three sub-second offsets per color band, well away from band edges so the
+    // decoded frame is unambiguously inside a single color.
+    var entries: [(us: Int64, colorIndex: Int)] = []
+    for second in 0..<palette.count {
+      for frac in [0.3, 0.5, 0.7] {
+        let seconds = Double(second) + frac
+        entries.append((Int64((seconds * 1_000_000).rounded()), second))
+      }
+    }
+
+    let iterations = 12
+    for iteration in 0..<iterations {
+      // Shuffle so the requested order differs from the natural order; the
+      // returned array must still line up with the request positions.
+      let shuffled = entries.shuffled()
+      let timestampsUs = shuffled.map { $0.us }
+      let expectedColorIndex = shuffled.map { $0.colorIndex }
+
+      let config = ThumbnailConfig(
+        id: "concurrency-\(iteration)",
+        inputPath: videoURL.path,
+        fileExtension: "mp4",
+        boxFit: "contain",
+        outputFormat: "png",
+        jpegQuality: 100,
+        outputWidth: 80,
+        outputHeight: 45,
+        timestampsUs: timestampsUs,
+        maxOutputFrames: nil,
+        lastFrameTolerance: false
+      )
+
+      let completed = expectation(description: "onComplete fires (iteration \(iteration))")
+      completed.assertForOverFulfill = true
+      var received: [Data]?
+      var receivedError: Error?
+
+      ThumbnailGenerator.getThumbnails(
+        config: config,
+        onProgress: { _ in },
+        onComplete: { data in
+          received = data
+          completed.fulfill()
+        },
+        onError: { error in
+          receivedError = error
+          completed.fulfill()
+        }
+      )
+
+      // A timeout here is the guard against the wedge: a lost completion count
+      // used to leave the continuation unresumed forever.
+      wait(for: [completed], timeout: 30)
+
+      XCTAssertNil(receivedError, "iteration \(iteration): unexpected error")
+      guard let result = received else {
+        XCTFail("iteration \(iteration): no result delivered")
+        return
+      }
+
+      XCTAssertEqual(
+        result.count, timestampsUs.count,
+        "iteration \(iteration): result count must equal requested count")
+
+      for i in 0..<min(result.count, expectedColorIndex.count) {
+        XCTAssertFalse(
+          result[i].isEmpty,
+          "iteration \(iteration): frame \(i) is unexpectedly empty")
+
+        guard let color = ThumbnailTimestampFixture.decodedColor(result[i]) else {
+          XCTFail("iteration \(iteration): frame \(i) could not be decoded")
+          continue
+        }
+
+        let classified = ThumbnailTimestampFixture.nearestPaletteIndex(color, palette: palette)
+        XCTAssertEqual(
+          classified, expectedColorIndex[i],
+          "iteration \(iteration): frame \(i) (t=\(timestampsUs[i])us) decoded to "
+            + "color band \(classified) but timestamp belongs to band \(expectedColorIndex[i])")
+      }
+    }
+  }
+
+  // A single failed/out-of-range frame must not drop the others or shift them:
+  // the result stays index-aligned, the bad slot is an empty `Data()`, and the
+  // call still completes.
+  func testThumbnailsRepresentFailedFramePositionally() throws {
+    let palette = ThumbnailTimestampFixture.palette
+    let videoURL = try ThumbnailTimestampFixture.makeColorVideo(colors: palette)
+    defer { try? FileManager.default.removeItem(at: videoURL) }
+
+    // Middle timestamp is far past the end of the video, so that frame fails
+    // while the surrounding ones succeed.
+    let good0 = Int64(0.5 * 1_000_000)
+    let bad = Int64(9_999 * 1_000_000)
+    let good1 = Int64(1.5 * 1_000_000)
+    let timestampsUs = [good0, bad, good1]
+
+    let config = ThumbnailConfig(
+      id: "positional",
+      inputPath: videoURL.path,
+      fileExtension: "mp4",
+      boxFit: "contain",
+      outputFormat: "png",
+      jpegQuality: 100,
+      outputWidth: 80,
+      outputHeight: 45,
+      timestampsUs: timestampsUs,
+      maxOutputFrames: nil,
+      lastFrameTolerance: false
+    )
+
+    let completed = expectation(description: "onComplete fires")
+    var received: [Data]?
+    ThumbnailGenerator.getThumbnails(
+      config: config,
+      onProgress: { _ in },
+      onComplete: { data in
+        received = data
+        completed.fulfill()
+      },
+      onError: { _ in }
+    )
+    wait(for: [completed], timeout: 30)
+
+    guard let result = received else {
+      XCTFail("no result delivered")
+      return
+    }
+
+    XCTAssertEqual(result.count, 3, "result must stay the length of the request")
+    XCTAssertFalse(result[0].isEmpty, "first frame should succeed")
+    XCTAssertFalse(result[2].isEmpty, "third frame should succeed")
+
+    if let c0 = ThumbnailTimestampFixture.decodedColor(result[0]) {
+      XCTAssertEqual(
+        ThumbnailTimestampFixture.nearestPaletteIndex(c0, palette: palette), 0)
+    } else {
+      XCTFail("could not decode frame 0")
+    }
+    if let c2 = ThumbnailTimestampFixture.decodedColor(result[2]) {
+      XCTAssertEqual(
+        ThumbnailTimestampFixture.nearestPaletteIndex(c2, palette: palette), 1)
+    } else {
+      XCTFail("could not decode frame 2")
+    }
+  }
+
+  // Drives the legacy `generateCGImagesAsynchronously` path (lock +
+  // requestedTime→index resolution) directly. Modern OS versions route
+  // production through the ordered async sequence, so this is the only coverage
+  // for the concurrent-callback code — the exact code the wedge lived in.
+  func testConcurrentPathAlignsFramesToTimestamps() throws {
+    let palette = ThumbnailTimestampFixture.palette
+    let videoURL = try ThumbnailTimestampFixture.makeColorVideo(colors: palette)
+    defer { try? FileManager.default.removeItem(at: videoURL) }
+
+    var entries: [(us: Int64, colorIndex: Int)] = []
+    for second in 0..<palette.count {
+      for frac in [0.3, 0.5, 0.7] {
+        let seconds = Double(second) + frac
+        entries.append((Int64((seconds * 1_000_000).rounded()), second))
+      }
+    }
+
+    for iteration in 0..<8 {
+      let shuffled = entries.shuffled()
+      let timestampsUs = shuffled.map { $0.us }
+      let expectedColorIndex = shuffled.map { $0.colorIndex }
+
+      let config = ThumbnailConfig(
+        id: "concurrent-\(iteration)",
+        inputPath: videoURL.path,
+        fileExtension: "mp4",
+        boxFit: "contain",
+        outputFormat: "png",
+        jpegQuality: 100,
+        outputWidth: 80,
+        outputHeight: 45,
+        timestampsUs: timestampsUs,
+        maxOutputFrames: nil,
+        lastFrameTolerance: false
+      )
+
+      let generator = AVAssetImageGenerator(asset: AVURLAsset(url: videoURL))
+      generator.appliesPreferredTrackTransform = true
+      generator.requestedTimeToleranceBefore = .zero
+      generator.requestedTimeToleranceAfter = .zero
+
+      let times = timestampsUs.map {
+        NSValue(time: CMTime(value: $0, timescale: 1_000_000))
+      }
+
+      let done = expectation(description: "concurrent path completes (iteration \(iteration))")
+      Task {
+        let result = await ThumbnailGenerator.generateThumbnailDataConcurrent(
+          generator: generator,
+          times: times,
+          config: config,
+          onProgress: { _ in }
+        )
+
+        XCTAssertEqual(
+          result.count, timestampsUs.count,
+          "iteration \(iteration): concurrent path result count")
+
+        for i in 0..<min(result.count, expectedColorIndex.count) {
+          XCTAssertFalse(
+            result[i].isEmpty,
+            "iteration \(iteration): concurrent frame \(i) is empty")
+          if let color = ThumbnailTimestampFixture.decodedColor(result[i]) {
+            XCTAssertEqual(
+              ThumbnailTimestampFixture.nearestPaletteIndex(color, palette: palette),
+              expectedColorIndex[i],
+              "iteration \(iteration): concurrent frame \(i) misaligned")
+          } else {
+            XCTFail("iteration \(iteration): concurrent frame \(i) could not decode")
+          }
+        }
+        done.fulfill()
+      }
+
+      // Times out (fails) rather than hanging forever if the continuation is
+      // never resumed — the original wedge.
+      wait(for: [done], timeout: 30)
+    }
+  }
+
+  // The streaming path hands every frame to `onFrame` from the concurrent
+  // completion handlers. Each one must be delivered before the call returns —
+  // the caller reports `done` right after — and in the order the completion
+  // counter assigns, so progress never runs backwards.
+  func testConcurrentPathDeliversEveryFrameInCounterOrderBeforeReturning() throws {
+    let palette = ThumbnailTimestampFixture.palette
+    let videoURL = try ThumbnailTimestampFixture.makeColorVideo(colors: palette)
+    defer { try? FileManager.default.removeItem(at: videoURL) }
+
+    let timestampsUs: [Int64] = (0..<palette.count).flatMap { second in
+      [0.3, 0.5, 0.7].map { Int64(((Double(second) + $0) * 1_000_000).rounded()) }
+    }
+    let config = ThumbnailConfig(
+      id: "concurrent-stream",
+      inputPath: videoURL.path,
+      fileExtension: "mp4",
+      boxFit: "contain",
+      outputFormat: "png",
+      jpegQuality: 100,
+      outputWidth: 80,
+      outputHeight: 45,
+      timestampsUs: timestampsUs,
+      maxOutputFrames: nil,
+      lastFrameTolerance: false
+    )
+    let times = timestampsUs.map {
+      NSValue(time: CMTime(value: $0, timescale: 1_000_000))
+    }
+
+    for iteration in 0..<8 {
+      let generator = AVAssetImageGenerator(asset: AVURLAsset(url: videoURL))
+      generator.appliesPreferredTrackTransform = true
+      generator.requestedTimeToleranceBefore = .zero
+      generator.requestedTimeToleranceAfter = .zero
+
+      let lock = NSLock()
+      var delivered: [(indices: [Int], progress: Double)] = []
+      let done = expectation(description: "concurrent stream completes (iteration \(iteration))")
+      Task {
+        _ = await ThumbnailGenerator.generateThumbnailDataConcurrent(
+          generator: generator,
+          times: times,
+          config: config,
+          onProgress: { _ in },
+          onFrame: { indices, data, progress in
+            XCTAssertNotNil(data, "iteration \(iteration): frame \(indices) failed")
+            lock.lock()
+            delivered.append((indices, progress))
+            lock.unlock()
+          }
+        )
+        // Snapshot under the lock: a handler still delivering after the
+        // return is exactly the bug this guards against.
+        lock.lock()
+        let snapshot = delivered
+        lock.unlock()
+
+        XCTAssertEqual(
+          snapshot.flatMap { $0.indices }.sorted(), Array(timestampsUs.indices),
+          "iteration \(iteration): every frame is delivered before the call returns")
+        for (earlier, later) in zip(snapshot, snapshot.dropFirst()) {
+          XCTAssertLessThanOrEqual(
+            earlier.progress, later.progress,
+            "iteration \(iteration): progress ran backwards")
+        }
+        XCTAssertEqual(
+          snapshot.last?.progress, 1.0,
+          "iteration \(iteration): the last delivered frame carries 1.0")
+        done.fulfill()
+      }
+
+      wait(for: [done], timeout: 30)
+    }
+  }
+
+}
+
+// MARK: - Thumbnail timestamp test fixtures
+
+/// Helpers for authoring a color-coded test video and reading colors back out
+/// of generated thumbnails. Shared by the iOS and macOS RunnerTests.
+enum ThumbnailTimestampFixture {
+
+  typealias RGB = (r: UInt8, g: UInt8, b: UInt8)
+
+  /// Eight solid colors, each pair separated by a large RGB distance so a
+  /// nearest-color classification survives the RGB→YUV→RGB round trip of H.264
+  /// without ever misclassifying which band a frame came from.
+  static let palette: [RGB] = [
+    (215, 40, 40),
+    (40, 215, 40),
+    (40, 40, 215),
+    (215, 215, 40),
+    (215, 40, 215),
+    (40, 215, 215),
+    (215, 215, 215),
+    (40, 40, 40),
+  ]
+
+  /// Authors an H.264 `.mp4` where second `i` is entirely `colors[i]`.
+  ///
+  /// `codec` and `colorProperties` let a test author the HEVC + BT.2020 shape
+  /// the render pipeline pre-transcodes; the pixels stay 8-bit either way.
+  /// `timescale` sets the media timescale; phone recordings use a fine one
+  /// such as 90 000, which lets a time range start between two frame
+  /// boundaries instead of snapping to one. One that is no multiple of `fps`
+  /// rounds every frame to its nearest tick, as a remux onto a 1000 timescale
+  /// does: 60 fps then lasts 17, 16, 17 ms.
+  static func makeColorVideo(
+    colors: [RGB],
+    fps: Int32 = 30,
+    size: CGSize = CGSize(width: 160, height: 90),
+    codec: AVVideoCodecType = .h264,
+    colorProperties: [String: Any]? = nil,
+    timescale: CMTimeScale? = nil
+  ) throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pve_thumb_\(UUID().uuidString).mp4")
+
+    let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+    var settings: [String: Any] = [
+      AVVideoCodecKey: codec,
+      AVVideoWidthKey: Int(size.width),
+      AVVideoHeightKey: Int(size.height),
+    ]
+    if let colorProperties {
+      settings[AVVideoColorPropertiesKey] = colorProperties
+    }
+    let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+    input.expectsMediaDataInRealTime = false
+    if let timescale { input.mediaTimeScale = timescale }
+    let scale = timescale ?? fps
+
+    let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+      assetWriterInput: input,
+      sourcePixelBufferAttributes: [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferWidthKey as String: Int(size.width),
+        kCVPixelBufferHeightKey as String: Int(size.height),
+      ]
+    )
+
+    guard writer.canAdd(input) else {
+      throw NSError(domain: "ThumbnailTimestampFixture", code: 1)
+    }
+    writer.add(input)
+    writer.startWriting()
+    writer.startSession(atSourceTime: .zero)
+
+    let framesPerColor = Int(fps)
+    var frameIndex = 0
+    for color in colors {
+      let buffer = try makePixelBuffer(color: color, size: size)
+      for _ in 0..<framesPerColor {
+        while !input.isReadyForMoreMediaData {
+          usleep(500)
+        }
+        let pts = CMTime(
+          value: (CMTimeValue(frameIndex) * CMTimeValue(scale) + CMTimeValue(fps / 2))
+            / CMTimeValue(fps),
+          timescale: scale)
+        adaptor.append(buffer, withPresentationTime: pts)
+        frameIndex += 1
+      }
+    }
+
+    input.markAsFinished()
+    let finished = DispatchSemaphore(value: 0)
+    writer.finishWriting { finished.signal() }
+    finished.wait()
+
+    guard writer.status == .completed else {
+      throw writer.error
+        ?? NSError(domain: "ThumbnailTimestampFixture", code: 2)
+    }
+    return url
+  }
+
+  private static func makePixelBuffer(color: RGB, size: CGSize) throws -> CVPixelBuffer {
+    var pixelBuffer: CVPixelBuffer?
+    let status = CVPixelBufferCreate(
+      kCFAllocatorDefault,
+      Int(size.width),
+      Int(size.height),
+      kCVPixelFormatType_32BGRA,
+      [
+        kCVPixelBufferCGImageCompatibilityKey as String: true,
+        kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
+      ] as CFDictionary,
+      &pixelBuffer
+    )
+    guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
+      throw NSError(domain: "ThumbnailTimestampFixture", code: 3)
+    }
+
+    CVPixelBufferLockBaseAddress(buffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+
+    guard
+      let context = CGContext(
+        data: CVPixelBufferGetBaseAddress(buffer),
+        width: Int(size.width),
+        height: Int(size.height),
+        bitsPerComponent: 8,
+        bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+          | CGBitmapInfo.byteOrder32Little.rawValue
+      )
+    else {
+      throw NSError(domain: "ThumbnailTimestampFixture", code: 4)
+    }
+
+    // Logical RGB fill; CoreGraphics writes the correct BGRA bytes.
+    context.setFillColor(
+      red: CGFloat(color.r) / 255,
+      green: CGFloat(color.g) / 255,
+      blue: CGFloat(color.b) / 255,
+      alpha: 1
+    )
+    context.fill(CGRect(x: 0, y: 0, width: size.width, height: size.height))
+
+    return buffer
+  }
+
+  /// Decodes encoded image `data` and returns its average color (the frames are
+  /// solid, so the average is the frame's color).
+  static func decodedColor(_ data: Data) -> RGB? {
+    guard
+      let source = CGImageSourceCreateWithData(data as CFData, nil),
+      let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+    else { return nil }
+    return averageColor(of: image)
+  }
+
+  /// The average color of `image`, by drawing it into a single pixel.
+  static func averageColor(of image: CGImage) -> RGB? {
+    var pixel = [UInt8](repeating: 0, count: 4)
+    guard
+      let context = CGContext(
+        data: &pixel,
+        width: 1,
+        height: 1,
+        bitsPerComponent: 8,
+        bytesPerRow: 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+      )
+    else { return nil }
+
+    context.interpolationQuality = .high
+    context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+    return (pixel[0], pixel[1], pixel[2])
+  }
+
+  /// Returns the index of the palette color closest to `color`.
+  static func nearestPaletteIndex(_ color: RGB, palette: [RGB]) -> Int {
+    var bestIndex = 0
+    var bestDistance = Int.max
+    for (index, candidate) in palette.enumerated() {
+      let dr = Int(color.r) - Int(candidate.r)
+      let dg = Int(color.g) - Int(candidate.g)
+      let db = Int(color.b) - Int(candidate.b)
+      let distance = dr * dr + dg * dg + db * db
+      if distance < bestDistance {
+        bestDistance = distance
+        bestIndex = index
+      }
+    }
+    return bestIndex
+  }
+}
+
+// MARK: - Concurrent renders
+
+/// Two renders in flight at once must each composite with their own effects.
+///
+/// The compositor used to read its configuration off a type-level static that
+/// every render wrote during setup, so the render whose `setVideoComposition:`
+/// ran last won — the others composited with its overlays and color filters —
+/// and the unsynchronized writes over-released the previous value's arrays,
+/// which surfaced as an `EXC_BAD_ACCESS` under `destroy for
+/// VideoCompositorConfig` in the field.
+final class ConcurrentRenderTests: XCTestCase {
+
+  /// One color filter per palette entry, each a channel permutation that maps
+  /// the solid red source (R high, G and B low) onto that entry, so every
+  /// render expects a color no other render produces. Rows R, G, B, A; each
+  /// output channel copies the input channel its `1` sits on.
+  private static let filters: [(matrix: [Double], paletteIndex: Int)] = [
+    ([1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0], 0),  // red
+    ([0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0], 1),  // green
+    ([0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0], 2),  // blue
+    ([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0], 3),  // yellow
+    ([1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0], 4),  // magenta
+    ([0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0], 5),  // cyan
+    ([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0], 6),  // white
+    ([0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0], 7),  // dark
+  ]
+
+  func testConcurrentRendersEachCompositeWithTheirOwnEffects() throws {
+    let palette = ThumbnailTimestampFixture.palette
+    let source = try ThumbnailTimestampFixture.makeColorVideo(
+      colors: [palette[0], palette[0]])
+    defer { try? FileManager.default.removeItem(at: source) }
+
+    // Enough renders that their setups overlap regardless of scheduling; the
+    // encodes themselves are serialized by `ExportGate`, the setup is not.
+    let renders = Self.filters.count
+    var outputs: [URL] = []
+    defer {
+      for output in outputs { try? FileManager.default.removeItem(at: output) }
+    }
+    var expectations: [XCTestExpectation] = []
+    var errors: [Int: Error] = [:]
+    let errorsLock = NSLock()
+
+    for index in 0..<renders {
+      let output = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pve_concurrent_\(UUID().uuidString).mp4")
+      outputs.append(output)
+      let filter = Self.filters[index]
+      let config = try XCTUnwrap(
+        RenderConfig.fromArguments([
+          "videoClips": [["inputPath": source.path]],
+          "outputPath": output.path,
+          "outputFormat": "mp4",
+          "enableAudio": false,
+          "colorFilters": [["matrix": filter.matrix.map { NSNumber(value: $0) }]],
+        ]))
+
+      let finished = expectation(description: "render \(index) settles")
+      finished.assertForOverFulfill = true
+      expectations.append(finished)
+      RenderVideo.render(
+        config: config,
+        onProgress: { _ in },
+        onComplete: { _ in finished.fulfill() },
+        onError: { error in
+          errorsLock.lock()
+          errors[index] = error
+          errorsLock.unlock()
+          finished.fulfill()
+        })
+    }
+    wait(for: expectations, timeout: 180)
+
+    XCTAssertTrue(errors.isEmpty, "renders failed: \(errors)")
+    for (index, output) in outputs.enumerated() {
+      let expected = Self.filters[index].paletteIndex
+      let color = try XCTUnwrap(Self.frameColor(of: output), "render \(index) has no frame")
+      let classified = ThumbnailTimestampFixture.nearestPaletteIndex(color, palette: palette)
+      XCTAssertEqual(
+        classified, expected,
+        "render \(index) composited with another render's color filter "
+          + "(got \(color), expected palette[\(expected)])")
+    }
+  }
+
+  /// The average color of the frame half a second into `url`.
+  private static func frameColor(of url: URL) -> ThumbnailTimestampFixture.RGB? {
+    let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+    generator.requestedTimeToleranceBefore = .zero
+    generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
+    guard
+      let image = try? generator.copyCGImage(
+        at: CMTime(value: 1, timescale: 2), actualTime: nil)
+    else { return nil }
+    return ThumbnailTimestampFixture.averageColor(of: image)
+  }
+}
+
+// MARK: - Setup-stage gate and watchdog (#201)
+
+/// The HDR pre-transcode and the overlap-transition pre-render are hardware
+/// encodes that run before the job reaches its main encode. Until #201 they ran
+/// outside `ExportGate` and `ExportWatchdog`, so a session that stalled there
+/// never returned and the job hung for good. These drive real
+/// `AVAssetExportSession`s under a stall bound too tight for any encode to beat
+/// — the driver reports progress every 200 ms, so a 1 ms bound fires before the
+/// first report — and assert the job fails with the watchdog's error instead of
+/// hanging, degrading, or holding the gate.
+final class SetupStageWatchdogTests: XCTestCase {
+
+  /// The production bound, restored after every test; the tests tighten it to
+  /// a value no encode can beat.
+  private let defaultStallTimeout = RenderVideo.renderStallTimeout
+
+  override func tearDown() {
+    SetupStageExport.stallTimeout = defaultStallTimeout
+    super.tearDown()
+  }
+
+  private static func isWatchdogError(_ error: Error?) -> Bool {
+    guard let error else { return false }
+    return (error as NSError).domain == ExportWatchdog.errorDomain
+  }
+
+  /// Runs `config` to completion and returns the error it failed with, if any.
+  ///
+  /// Awaited rather than blocked on: a `wait(for:)` from an `async` test pins
+  /// the cooperative-pool thread the render's own task may need.
+  private func render(_ config: RenderConfig, timeout: TimeInterval) async -> Error? {
+    let settled = expectation(description: "render settles")
+    var failure: Error?
+    RenderVideo.render(
+      config: config,
+      onProgress: { _ in },
+      onComplete: { _ in settled.fulfill() },
+      onError: { error in
+        failure = error
+        settled.fulfill()
+      })
+    await fulfillment(of: [settled], timeout: timeout)
+    return failure
+  }
+
+  /// Fails instead of hanging when `body` never returns — the shape of a
+  /// leaked gate slot, which would otherwise stall the whole test run.
+  private func withTimeout(
+    _ seconds: TimeInterval, _ body: @escaping () async throws -> Void
+  ) async throws {
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      group.addTask { try await body() }
+      group.addTask {
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        throw NSError(
+          domain: "SetupStageWatchdogTests", code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "nothing returned within \(seconds)s"])
+      }
+      try await group.next()
+      group.cancelAll()
+    }
+  }
+
+  func testAStalledSetupStageEncodeFailsWithinTheBoundAndFreesTheGate() async throws {
+    let palette = ThumbnailTimestampFixture.palette
+    let source = try ThumbnailTimestampFixture.makeColorVideo(colors: [palette[0], palette[0]])
+    defer { try? FileManager.default.removeItem(at: source) }
+    let stalledOutput = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pve_stage_stalled_\(UUID().uuidString).mp4")
+    let laterOutput = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pve_stage_later_\(UUID().uuidString).mp4")
+    defer {
+      try? FileManager.default.removeItem(at: stalledOutput)
+      try? FileManager.default.removeItem(at: laterOutput)
+    }
+    let diagnostics = TranscodeExportDiagnostics(input: source.lastPathComponent)
+
+    SetupStageExport.stallTimeout = 0.001
+    let stalled = try XCTUnwrap(
+      AVAssetExportSession(
+        asset: AVURLAsset(url: source), presetName: AVAssetExportPresetPassthrough))
+    let started = Date()
+    var failure: Error?
+    do {
+      try await SetupStageExport.run(
+        stalled, to: stalledOutput, as: .mp4, diagnostics: diagnostics,
+        label: "Test", failureDomain: "Test")
+      XCTFail("a stalled encode must not complete")
+    } catch {
+      failure = error
+    }
+    XCTAssertTrue(
+      Self.isWatchdogError(failure),
+      "expected the watchdog's error, got \(String(describing: failure))")
+    XCTAssertLessThan(
+      Date().timeIntervalSince(started), 10,
+      "the stall bound is 1 ms; anything near the 20 s default means the bound was not applied")
+
+    // The slot is released on the way out: an encode under the real bound
+    // runs — it does not sit queued behind the stalled one.
+    SetupStageExport.stallTimeout = defaultStallTimeout
+    let later = try XCTUnwrap(
+      AVAssetExportSession(
+        asset: AVURLAsset(url: source), presetName: AVAssetExportPresetPassthrough))
+    try await withTimeout(30) {
+      try await SetupStageExport.run(
+        later, to: laterOutput, as: .mp4, diagnostics: diagnostics,
+        label: "Test", failureDomain: "Test")
+    }
+    XCTAssertTrue(FileManager.default.fileExists(atPath: laterOutput.path))
+  }
+
+  func testAStalledTransitionPreRenderFailsTheRenderInsteadOfCuttingHard() async throws {
+    let palette = ThumbnailTimestampFixture.palette
+    let outgoing = try ThumbnailTimestampFixture.makeColorVideo(colors: [palette[0], palette[0]])
+    let incoming = try ThumbnailTimestampFixture.makeColorVideo(colors: [palette[1], palette[1]])
+    let output = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pve_stage_transition_\(UUID().uuidString).mp4")
+    defer {
+      try? FileManager.default.removeItem(at: outgoing)
+      try? FileManager.default.removeItem(at: incoming)
+      try? FileManager.default.removeItem(at: output)
+    }
+    let config = try XCTUnwrap(
+      RenderConfig.fromArguments([
+        "videoClips": [
+          [
+            "inputPath": outgoing.path,
+            "transition": ["type": "dissolve", "durationUs": NSNumber(value: 500_000)],
+          ],
+          ["inputPath": incoming.path],
+        ],
+        "outputPath": output.path,
+        "outputFormat": "mp4",
+        "enableAudio": false,
+      ]))
+
+    SetupStageExport.stallTimeout = 0.001
+    let failure = await render(config, timeout: 60)
+
+    // Not a hard cut that completes, not a hang: the job fails with the stall
+    // and never reaches its output.
+    XCTAssertTrue(
+      Self.isWatchdogError(failure),
+      "expected the watchdog's error, got \(String(describing: failure))")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+
+    // And the pipeline is whole afterwards: the same job renders through under
+    // the real bound, so the stall neither wedged the gate nor the sessions.
+    SetupStageExport.stallTimeout = defaultStallTimeout
+    let rerun = await render(config, timeout: 120)
+    XCTAssertNil(rerun)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+  }
+
+  func testAStalledHdrPreTranscodeFailsTheRenderInsteadOfRenderingTheSource() async throws {
+    let palette = ThumbnailTimestampFixture.palette
+    let source: URL
+    do {
+      // HEVC tagged BT.2020 is what `needsTranscodingForEffects` keys on; the
+      // pixels themselves stay 8-bit.
+      source = try ThumbnailTimestampFixture.makeColorVideo(
+        colors: [palette[0], palette[0]],
+        codec: .hevc,
+        colorProperties: [
+          AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_2020,
+          AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_2100_HLG,
+          AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_2020,
+        ])
+    } catch {
+      throw XCTSkip("this environment cannot author an HEVC BT.2020 clip: \(error)")
+    }
+    defer { try? FileManager.default.removeItem(at: source) }
+    guard await VideoTranscoder.needsTranscoding(source.path) else {
+      throw XCTSkip(
+        "the authored clip is not detected as HDR, so the transcode stage never runs")
+    }
+    let output = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pve_stage_transcode_\(UUID().uuidString).mp4")
+    defer { try? FileManager.default.removeItem(at: output) }
+    let config = try XCTUnwrap(
+      RenderConfig.fromArguments([
+        "videoClips": [["inputPath": source.path]],
+        "outputPath": output.path,
+        "outputFormat": "mp4",
+        "enableAudio": false,
+      ]))
+
+    SetupStageExport.stallTimeout = 0.001
+    let failure = await render(config, timeout: 60)
+
+    // Not a render of the HDR source, not a hang: the job fails with the stall
+    // and never reaches its output.
+    XCTAssertTrue(
+      Self.isWatchdogError(failure),
+      "expected the watchdog's error, got \(String(describing: failure))")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+
+    SetupStageExport.stallTimeout = defaultStallTimeout
+    let rerun = await render(config, timeout: 120)
+    XCTAssertNil(rerun)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+  }
+}
+
+// MARK: - Chroma key
+
+/// Cross-platform parity guard for the chroma-key formula.
+///
+/// The golden tables below are duplicated verbatim in the Kotlin test
+/// (`android/src/test/.../ChromaKeyMathTest.kt`). Both run it against their own
+/// implementation — Swift's `chromaKeyed(r:g:b:_:)`, which is baked into the
+/// Core Image color cube, and Kotlin's `ChromaKeyMath`, which the GLSL shader
+/// mirrors. If either platform drifts, one of these two tests fails immediately
+/// instead of the difference surfacing later as "the key looks slightly
+/// different on Android".
+///
+/// **When you change the formula, regenerate both tables.**
+class ChromaKeyMathTests: XCTestCase {
+
+  /// The config the golden table was computed for: SMPTE green, defaults.
+  private let config = ChromaKeyConfig(
+    keyR: Double(0x00) / 255.0,
+    keyG: Double(0xB1) / 255.0,
+    keyB: Double(0x40) / 255.0,
+    similarity: 0.15,
+    smoothness: 0.08,
+    spill: 0.5,
+    backgroundColor: -1,
+    backgroundImage: nil
+  )
+
+  private let tolerance = 1e-4
+
+  /// The same key with a different despill strength.
+  private func withSpill(_ spill: Double) -> ChromaKeyConfig {
+    ChromaKeyConfig(
+      keyR: config.keyR, keyG: config.keyG, keyB: config.keyB,
+      similarity: config.similarity, smoothness: config.smoothness,
+      spill: spill, backgroundColor: -1, backgroundImage: nil)
+  }
+
+  private struct Golden {
+    let name: String
+    let r, g, b: Double
+    let outR, outG, outB, alpha: Double
+  }
+
+  private let golden: [Golden] = [
+    // The key color itself and its neighbourhood: removed completely.
+    Golden(name: "key color", r: 0.0, g: 0.694118, b: 0.25098,
+           outR: 0.218029, outG: 0.565088, outB: 0.343519, alpha: 0.0),
+    Golden(name: "near key", r: 0.05, g: 0.72, b: 0.28,
+           outR: 0.261122, outG: 0.595058, outB: 0.369608, alpha: 0.0),
+    Golden(name: "bright screen", r: 0.35, g: 0.9, b: 0.5,
+           outR: 0.525426, outG: 0.796183, outB: 0.574457, alpha: 0.0),
+    // Half-lit screen: past the default similarity, so only mostly removed.
+    // This is the documented brightness sensitivity, pinned on purpose.
+    Golden(name: "dim screen 50%", r: 0.0, g: 0.347059, b: 0.12549,
+           outR: 0.109015, outG: 0.282544, outB: 0.17176, alpha: 0.081671),
+    // Neutrals sit at the chroma origin, far from any saturated key.
+    Golden(name: "black", r: 0.0, g: 0.0, b: 0.0,
+           outR: 0.0, outG: 0.0, outB: 0.0, alpha: 1.0),
+    Golden(name: "mid gray", r: 0.5, g: 0.5, b: 0.5,
+           outR: 0.5, outG: 0.5, outB: 0.5, alpha: 1.0),
+    Golden(name: "white", r: 1.0, g: 1.0, b: 1.0,
+           outR: 1.0, outG: 1.0, outB: 1.0, alpha: 1.0),
+    // Skin tone — the calibration anchor quoted in the Dart docs.
+    Golden(name: "skin tone", r: 0.86, g: 0.65, b: 0.53,
+           outR: 0.86, outG: 0.65, outB: 0.53, alpha: 1.0),
+    Golden(name: "pure red", r: 1.0, g: 0.0, b: 0.0,
+           outR: 1.0, outG: 0.0, outB: 0.0, alpha: 1.0),
+    Golden(name: "pure blue", r: 0.0, g: 0.0, b: 1.0,
+           outR: 0.0, outG: 0.0, outB: 1.0, alpha: 1.0),
+    // Kept, but despilled: the green cast is pulled out at full alpha.
+    Golden(name: "green-spilled gray", r: 0.55, g: 0.75, b: 0.55,
+           outR: 0.616767, outG: 0.710487, outB: 0.578338, alpha: 1.0),
+    // Leans away from the key hue, so despill leaves it alone.
+    Golden(name: "magenta", r: 0.8, g: 0.2, b: 0.8,
+           outR: 0.8, outG: 0.2, outB: 0.8, alpha: 1.0),
+  ]
+
+  func testGoldenTableMatchesTheSharedFormula() {
+    for row in golden {
+      let out = chromaKeyed(r: row.r, g: row.g, b: row.b, config)
+      XCTAssertEqual(out.r, row.outR, accuracy: tolerance, "\(row.name): r")
+      XCTAssertEqual(out.g, row.outG, accuracy: tolerance, "\(row.name): g")
+      XCTAssertEqual(out.b, row.outB, accuracy: tolerance, "\(row.name): b")
+      XCTAssertEqual(out.a, row.alpha, accuracy: tolerance, "\(row.name): alpha")
+    }
+  }
+
+  /// A light gray wall (`0xD9D9D9`), the neutral key. Same similarity and
+  /// smoothness as `config`; spill is irrelevant, a neutral key has no hue.
+  private let wall = ChromaKeyConfig(
+    keyR: Double(0xD9) / 255.0,
+    keyG: Double(0xD9) / 255.0,
+    keyB: Double(0xD9) / 255.0,
+    similarity: 0.15,
+    smoothness: 0.08,
+    spill: 0.5,
+    backgroundColor: -1,
+    backgroundImage: nil
+  )
+
+  private let neutralGolden: [Golden] = [
+    // The wall itself, and the wall a little darker: removed.
+    Golden(name: "key color", r: 0.85098, g: 0.85098, b: 0.85098,
+           outR: 0.85098, outG: 0.85098, outB: 0.85098, alpha: 0.0),
+    Golden(name: "wall at 85%", r: 0.723333, g: 0.723333, b: 0.723333,
+           outR: 0.723333, outG: 0.723333, outB: 0.723333, alpha: 0.0),
+    Golden(name: "white", r: 1.0, g: 1.0, b: 1.0,
+           outR: 1.0, outG: 1.0, outB: 1.0, alpha: 0.0),
+    // A deep shadow on the wall survives: brightness now counts.
+    Golden(name: "wall in shadow 60%", r: 0.510588, g: 0.510588, b: 0.510588,
+           outR: 0.510588, outG: 0.510588, outB: 0.510588, alpha: 1.0),
+    // What a chroma-only key removed along with the wall, now kept.
+    Golden(name: "black", r: 0.0, g: 0.0, b: 0.0,
+           outR: 0.0, outG: 0.0, outB: 0.0, alpha: 1.0),
+    Golden(name: "mid gray", r: 0.5, g: 0.5, b: 0.5,
+           outR: 0.5, outG: 0.5, outB: 0.5, alpha: 1.0),
+    Golden(name: "navy", r: 0.2, g: 0.22, b: 0.35,
+           outR: 0.2, outG: 0.22, outB: 0.35, alpha: 1.0),
+    // The hard case, pinned on purpose: skin crowds a light wall.
+    Golden(name: "skin tone", r: 0.86, g: 0.65, b: 0.53,
+           outR: 0.86, outG: 0.65, outB: 0.53, alpha: 0.882915),
+    Golden(name: "beige", r: 0.85, g: 0.78, b: 0.65,
+           outR: 0.85, outG: 0.78, outB: 0.65, alpha: 0.0),
+    Golden(name: "smpte green", r: 0.0, g: 0.694118, b: 0.25098,
+           outR: 0.0, outG: 0.694118, outB: 0.25098, alpha: 1.0),
+  ]
+
+  func testNeutralGoldenTableMatchesTheSharedFormula() {
+    for row in neutralGolden { assertGolden(row, wall) }
+  }
+
+  func testSaturatedKeysIgnoreBrightness() {
+    // Weight 0 keeps every green- and blue-screen result identical to the
+    // chroma-only formula.
+    XCTAssertEqual(config.lumaWeight, 0.0)
+    let blue = ChromaKeyConfig(
+      keyR: 0, keyG: Double(0x47) / 255.0, keyB: Double(0xBB) / 255.0,
+      similarity: 0.12, smoothness: 0.08, spill: 0.5,
+      backgroundColor: -1, backgroundImage: nil)
+    XCTAssertEqual(blue.lumaWeight, 0.0)
+  }
+
+  func testNeutralKeysWeighBrightnessFully() {
+    XCTAssertEqual(wall.lumaWeight, 1.0)
+    let black = ChromaKeyConfig(
+      keyR: 0, keyG: 0, keyB: 0,
+      similarity: 0.12, smoothness: 0.08, spill: 0.5,
+      backgroundColor: -1, backgroundImage: nil)
+    XCTAssertEqual(black.lumaWeight, 1.0)
+  }
+
+  func testLumaWeightRampsSmoothlyBetweenNeutralAndSaturated() {
+    // Walk the key from neutral toward a pale blue. The weight must fall
+    // monotonically, with intermediate values, so a pale wall never flips
+    // between two formulas.
+    var previous = 2.0
+    let weights = (0...40).map { step -> Double in
+      let t = Double(step) / 40.0
+      let c = chromaOf(r: 0.8 - 0.3 * t, g: 0.8 - 0.1 * t, b: 0.8)
+      let weight = lumaWeightOf(cb: c.cb, cr: c.cr)
+      XCTAssertLessThanOrEqual(weight, previous + tolerance, "weight rose at t=\(t)")
+      previous = weight
+      return weight
+    }
+
+    XCTAssertEqual(weights.first!, 1.0, accuracy: tolerance)
+    XCTAssertEqual(weights.last!, 0.0, accuracy: tolerance)
+    XCTAssertTrue(weights.contains { $0 > 0.01 && $0 < 0.99 }, "expected a ramp, got a step")
+  }
+
+  /// A white wall as a camera records it: faintly warm (`0xDCD9D3`), not
+  /// exactly neutral. Its chroma is tiny but not zero, so it has a despill
+  /// direction; weight 1 must still switch despill off.
+  private let tintedWall = ChromaKeyConfig(
+    keyR: Double(0xDC) / 255.0,
+    keyG: Double(0xD9) / 255.0,
+    keyB: Double(0xD3) / 255.0,
+    similarity: 0.12,
+    smoothness: 0.08,
+    spill: 0.5,
+    backgroundColor: -1,
+    backgroundImage: nil
+  )
+
+  /// A pale beige wall (`0xEDDEC7`), between the two thresholds: weight about
+  /// 0.6, so brightness counts partly and despill runs at about 40%.
+  private let beigeWall = ChromaKeyConfig(
+    keyR: Double(0xED) / 255.0,
+    keyG: Double(0xDE) / 255.0,
+    keyB: Double(0xC7) / 255.0,
+    similarity: 0.12,
+    smoothness: 0.08,
+    spill: 0.5,
+    backgroundColor: -1,
+    backgroundImage: nil
+  )
+
+  private let tintedGolden: [Golden] = [
+    Golden(name: "key color", r: 0.862745, g: 0.85098, b: 0.827451,
+           outR: 0.862745, outG: 0.85098, outB: 0.827451, alpha: 0.0),
+    // Leaning toward the wall's faint warm tint, yet not desaturated.
+    Golden(name: "skin tone", r: 0.86, g: 0.65, b: 0.53,
+           outR: 0.86, outG: 0.65, outB: 0.53, alpha: 1.0),
+    Golden(name: "red shirt", r: 0.8, g: 0.15, b: 0.15,
+           outR: 0.8, outG: 0.15, outB: 0.15, alpha: 1.0),
+    Golden(name: "orange", r: 0.9, g: 0.5, b: 0.1,
+           outR: 0.9, outG: 0.5, outB: 0.1, alpha: 1.0),
+    Golden(name: "denim", r: 0.231373, g: 0.356863, b: 0.54902,
+           outR: 0.231373, outG: 0.356863, outB: 0.54902, alpha: 1.0),
+  ]
+
+  private let beigeGolden: [Golden] = [
+    Golden(name: "key color", r: 0.929412, g: 0.870588, b: 0.780392,
+           outR: 0.918988, outG: 0.872066, outB: 0.80012, alpha: 0.0),
+    Golden(name: "black", r: 0.0, g: 0.0, b: 0.0,
+           outR: 0.0, outG: 0.0, outB: 0.0, alpha: 1.0),
+    // Skin crowds a beige wall: the hard case, pinned on purpose.
+    Golden(name: "skin tone", r: 0.86, g: 0.65, b: 0.53,
+           outR: 0.837457, outG: 0.653197, outB: 0.572665, alpha: 0.129278),
+    // Despilled, but at the faded strength.
+    Golden(name: "red shirt", r: 0.8, g: 0.15, b: 0.15,
+           outR: 0.757197, outG: 0.15607, outB: 0.231009, alpha: 1.0),
+    Golden(name: "orange", r: 0.9, g: 0.5, b: 0.1,
+           outR: 0.844612, outG: 0.507855, outB: 0.204826, alpha: 1.0),
+    Golden(name: "denim", r: 0.231373, g: 0.356863, b: 0.54902,
+           outR: 0.231373, outG: 0.356863, outB: 0.54902, alpha: 1.0),
+  ]
+
+  func testTintedGoldenTableNearNeutralKeyDoesNotDespill() {
+    XCTAssertEqual(tintedWall.lumaWeight, 1.0)
+    for row in tintedGolden { assertGolden(row, tintedWall) }
+  }
+
+  func testBeigeGoldenTableMatchesTheSharedFormula() {
+    for row in beigeGolden { assertGolden(row, beigeWall) }
+  }
+
+  private func assertGolden(_ row: Golden, _ key: ChromaKeyConfig) {
+    let out = chromaKeyed(r: row.r, g: row.g, b: row.b, key)
+    XCTAssertEqual(out.r, row.outR, accuracy: tolerance, "\(row.name): r")
+    XCTAssertEqual(out.g, row.outG, accuracy: tolerance, "\(row.name): g")
+    XCTAssertEqual(out.b, row.outB, accuracy: tolerance, "\(row.name): b")
+    XCTAssertEqual(out.a, row.alpha, accuracy: tolerance, "\(row.name): alpha")
+  }
+
+  func testKeyColorIsRemovedCompletely() {
+    let out = chromaKeyed(r: config.keyR, g: config.keyG, b: config.keyB, config)
+    XCTAssertEqual(out.a, 0.0, accuracy: tolerance)
+  }
+
+  func testSoftEdgeProducesPartialAlpha() {
+    // Walk the key color toward neutral gray and collect the alpha ramp.
+    let ramp: [Double] = (0...60).map { step in
+      let t = Double(step) / 60.0
+      return chromaKeyed(
+        r: config.keyR + (0.5 - config.keyR) * t,
+        g: config.keyG + (0.5 - config.keyG) * t,
+        b: config.keyB + (0.5 - config.keyB) * t,
+        config
+      ).a
+    }
+
+    XCTAssertTrue(ramp.contains(0.0), "expected a fully keyed sample")
+    XCTAssertTrue(ramp.contains(1.0), "expected a fully opaque sample")
+    XCTAssertTrue(
+      ramp.contains { $0 > 0.01 && $0 < 0.99 },
+      "expected a soft edge, but alpha jumped straight from 0 to 1")
+  }
+
+  func testSpillPullsTheKeyCastOutWithoutDarkening() {
+    let noSpill = withSpill(0.0)
+    let fullSpill = withSpill(1.0)
+
+    let without = chromaKeyed(r: 0.55, g: 0.75, b: 0.55, noSpill)
+    let with = chromaKeyed(r: 0.55, g: 0.75, b: 0.55, fullSpill)
+
+    let castBefore = without.g - max(without.r, without.b)
+    let castAfter = with.g - max(with.r, with.b)
+    XCTAssertLessThan(castAfter, castBefore, "despill did not reduce the green cast")
+
+    // Luma is preserved, so despill never darkens the subject.
+    XCTAssertEqual(
+      lumaOf(r: without.r, g: without.g, b: without.b),
+      lumaOf(r: with.r, g: with.g, b: with.b),
+      accuracy: 1e-3)
+  }
+
+  func testMatteIsBrightnessSensitiveAsDocumented() {
+    // Cb/Cr scale with brightness, so a dimly lit patch of the screen sits
+    // closer to neutral and further from the key point. The default similarity
+    // covers roughly 55%..100% of the reference brightness. Pinned because the
+    // Dart docs promise exactly this.
+    func screenAt(_ fraction: Double) -> Double {
+      chromaKeyed(
+        r: config.keyR * fraction, g: config.keyG * fraction,
+        b: config.keyB * fraction, config
+      ).a
+    }
+
+    XCTAssertEqual(screenAt(1.0), 0.0, accuracy: tolerance)
+    XCTAssertEqual(screenAt(0.55), 0.0, accuracy: tolerance)
+    XCTAssertGreaterThan(screenAt(0.5), 0.0, "a half-lit screen should start to survive")
+  }
+
+  func testNeutralKeyColorDisablesDespillInsteadOfDividingByZero() {
+    let gray = ChromaKeyConfig(
+      keyR: 0.5, keyG: 0.5, keyB: 0.5, similarity: 0.15, smoothness: 0.08,
+      spill: 1.0, backgroundColor: -1, backgroundImage: nil)
+
+    XCTAssertEqual(gray.keyDirection.cb, 0.0, accuracy: tolerance)
+    XCTAssertEqual(gray.keyDirection.cr, 0.0, accuracy: tolerance)
+
+    let out = chromaKeyed(r: 0.8, g: 0.2, b: 0.4, gray)
+    XCTAssertFalse(out.r.isNaN || out.g.isNaN || out.b.isNaN || out.a.isNaN)
+  }
+
+  /// The cube is what actually runs on Apple, so verify it carries the same
+  /// numbers **and** that its entries are premultiplied, which `CIColorCube`
+  /// requires and which is the one place Apple and Android must differ.
+  func testCubeIsPremultipliedAndMatchesTheFormula() throws {
+    let size = 33
+    let data = try XCTUnwrap(
+      generateChromaLUTData(chroma: config, size: size))
+
+    XCTAssertEqual(data.count, size * size * size * 4 * MemoryLayout<Float>.size)
+
+    let floats: [Float] = data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+
+    // Walk the cube's own sample grid, so no interpolation is involved.
+    for bi in stride(from: 0, to: size, by: 8) {
+      for gi in stride(from: 0, to: size, by: 8) {
+        for ri in stride(from: 0, to: size, by: 8) {
+          let rf = Double(ri) / Double(size - 1)
+          let gf = Double(gi) / Double(size - 1)
+          let bf = Double(bi) / Double(size - 1)
+          let expected = chromaKeyed(r: rf, g: gf, b: bf, config)
+
+          let offset = (bi * size * size + gi * size + ri) * 4
+          XCTAssertEqual(
+            Double(floats[offset]), expected.r * expected.a, accuracy: 1e-5)
+          XCTAssertEqual(
+            Double(floats[offset + 1]), expected.g * expected.a, accuracy: 1e-5)
+          XCTAssertEqual(
+            Double(floats[offset + 2]), expected.b * expected.a, accuracy: 1e-5)
+          XCTAssertEqual(Double(floats[offset + 3]), expected.a, accuracy: 1e-5)
+        }
+      }
+    }
+  }
+
+  /// A fully keyed entry must be `(0, 0, 0, 0)`, not `(rgb, 0)` — Core Image
+  /// would otherwise composite the key color back in at the edges.
+  func testFullyKeyedCubeEntriesAreZero() throws {
+    let size = 33
+    let data = try XCTUnwrap(
+      generateChromaLUTData(chroma: config, size: size))
+    let floats: [Float] = data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+
+    // Nearest grid point to the key color.
+    let ri = Int((config.keyR * Double(size - 1)).rounded())
+    let gi = Int((config.keyG * Double(size - 1)).rounded())
+    let bi = Int((config.keyB * Double(size - 1)).rounded())
+    let offset = (bi * size * size + gi * size + ri) * 4
+
+    XCTAssertEqual(floats[offset + 3], 0.0, accuracy: 1e-5, "key should be fully removed")
+    XCTAssertEqual(floats[offset], 0.0, accuracy: 1e-5, "premultiplied red must be 0")
+    XCTAssertEqual(floats[offset + 1], 0.0, accuracy: 1e-5, "premultiplied green must be 0")
+    XCTAssertEqual(floats[offset + 2], 0.0, accuracy: 1e-5, "premultiplied blue must be 0")
+  }
+
+  /// Two different background images of the same byte length must not share a
+  /// cache entry, or the second clip renders the first one's backdrop.
+  func testCacheKeySeparatesEqualLengthBackgrounds() {
+    func withBackground(_ bytes: [UInt8]) -> ChromaKeyConfig {
+      ChromaKeyConfig(
+        keyR: config.keyR, keyG: config.keyG, keyB: config.keyB,
+        similarity: config.similarity, smoothness: config.smoothness,
+        spill: config.spill, backgroundColor: -1,
+        backgroundImage: .bytes(Data(bytes)))
+    }
+
+    let a = withBackground(Array(repeating: 0x11, count: 128))
+    var bBytes = Array(repeating: UInt8(0x11), count: 128)
+    bBytes[0] = 0x22
+    let b = withBackground(bBytes)
+
+    XCTAssertEqual(a.backgroundImage?.data?.count, b.backgroundImage?.data?.count)
+    XCTAssertNotEqual(a.cacheKey, b.cacheKey)
+    XCTAssertEqual(a.cacheKey, withBackground(Array(repeating: 0x11, count: 128)).cacheKey)
+  }
+
+  /// A key with no background image at all keeps a stable, distinct key.
+  func testCacheKeyIsStableWithoutABackgroundImage() {
+    XCTAssertEqual(config.cacheKey, config.cacheKey)
+    XCTAssertNotEqual(config.cacheKey, withSpill(0.9).cacheKey)
+  }
+
+}
+
+// MARK: - EXIF orientation on caller-supplied images
+
+/// `decodeOrientedImage` must honor the EXIF `Orientation` tag.
+///
+/// A phone stores a portrait photo as *landscape* pixels plus a tag saying how
+/// to turn them, and the chroma-key background and image layers are fed exactly
+/// those bytes. This is the decode that keeps them upright, and that keeps iOS,
+/// macOS and Android agreeing on the same input — Android pins the same contract
+/// in `ImageOrientationTest`.
+///
+/// The fixtures are built here rather than checked in because the usual encoders
+/// bake the orientation into the pixels and drop the tag, so a "landscape pixels
+/// + Orientation=6" image cannot be produced by round-tripping one. The APP1
+/// EXIF segment is spliced in by hand instead; see
+/// `OrientedImageFixture.tagging(_:orientation:)`.
+class DecodeOrientedImageTests: XCTestCase {
+
+  /// Stored (pre-orientation) size: deliberately landscape, so an orientation
+  /// that is honored is visible as a portrait result.
+  private let storedWidth = 32
+  private let storedHeight = 16
+
+  /// EXIF 6: "the 0th row is the visual right side" — display by rotating the
+  /// stored pixels 90° clockwise.
+  private let rotate90 = OrientedImageFixture.orientationRotate90
+
+  private func untaggedJpeg() throws -> Data {
+    try XCTUnwrap(OrientedImageFixture.quadrantJpeg(width: storedWidth, height: storedHeight))
+  }
+
+  private func taggedJpeg() throws -> Data {
+    OrientedImageFixture.tagging(try untaggedJpeg(), orientation: rotate90)
+  }
+
+  /// Guards the hand-written APP1 segment itself. Without this, a splice that
+  /// silently produced no tag would make every "not rotated" assertion below
+  /// pass for the wrong reason.
+  func testFixtureCarriesTheOrientationTagItClaimsTo() throws {
+    XCTAssertEqual(OrientedImageFixture.declaredOrientation(try taggedJpeg()), rotate90)
+    XCTAssertEqual(OrientedImageFixture.declaredOrientation(try untaggedJpeg()), nil)
+  }
+
+  func testExifOrientationSwapsTheDecodedDimensions() throws {
+    let image = try XCTUnwrap(decodeOrientedImage(try taggedJpeg()))
+
+    // Swapped relative to the pixels actually stored in the file.
+    XCTAssertEqual(image.extent.width, CGFloat(storedHeight))
+    XCTAssertEqual(image.extent.height, CGFloat(storedWidth))
+    XCTAssertEqual(image.extent.origin, .zero)
+  }
+
+  /// The counter-test: without it, "rotate everything" would satisfy the
+  /// assertion above.
+  func testUntaggedImageIsNotRotated() throws {
+    let image = try XCTUnwrap(decodeOrientedImage(try untaggedJpeg()))
+
+    XCTAssertEqual(image.extent.width, CGFloat(storedWidth))
+    XCTAssertEqual(image.extent.height, CGFloat(storedHeight))
+    XCTAssertEqual(image.extent.origin, .zero)
+  }
+
+  /// Extent alone would also be satisfied by a decode that swapped the size and
+  /// left the pixels where they were, so check where the quadrants landed.
+  ///
+  /// Rotating the stored image 90° clockwise sends top-left → top-right,
+  /// top-right → bottom-right, bottom-right → bottom-left, bottom-left →
+  /// top-left.
+  func testExifOrientationRotatesThePixelsAndNotJustTheExtent() throws {
+    let image = try XCTUnwrap(decodeOrientedImage(try taggedJpeg()))
+    let quadrants = try XCTUnwrap(OrientedImageFixture.quadrants(of: image))
+
+    XCTAssertEqual(quadrants.topLeft, .bottomLeft)
+    XCTAssertEqual(quadrants.topRight, .topLeft)
+    XCTAssertEqual(quadrants.bottomLeft, .bottomRight)
+    XCTAssertEqual(quadrants.bottomRight, .topRight)
+  }
+
+  func testUntaggedImageKeepsItsQuadrantsWhereTheyWere() throws {
+    let image = try XCTUnwrap(decodeOrientedImage(try untaggedJpeg()))
+    let quadrants = try XCTUnwrap(OrientedImageFixture.quadrants(of: image))
+
+    XCTAssertEqual(quadrants.topLeft, .topLeft)
+    XCTAssertEqual(quadrants.topRight, .topRight)
+    XCTAssertEqual(quadrants.bottomLeft, .bottomLeft)
+    XCTAssertEqual(quadrants.bottomRight, .bottomRight)
+  }
+
+  /// The case `NSImage` used to paper over on macOS: it rasterized every source
+  /// into RGB before the compositor saw it, whereas `CGImageSource` hands back
+  /// the file's own color space — so a one-component grayscale JPEG now reaches
+  /// CoreImage as gray, and the render path's `CIContext` does no color
+  /// management (`workingColorSpace: NSNull`). Pins that such an image still
+  /// lands on the right pixels, and still turns.
+  ///
+  /// Classified by rank, not by value: a transfer function may move the levels,
+  /// but it must not reorder them, and `grayQuadrants` refuses to guess when two
+  /// of them come back equal — which is what a flattened or blank decode looks
+  /// like.
+  func testGrayscaleImageDecodesAndStillOrients() throws {
+    let untagged = try XCTUnwrap(
+      OrientedImageFixture.grayscaleQuadrantJpeg(width: storedWidth, height: storedHeight))
+    let tagged = OrientedImageFixture.tagging(untagged, orientation: rotate90)
+
+    let plain = try XCTUnwrap(decodeOrientedImage(untagged))
+    XCTAssertEqual(plain.extent.width, CGFloat(storedWidth))
+    XCTAssertEqual(plain.extent.height, CGFloat(storedHeight))
+    let asStored = try XCTUnwrap(OrientedImageFixture.grayQuadrants(of: plain))
+    XCTAssertEqual(asStored.topLeft, .topLeft)
+    XCTAssertEqual(asStored.topRight, .topRight)
+    XCTAssertEqual(asStored.bottomLeft, .bottomLeft)
+    XCTAssertEqual(asStored.bottomRight, .bottomRight)
+
+    let rotated = try XCTUnwrap(decodeOrientedImage(tagged))
+    XCTAssertEqual(rotated.extent.width, CGFloat(storedHeight))
+    XCTAssertEqual(rotated.extent.height, CGFloat(storedWidth))
+    let asDisplayed = try XCTUnwrap(OrientedImageFixture.grayQuadrants(of: rotated))
+    XCTAssertEqual(asDisplayed.topLeft, .bottomLeft)
+    XCTAssertEqual(asDisplayed.topRight, .topLeft)
+    XCTAssertEqual(asDisplayed.bottomLeft, .bottomRight)
+    XCTAssertEqual(asDisplayed.bottomRight, .topRight)
+  }
+
+  func testUndecodableBytesReturnNil() {
+    XCTAssertNil(decodeOrientedImage(Data([0x00, 0x01, 0x02, 0x03])))
+    XCTAssertNil(decodeOrientedImage(Data()))
+  }
+}
+
+// MARK: - Track orientation (preferredTransform) in CoreImage space
+
+/// `applyingAVFoundationTransform` must orient a frame the way AVFoundation
+/// displays it.
+///
+/// A track's `preferredTransform` is written for a y-down space, CoreImage is
+/// y-up: applied as is, a quarter turn goes the other way and a portrait phone
+/// recording in a `VideoComposition` came out upside down. Both compositor paths
+/// orient through this helper, so every orientation a display matrix can
+/// express is pinned here, with and without the translation files carry.
+///
+/// Expected quadrants are worked out in AVFoundation's y-down space, e.g. the
+/// phone turn (x, y) → (h - y, x) sends the stored top-left corner to the top
+/// right.
+class AVFoundationTransformTests: XCTestCase {
+
+  private typealias Corner = OrientedImageFixture.Corner
+
+  /// Stored size: landscape, so a quarter turn shows as a swapped extent.
+  private let width: CGFloat = 32
+  private let height: CGFloat = 16
+
+  private func assertOrients(
+    _ transform: CGAffineTransform,
+    topLeft: Corner, topRight: Corner, bottomLeft: Corner, bottomRight: Corner,
+    swapsSize: Bool,
+    file: StaticString = #filePath, line: UInt = #line
+  ) throws {
+    let jpeg = try XCTUnwrap(
+      OrientedImageFixture.quadrantJpeg(width: Int(width), height: Int(height)),
+      file: file, line: line)
+    let stored = try XCTUnwrap(CIImage(data: jpeg), file: file, line: line)
+
+    let image = applyingAVFoundationTransform(transform, to: stored)
+
+    XCTAssertEqual(image.extent.origin, .zero, file: file, line: line)
+    XCTAssertEqual(image.extent.width, swapsSize ? height : width, file: file, line: line)
+    XCTAssertEqual(image.extent.height, swapsSize ? width : height, file: file, line: line)
+    let quadrants = try XCTUnwrap(
+      OrientedImageFixture.quadrants(of: image), file: file, line: line)
+    XCTAssertEqual(quadrants.topLeft, topLeft, "top left", file: file, line: line)
+    XCTAssertEqual(quadrants.topRight, topRight, "top right", file: file, line: line)
+    XCTAssertEqual(quadrants.bottomLeft, bottomLeft, "bottom left", file: file, line: line)
+    XCTAssertEqual(quadrants.bottomRight, bottomRight, "bottom right", file: file, line: line)
+  }
+
+  /// ffprobe `rotation=-90`, what a portrait phone recording carries.
+  func testPhoneRecordingFlagTurnsClockwise() throws {
+    try assertOrients(
+      CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: height, ty: 0),
+      topLeft: .bottomLeft, topRight: .topLeft, bottomLeft: .bottomRight,
+      bottomRight: .topRight, swapsSize: true)
+  }
+
+  /// ffmpeg's `-display_rotation -90` writes the turn without a translation
+  /// (`test_g.mp4`); only the extent moves, and that is normalized away.
+  func testTheTranslationOfTheMatrixDoesNotMoveTheFrame() throws {
+    for (tx, ty) in [(CGFloat(0), CGFloat(0)), (37, -11)] {
+      try assertOrients(
+        CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: tx, ty: ty),
+        topLeft: .bottomLeft, topRight: .topLeft, bottomLeft: .bottomRight,
+        bottomRight: .topRight, swapsSize: true)
+    }
+  }
+
+  /// ffprobe `rotation=90`.
+  func testCounterClockwiseFlagTurnsCounterClockwise() throws {
+    try assertOrients(
+      CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: width),
+      topLeft: .topRight, topRight: .bottomRight, bottomLeft: .topLeft,
+      bottomRight: .bottomLeft, swapsSize: true)
+  }
+
+  func testHalfTurn() throws {
+    try assertOrients(
+      CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: width, ty: height),
+      topLeft: .bottomRight, topRight: .bottomLeft, bottomLeft: .topRight,
+      bottomRight: .topLeft, swapsSize: false)
+  }
+
+  func testHorizontalMirror() throws {
+    try assertOrients(
+      CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: width, ty: 0),
+      topLeft: .topRight, topRight: .topLeft, bottomLeft: .bottomRight,
+      bottomRight: .bottomLeft, swapsSize: false)
+  }
+
+  func testVerticalMirror() throws {
+    try assertOrients(
+      CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: height),
+      topLeft: .bottomLeft, topRight: .bottomRight, bottomLeft: .topLeft,
+      bottomRight: .topRight, swapsSize: false)
+  }
+
+  /// Mirrored quarter turns, as some front-camera recordings carry. A y-flip
+  /// on only one side of the transform turns these into each other.
+  func testTranspose() throws {
+    try assertOrients(
+      CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0),
+      topLeft: .topLeft, topRight: .bottomLeft, bottomLeft: .topRight,
+      bottomRight: .bottomRight, swapsSize: true)
+  }
+
+  func testAntiTranspose() throws {
+    try assertOrients(
+      CGAffineTransform(a: 0, b: -1, c: -1, d: 0, tx: height, ty: width),
+      topLeft: .bottomRight, topRight: .topRight, bottomLeft: .bottomLeft,
+      bottomRight: .topLeft, swapsSize: true)
+  }
+}
+
+// MARK: - EXIF orientation test fixtures
+
+/// Builds and reads back the EXIF-orientation fixtures.
+///
+/// Duplicated in the iOS and macOS RunnerTests: they are separate test targets
+/// with no shared source directory, as `ThumbnailTimestampFixture` already is.
+/// Keep the two copies in step.
+enum OrientedImageFixture {
+
+  /// EXIF `Orientation` = 6, i.e. display by rotating the stored pixels 90° CW.
+  static let orientationRotate90: UInt32 = 6
+
+  /// Which corner of the *stored* image a color came from. Each quadrant of the
+  /// fixture gets its own color, so a rotation is readable as a permutation.
+  enum Corner: CaseIterable {
+    case topLeft, topRight, bottomLeft, bottomRight
+
+    var rgb: (r: UInt8, g: UInt8, b: UInt8) {
+      switch self {
+      case .topLeft: return (255, 0, 0)  // red
+      case .topRight: return (0, 255, 0)  // green
+      case .bottomLeft: return (0, 0, 255)  // blue
+      case .bottomRight: return (255, 255, 0)  // yellow
+      }
+    }
+
+    /// The grayscale fixture's level for this corner. Strictly increasing in
+    /// the order the cases are declared, which is what lets `grayQuadrants`
+    /// classify by rank instead of by value.
+    var gray: UInt8 {
+      switch self {
+      case .topLeft: return 16
+      case .topRight: return 96
+      case .bottomLeft: return 176
+      case .bottomRight: return 248
+      }
+    }
+  }
+
+  struct Quadrants {
+    let topLeft: Corner
+    let topRight: Corner
+    let bottomLeft: Corner
+    let bottomRight: Corner
+  }
+
+  /// A JPEG whose four quadrants are four distinct flat colors.
+  ///
+  /// Built from raw top-down raster bytes, so "row 0 is the top" is a property of
+  /// the fixture rather than something the test has to assume about a drawing
+  /// context.
+  static func quadrantJpeg(width: Int, height: Int) -> Data? {
+    var raster = [UInt8]()
+    raster.reserveCapacity(width * height * 4)
+    for row in 0..<height {
+      for col in 0..<width {
+        let rgb = corner(col: col, row: row, width: width, height: height).rgb
+        raster.append(contentsOf: [rgb.r, rgb.g, rgb.b, 255])
+      }
+    }
+
+    guard let provider = CGDataProvider(data: Data(raster) as CFData),
+      let image = CGImage(
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bitsPerPixel: 32,
+        bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+        provider: provider,
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent)
+    else { return nil }
+
+    return encodeJpeg(image)
+  }
+
+  /// A one-component grayscale JPEG whose four quadrants are four distinct gray
+  /// levels — the same layout as `quadrantJpeg`, in a color space that is not
+  /// RGB.
+  static func grayscaleQuadrantJpeg(width: Int, height: Int) -> Data? {
+    var raster = [UInt8]()
+    raster.reserveCapacity(width * height)
+    for row in 0..<height {
+      for col in 0..<width {
+        raster.append(corner(col: col, row: row, width: width, height: height).gray)
+      }
+    }
+
+    guard let provider = CGDataProvider(data: Data(raster) as CFData),
+      let image = CGImage(
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bitsPerPixel: 8,
+        bytesPerRow: width,
+        space: CGColorSpaceCreateDeviceGray(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+        provider: provider,
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent)
+    else { return nil }
+
+    return encodeJpeg(image)
+  }
+
+  /// Encodes `image` as a maximum-quality JPEG: the quadrant centers are sampled
+  /// far from the color edges, so what ringing survives cannot flip a
+  /// classification.
+  private static func encodeJpeg(_ image: CGImage) -> Data? {
+    let encoded = NSMutableData()
+    guard
+      let destination = CGImageDestinationCreateWithData(
+        encoded, "public.jpeg" as CFString, 1, nil)
+    else { return nil }
+    CGImageDestinationAddImage(
+      destination, image,
+      [kCGImageDestinationLossyCompressionQuality: 1.0] as CFDictionary)
+    guard CGImageDestinationFinalize(destination) else { return nil }
+    return encoded as Data
+  }
+
+  /// Splices a minimal APP1 EXIF segment declaring `orientation` into `jpeg`.
+  ///
+  /// Written out byte by byte because the encoders bake the orientation in and
+  /// drop the tag: a TIFF header, one IFD entry for tag `0x0112` (Orientation),
+  /// type SHORT, and no next IFD.
+  static func tagging(_ jpeg: Data, orientation: UInt32) -> Data {
+    let app1: [UInt8] = [
+      0xFF, 0xE1, 0x00, 0x22,  // APP1, length 34 = 2 + 32 bytes of payload
+      0x45, 0x78, 0x69, 0x66, 0x00, 0x00,  // "Exif\0\0"
+      0x4D, 0x4D, 0x00, 0x2A,  // TIFF header, big-endian ("MM")
+      0x00, 0x00, 0x00, 0x08,  // IFD0 sits 8 bytes in
+      0x00, 0x01,  // one entry
+      0x01, 0x12,  // tag 0x0112: Orientation
+      0x00, 0x03,  // type 3: SHORT
+      0x00, 0x00, 0x00, 0x01,  // count 1
+      0x00, UInt8(orientation), 0x00, 0x00,  // the value, left-aligned
+      0x00, 0x00, 0x00, 0x00,  // no next IFD
+    ]
+
+    var bytes = [UInt8](jpeg)
+    bytes.insert(contentsOf: app1, at: app1InsertionPoint(bytes))
+    return Data(bytes)
+  }
+
+  /// The EXIF orientation `jpeg` declares, or nil when it declares none.
+  static func declaredOrientation(_ jpeg: Data) -> UInt32? {
+    guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
+      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+    else { return nil }
+    return properties[kCGImagePropertyOrientation] as? UInt32
+  }
+
+  /// Classifies the four quadrant centers of `image` back to the stored corner
+  /// each color came from.
+  static func quadrants(of image: CIImage) -> Quadrants? {
+    guard let raster = raster(of: image) else { return nil }
+    let (pixels, width, height) = raster
+    guard width >= 2, height >= 2 else { return nil }
+
+    func corner(atFractionX fx: Double, y fy: Double) -> Corner {
+      let col = min(width - 1, Int(Double(width) * fx))
+      let row = min(height - 1, Int(Double(height) * fy))
+      let offset = (row * width + col) * 4
+      return nearestCorner((pixels[offset], pixels[offset + 1], pixels[offset + 2]))
+    }
+
+    return Quadrants(
+      topLeft: corner(atFractionX: 0.25, y: 0.25),
+      topRight: corner(atFractionX: 0.75, y: 0.25),
+      bottomLeft: corner(atFractionX: 0.25, y: 0.75),
+      bottomRight: corner(atFractionX: 0.75, y: 0.75))
+  }
+
+  /// Classifies the four quadrant centers of a grayscale `image` back to the
+  /// stored corner each level came from, by **rank** rather than by value: the
+  /// decode may put the levels through a transfer function, but it must not
+  /// reorder them.
+  ///
+  /// Returns nil when two centers come back equal — a flattened or blank decode
+  /// would otherwise be ranked into some arbitrary permutation and could pass by
+  /// luck.
+  static func grayQuadrants(of image: CIImage) -> Quadrants? {
+    guard let raster = raster(of: image) else { return nil }
+    let (pixels, width, height) = raster
+    guard width >= 2, height >= 2 else { return nil }
+
+    func level(atFractionX fx: Double, y fy: Double) -> UInt8 {
+      let col = min(width - 1, Int(Double(width) * fx))
+      let row = min(height - 1, Int(Double(height) * fy))
+      return pixels[(row * width + col) * 4]
+    }
+
+    // Positions in the order Quadrants declares them.
+    let levels = [
+      level(atFractionX: 0.25, y: 0.25),
+      level(atFractionX: 0.75, y: 0.25),
+      level(atFractionX: 0.25, y: 0.75),
+      level(atFractionX: 0.75, y: 0.75),
+    ]
+    guard Set(levels).count == levels.count else { return nil }
+
+    // Corner.allCases is declared darkest-first, matching Corner.gray.
+    let darkestFirst = Corner.allCases
+    var corners = [Corner](repeating: .topLeft, count: levels.count)
+    for (rank, position) in levels.enumerated()
+      .sorted(by: { $0.element < $1.element })
+      .map({ $0.offset })
+      .enumerated()
+    {
+      corners[position] = darkestFirst[rank]
+    }
+
+    return Quadrants(
+      topLeft: corners[0], topRight: corners[1],
+      bottomLeft: corners[2], bottomRight: corners[3])
+  }
+
+  /// Which corner of the stored image the pixel at (`col`, `row`) belongs to,
+  /// with row 0 the top.
+  private static func corner(col: Int, row: Int, width: Int, height: Int) -> Corner {
+    let isLeft = col < width / 2
+    let isTop = row < height / 2
+    if isTop { return isLeft ? .topLeft : .topRight }
+    return isLeft ? .bottomLeft : .bottomRight
+  }
+
+  /// `image`'s pixels in raster order, row 0 the top.
+  private static func raster(of image: CIImage) -> (
+    pixels: [UInt8], width: Int, height: Int
+  )? {
+    let context = CIContext(options: [.workingColorSpace: NSNull()])
+    guard let cgImage = context.createCGImage(image, from: image.extent) else { return nil }
+
+    let width = cgImage.width
+    let height = cgImage.height
+    var pixels = [UInt8](repeating: 0, count: width * height * 4)
+    guard
+      let bitmap = CGContext(
+        data: &pixels,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return nil }
+
+    bitmap.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return (pixels, width, height)
+  }
+
+  /// The quadrant color closest to `color`, so JPEG ringing does not matter.
+  private static func nearestCorner(_ color: (r: UInt8, g: UInt8, b: UInt8)) -> Corner {
+    var best = Corner.topLeft
+    var bestDistance = Int.max
+    for candidate in Corner.allCases {
+      let rgb = candidate.rgb
+      let dr = Int(color.r) - Int(rgb.r)
+      let dg = Int(color.g) - Int(rgb.g)
+      let db = Int(color.b) - Int(rgb.b)
+      let distance = dr * dr + dg * dg + db * db
+      if distance < bestDistance {
+        bestDistance = distance
+        best = candidate
+      }
+    }
+    return best
+  }
+
+  /// Where an APP1 segment may be inserted: after SOI, and after a leading JFIF
+  /// APP0 if the encoder wrote one — putting it first would leave a JFIF file
+  /// whose APP0 no longer follows SOI. Being the *first* APP1 is what matters,
+  /// since that is the one a reader takes.
+  private static func app1InsertionPoint(_ bytes: [UInt8]) -> Int {
+    var index = 2  // past SOI (FFD8)
+    while index + 4 <= bytes.count, bytes[index] == 0xFF, bytes[index + 1] == 0xE0 {
+      index += 2 + (Int(bytes[index + 2]) << 8 | Int(bytes[index + 3]))
+    }
+    return index
+  }
+}
+
+/// Stands in for a `RenderTask`/`AudioExtractTask` in the registry tests.
+private final class FakeJob: ChannelTask {
+  private(set) var isCanceled = false
+  func cancel() { isCanceled = true }
+  func sendSuccess(_ payload: Any?) {}
+  func sendError(_ error: FlutterError) {}
+}
+
+/// Cross-platform parity guard for the video effect pipeline.
+///
+/// The goldens are duplicated verbatim in the Kotlin test
+/// (`android/src/test/.../helpers/VideoEffectMathTest.kt`). They pin the spec
+/// (`reference(_:)` below mirrors Kotlin's `VideoEffectMath`), and the Core
+/// Image stage the compositor runs has to produce the same pixels, give or take
+/// the one-step rounding of Core Image's half-float intermediates.
+///
+/// **When you change the spec, regenerate the checksums in both files.**
+class VideoEffectTests: XCTestCase {
+  private let width = 24
+  private let height = 16
+
+  /// The compositor's context, so the stage is tested the way it renders.
+  private let context = CIContext(options: [
+    .workingColorSpace: NSNull(),
+    .outputColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+  ])
+
+  private func source(_ x: Int, _ y: Int) -> (Int, Int, Int) {
+    ((x * 37 + y * 11) % 256, (x * 13 + y * 29 + 64) % 256, (x * 7 + y * 53 + 128) % 256)
+  }
+
+  private func sourceImage() -> CIImage {
+    var bytes = [UInt8](repeating: 255, count: width * height * 4)
+    for y in 0..<height {
+      for x in 0..<width {
+        let (r, g, b) = source(x, y)
+        let i = (y * width + x) * 4
+        bytes[i] = UInt8(r)
+        bytes[i + 1] = UInt8(g)
+        bytes[i + 2] = UInt8(b)
+      }
+    }
+    return CIImage(
+      bitmapData: Data(bytes), bytesPerRow: width * 4,
+      size: CGSize(width: width, height: height), format: .RGBA8, colorSpace: nil)
+  }
+
+  private func render(_ image: CIImage) -> [UInt8] {
+    var out = [UInt8](repeating: 0, count: width * height * 4)
+    context.render(
+      image, toBitmap: &out, rowBytes: width * 4, bounds: image.extent, format: .RGBA8,
+      colorSpace: nil)
+    return out
+  }
+
+  /// The spec's geometry stages, as Kotlin's `VideoEffectMath.geometry` runs
+  /// them, over the source: red, green and blue from 0 to 1 per pixel.
+  private func geometry(_ frame: VideoEffectFrame) -> [[Double]] {
+    var picture: [[Double]] = (0..<(width * height)).map { i in
+      let (r, g, b) = source(i % width, i / width)
+      return [Double(r) / 255, Double(g) / 255, Double(b) / 255]
+    }
+    func sample(_ image: [[Double]], _ px: Double, _ py: Double) -> [Double] {
+      let tx = px - 0.5
+      let ty = py - 0.5
+      let x0 = Int(tx.rounded(.down))
+      let y0 = Int(ty.rounded(.down))
+      let fx = tx - Double(x0)
+      let fy = ty - Double(y0)
+      func at(_ x: Int, _ y: Int, _ c: Int) -> Double {
+        image[min(max(y, 0), height - 1) * width + min(max(x, 0), width - 1)][c]
+      }
+      return (0..<3).map { c in
+        let top = at(x0, y0, c) + (at(x0 + 1, y0, c) - at(x0, y0, c)) * fx
+        let bottom = at(x0, y0 + 1, c) + (at(x0 + 1, y0 + 1, c) - at(x0, y0 + 1, c)) * fx
+        return top + (bottom - top) * fy
+      }
+    }
+    func stage(_ on: Bool, _ read: (Int, Int) -> (Double, Double)) {
+      guard on else { return }
+      let input = picture
+      picture = (0..<(width * height)).map { i in
+        let (px, py) = read(i % width, i / width)
+        return sample(input, px, py)
+      }
+    }
+    let w = Double(width)
+    let h = Double(height)
+    let mx = min(videoEffectPixels(frame.mirrorX, width), width / 2)
+    let my = min(videoEffectPixels(frame.mirrorY, height), height / 2)
+    let scale = 1 + max(frame.zoom, 0)
+    stage(frame.hasWave) { x, y in
+      let period = max(frame.wavePeriod, VideoEffectFrame.minWavePeriod) * h
+      let t = ((Double(y) + 0.5) / period + frame.wavePhase) * 16
+      let k = t.rounded(.down)
+      let from = sin(2 * Double.pi * k / 16)
+      let to = sin(2 * Double.pi * (k + 1) / 16)
+      let shift = frame.waveAmplitude * w * (from + (to - from) * (t - k))
+      return (Double(x) + 0.5 - shift, Double(y) + 0.5)
+    }
+    stage(frame.hasTransform) { x, y in
+      let fx = frame.mirrorX > 0 && x >= width - mx ? 2 * (width - mx) - 1 - x : x
+      let fy = frame.mirrorY > 0 && y >= height - my ? 2 * (height - my) - 1 - y : y
+      return (
+        (Double(fx) + 0.5 - w / 2 - frame.offsetX * w) / scale + w / 2,
+        (Double(fy) + 0.5 - h / 2 - frame.offsetY * h) / scale + h / 2
+      )
+    }
+    stage(frame.tiles >= 2) { x, y in
+      (
+        ((Double(x) + 0.5) * 2).truncatingRemainder(dividingBy: w),
+        ((Double(y) + 0.5) * 2).truncatingRemainder(dividingBy: h)
+      )
+    }
+    return picture
+  }
+
+  /// The spec, pixel by pixel, as Kotlin's `VideoEffectMath.apply` runs it.
+  private func reference(_ frame: VideoEffectFrame) -> [UInt8] {
+    let block = videoEffectPixels(frame.pixelSize, width)
+    let split = videoEffectPixels(frame.rgbShift, width)
+    let period = max(2, videoEffectPixels(frame.scanlinePeriod, height))
+    let cell = max(1, videoEffectPixels(frame.noiseCellSize, height))
+    let bands = frame.bands.prefix(VideoEffectFrame.maxBands).map {
+      (
+        videoEffectPixels($0.top, height), videoEffectPixels($0.bottom, height),
+        videoEffectPixels($0.shift, width)
+      )
+    }
+    let picture = geometry(frame)
+    func clamp(_ v: Int, _ high: Int) -> Int { min(max(v, 0), high) }
+    func pixelated(_ x: Int, _ y: Int) -> [Double] {
+      var sx = clamp(x, width - 1)
+      var sy = y
+      if block >= 2 {
+        sx = sx / block * block + block / 2
+        sy = sy / block * block + block / 2
+      }
+      return picture[clamp(sy, height - 1) * width + clamp(sx, width - 1)]
+    }
+    func banded(_ x: Int, _ y: Int, _ shift: Int) -> [Double] {
+      pixelated(clamp(clamp(x, width - 1) - shift, width - 1), y)
+    }
+    func toByte(_ v: Double) -> UInt8 { UInt8((min(max(v, 0), 1) * 255 + 0.5).rounded(.down)) }
+
+    var channels = [[Double]](repeating: [Double](repeating: 0, count: width * height), count: 3)
+    for y in 0..<height {
+      let shift = bands.first { y >= $0.0 && y < $0.1 }?.2 ?? 0
+      let dark = frame.scanlines > 0 && (y % period) * 2 >= period
+      for x in 0..<width {
+        let center = banded(x, y, shift)
+        var r = banded(x + split, y, shift)[0]
+        var g = center[1]
+        var b = banded(x - split, y, shift)[2]
+        if dark {
+          let keep = 1 - frame.scanlines
+          r *= keep
+          g *= keep
+          b *= keep
+        }
+        if frame.noise > 0 {
+          let u = (x / cell + frame.noiseOffsetX) % videoEffectNoiseTileSize
+          let v = (y / cell + frame.noiseOffsetY) % videoEffectNoiseTileSize
+          let grain = (videoEffectNoise(u: u, v: v) - 0.5) * frame.noise
+          r += grain
+          g += grain
+          b += grain
+        }
+        func clampAll() {
+          r = min(max(r, 0), 1)
+          g = min(max(g, 0), 1)
+          b = min(max(b, 0), 1)
+        }
+        clampAll()
+        if frame.sepia > 0 {
+          let s = frame.sepia
+          let sr = 0.393 * r + 0.769 * g + 0.189 * b
+          let sg = 0.349 * r + 0.686 * g + 0.168 * b
+          let sb = 0.272 * r + 0.534 * g + 0.131 * b
+          r += (sr - r) * s
+          g += (sg - g) * s
+          b += (sb - b) * s
+        }
+        let gain = 1 + frame.brightness
+        r *= gain
+        g *= gain
+        b *= gain
+        r += frame.invert * (1 - 2 * r)
+        g += frame.invert * (1 - 2 * g)
+        b += frame.invert * (1 - 2 * b)
+        r += frame.flash * (1 - r)
+        g += frame.flash * (1 - g)
+        b += frame.flash * (1 - b)
+        clampAll()
+        if frame.vignette > 0 {
+          let radius = min(max(frame.vignetteRadius, 0), 0.99)
+          let dx = Double(2 * x + 1) / Double(width) - 1
+          let dy = Double(2 * y + 1) / Double(height) - 1
+          let t = min(max((((dx * dx + dy * dy) / 2).squareRoot() - radius) / (1 - radius), 0), 1)
+          let keep = 1 - frame.vignette * t * t
+          r *= keep
+          g *= keep
+          b *= keep
+        }
+        clampAll()
+        channels[0][y * width + x] = r
+        channels[1][y * width + x] = g
+        channels[2][y * width + x] = b
+      }
+    }
+    if frame.glow > 0 {
+      let t = min(max(frame.glowThreshold, 0), 0.99)
+      let k = (0..<(width * height)).map { i in
+        let l = 0.2126 * channels[0][i] + 0.7152 * channels[1][i] + 0.0722 * channels[2][i]
+        return min(max((l - t) / (1 - t), 0), 1)
+      }
+      channels = channels.map { channel in
+        let bright = zip(channel, k).map { min(1, frame.glow * $1 * $0) }
+        let halo = gaussianBlur(bright, sigma: frame.glowRadius * Double(height))
+        return zip(channel, halo).map { min(max(1 - (1 - $0) * (1 - $1), 0), 1) }
+      }
+    }
+    var out = [UInt8](repeating: 255, count: width * height * 4)
+    for i in 0..<(width * height) {
+      out[i * 4] = toByte(channels[0][i])
+      out[i * 4 + 1] = toByte(channels[1][i])
+      out[i * 4 + 2] = toByte(channels[2][i])
+    }
+    return out
+  }
+
+  /// Kotlin's `VideoEffectMath.gaussianBlur`: rows, then columns, a normalized
+  /// kernel reaching `ceil(3 * sigma)` pixels, edges repeated.
+  private func gaussianBlur(_ values: [Double], sigma: Double) -> [Double] {
+    guard sigma >= 0.5 else { return values }
+    let reach = Int((3 * sigma).rounded(.up))
+    var kernel = (0...(2 * reach)).map { exp(-Double(($0 - reach) * ($0 - reach)) / (2 * sigma * sigma)) }
+    let total = kernel.reduce(0, +)
+    kernel = kernel.map { $0 / total }
+    func clamp(_ v: Int, _ high: Int) -> Int { min(max(v, 0), high) }
+    var rows = [Double](repeating: 0, count: values.count)
+    for y in 0..<height {
+      for x in 0..<width {
+        var sum = 0.0
+        for k in 0..<kernel.count { sum += kernel[k] * values[y * width + clamp(x + k - reach, width - 1)] }
+        rows[y * width + x] = sum
+      }
+    }
+    var out = [Double](repeating: 0, count: values.count)
+    for y in 0..<height {
+      for x in 0..<width {
+        var sum = 0.0
+        for k in 0..<kernel.count { sum += kernel[k] * rows[clamp(y + k - reach, height - 1) * width + x] }
+        out[y * width + x] = sum
+      }
+    }
+    return out
+  }
+
+  /// An order-sensitive hash of every red, green and blue byte.
+  private func checksum(_ pixels: [UInt8]) -> UInt32 {
+    var h: UInt32 = 0
+    for i in stride(from: 0, to: pixels.count, by: 4) {
+      for c in 0..<3 { h = h &* 31 &+ UInt32(pixels[i + c]) }
+    }
+    return h
+  }
+
+  private let goldens: [(String, VideoEffectFrame, UInt32)] = [
+    ("identity", VideoEffectFrame(), 0x8c5f_1e40),
+    ("pixelate", VideoEffectFrame(pixelSize: 0.25), 0xe43c_d600),
+    (
+      "bands and split",
+      VideoEffectFrame(
+        rgbShift: 0.1,
+        bands: [
+          VideoEffectBand(top: 0.25, bottom: 0.5, shift: 0.2),
+          VideoEffectBand(top: 0.4, bottom: 0.9, shift: -0.125),
+        ]),
+      0x5f7e_3216
+    ),
+    (
+      "scanlines and noise",
+      VideoEffectFrame(
+        scanlines: 0.4, scanlinePeriod: 0.25, noise: 0.3, noiseCellSize: 0.125,
+        noiseOffsetX: 5, noiseOffsetY: 120),
+      0x12b2_6fc6
+    ),
+    (
+      "everything",
+      VideoEffectFrame(
+        pixelSize: 0.125, rgbShift: -0.05, scanlines: 0.25, scanlinePeriod: 0.1875, noise: 0.2,
+        noiseCellSize: 0.0625, noiseOffsetX: 127, noiseOffsetY: 3,
+        bands: [
+          VideoEffectBand(top: 0, bottom: 0.3, shift: 0.5),
+          VideoEffectBand(top: 0.6, bottom: 1, shift: -0.3),
+        ]),
+      0xea95_b6e7
+    ),
+    (
+      "tones",
+      VideoEffectFrame(sepia: 0.6, brightness: -0.1, invert: 0.25, flash: 0.2),
+      0xff2a_26c6
+    ),
+    ("vignette", VideoEffectFrame(vignette: 0.8, vignetteRadius: 0.25), 0x9028_d182),
+    (
+      "old film",
+      VideoEffectFrame(
+        noise: 0.3, noiseCellSize: 0.125, noiseOffsetX: 9, noiseOffsetY: 77, sepia: 0.85,
+        brightness: -0.04, vignette: 0.6, vignetteRadius: 0.3),
+      0xcd38_dc88
+    ),
+    ("sepia overflow", VideoEffectFrame(sepia: 1, brightness: -0.3), 0x10e6_8ca5),
+    (
+      "noisy vignette",
+      VideoEffectFrame(
+        noise: 0.5, noiseCellSize: 0.0625, noiseOffsetX: 33, noiseOffsetY: 90, vignette: 0.9,
+        vignetteRadius: 0.1),
+      0xa502_43e8
+    ),
+    ("strong vignette", VideoEffectFrame(vignette: 1.5, vignetteRadius: 0.1), 0x5ade_77f4),
+    (
+      "negative over noise",
+      VideoEffectFrame(
+        noise: 0.4, noiseCellSize: 0.0625, noiseOffsetX: 64, noiseOffsetY: 1, invert: 1),
+      0x0a1d_b883
+    ),
+    (
+      "zoom and offset",
+      VideoEffectFrame(zoom: 0.3, offsetX: 0.05, offsetY: -0.03125),
+      0xd7ef_0dfc
+    ),
+    ("mirror", VideoEffectFrame(mirrorX: 0.5), 0x8eba_3800),
+    ("kaleidoscope", VideoEffectFrame(mirrorX: 0.35, mirrorY: 0.5), 0x15a0_01c0),
+    ("tiles", VideoEffectFrame(tiles: 2), 0x3271_0580),
+    ("zoomed tiles", VideoEffectFrame(zoom: 0.3, tiles: 2), 0xd3df_8920),
+    (
+      "wave",
+      VideoEffectFrame(waveAmplitude: 0.05, wavePeriod: 0.5, wavePhase: 0.125),
+      0xecd2_2b5b
+    ),
+    (
+      "zoomed wave",
+      VideoEffectFrame(zoom: 0.11, waveAmplitude: 0.05, wavePeriod: 0.5, wavePhase: 0.125),
+      0xe075_e137
+    ),
+    (
+      "backward wave",
+      VideoEffectFrame(waveAmplitude: -0.08, wavePeriod: 0.3, wavePhase: 0.9),
+      0xf1c3_cb72
+    ),
+    (
+      "geometry under everything",
+      VideoEffectFrame(
+        pixelSize: 0.125, rgbShift: 0.05, scanlines: 0.25, scanlinePeriod: 0.25,
+        bands: [VideoEffectBand(top: 0.25, bottom: 0.5, shift: 0.2)], zoom: 0.4, offsetX: 0.02,
+        offsetY: 0.01, mirrorX: 0.35, mirrorY: 0.5, tiles: 2, waveAmplitude: 0.04,
+        wavePeriod: 0.75, wavePhase: 0.4),
+      0x73ef_363b
+    ),
+  ]
+
+  /// The glow goldens, apart because Core Image's own Gaussian may differ from
+  /// the spec's by a step or two.
+  private let glowGoldens: [(String, VideoEffectFrame, UInt32)] = [
+    ("glow", VideoEffectFrame(glow: 1, glowThreshold: 0.5, glowRadius: 0.125), 0x0ccf_5e16),
+    (
+      "wide glow over tones",
+      VideoEffectFrame(
+        sepia: 0.5, brightness: 0.2, vignette: 0.8, vignetteRadius: 0.2, glow: 1.2,
+        glowThreshold: 0.3, glowRadius: 0.25),
+      0xc3ac_6681
+    ),
+    (
+      "glow without blur", VideoEffectFrame(glow: 0.8, glowThreshold: 0.6, glowRadius: 0.01),
+      0x366f_3b63
+    ),
+    (
+      "glow over a strong vignette",
+      VideoEffectFrame(
+        vignette: 1.5, vignetteRadius: 0.1, glow: 0.9, glowThreshold: 0.4, glowRadius: 0.0625),
+      0x2350_2818
+    ),
+  ]
+
+  func testReferenceMatchesTheSharedGoldens() {
+    for (name, frame, golden) in goldens + glowGoldens {
+      XCTAssertEqual(checksum(reference(frame)), golden, name)
+    }
+  }
+
+  func testCoreImageGlowStaysCloseToTheSpec() {
+    for (name, frame, _) in glowGoldens {
+      let expected = reference(frame)
+      let actual = render(applyVideoEffect(to: sourceImage(), frame))
+      var worst = 0
+      for i in 0..<expected.count where i % 4 != 3 {
+        worst = max(worst, abs(Int(expected[i]) - Int(actual[i])))
+      }
+      XCTAssertLessThanOrEqual(worst, 2, name)
+    }
+  }
+
+  func testCoreImageStageMatchesTheSpec() {
+    // An odd block exercises the other half of CIPixellate's grid offset.
+    let frames = goldens.map { ($0.0, $0.1) } + [("odd block", VideoEffectFrame(pixelSize: 0.2))]
+    // The geometry interpolates with the GPU's bilinear filtering, whose
+    // weights are rounded, so it can land one step away from the spec; the
+    // steps after it copy whole pixels and add nothing to that.
+    for (name, frame) in frames {
+      let expected = reference(frame)
+      let actual = render(applyVideoEffect(to: sourceImage(), frame))
+      for i in 0..<expected.count where i % 4 != 3 {
+        let pixel = "(\(i / 4 % width), \(i / 4 / width)) channel \(i % 4)"
+        XCTAssertLessThanOrEqual(
+          abs(Int(expected[i]) - Int(actual[i])), 1, "\(name) at \(pixel)")
+      }
+    }
+  }
+
+  func testCoreImageStageKeepsAnExtentAwayFromTheOrigin() {
+    let frame = goldens[4].1
+    let moved = sourceImage().transformed(by: CGAffineTransform(translationX: 7, y: 3))
+    let result = applyVideoEffect(to: moved, frame)
+    XCTAssertEqual(result.extent, moved.extent)
+    XCTAssertEqual(
+      render(result),
+      render(applyVideoEffect(to: sourceImage(), frame)))
+  }
+
+  func testWaveCoversEveryRow() {
+    // At this height and phase, segment boundaries worked out one segment at
+    // a time round apart and leave row 22 in no segment.
+    let w = 4
+    let h = 1080
+    let grey = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5))
+      .cropped(to: CGRect(x: 0, y: 0, width: w, height: h))
+    let frame = VideoEffectFrame(waveAmplitude: 0.025, wavePeriod: 0.5, wavePhase: 1.0 / 48)
+    let result = applyVideoEffect(to: grey, frame)
+    var out = [UInt8](repeating: 0, count: w * h * 4)
+    context.render(
+      result, toBitmap: &out, rowBytes: w * 4, bounds: result.extent, format: .RGBA8,
+      colorSpace: nil)
+    for y in 0..<h {
+      XCTAssertEqual(out[y * w * 4 + 3], 255, "row \(y)")
+    }
+  }
+
+  func testFromArgumentsReadsTheTableAndPicksFramesByTime() {
+    let stride = VideoEffectFrame.stride
+    var values = [Double](repeating: 0, count: stride * 3)
+    for i in 0..<3 { values[i * stride] = Double(i) / 100 }
+    values[8] = 1
+    values[9] = 0.1
+    values[10] = 0.2
+    values[11] = -0.3
+    let data = values.withUnsafeBufferPointer { Data(buffer: $0) }
+    let effect = VideoEffectConfig.fromArguments([
+      "startUs": 1_000_000, "endUs": 2_000_000, "frameRate": 24, "stride": stride,
+      "frames": FlutterStandardTypedData(float64: data),
+    ])!
+
+    XCTAssertNil(effect.frame(atUs: 999_999))
+    XCTAssertEqual(
+      effect.frame(atUs: 1_000_000)?.bands, [VideoEffectBand(top: 0.1, bottom: 0.2, shift: -0.3)])
+    XCTAssertEqual(effect.frame(atUs: 1_041_667)?.pixelSize, 0.01)
+    // Bucket 3 wraps back to the first frame.
+    XCTAssertEqual(effect.frame(atUs: 1_125_000)?.pixelSize, 0)
+    XCTAssertNil(effect.frame(atUs: 2_000_000))
+    XCTAssertNil(VideoEffectConfig.fromArguments(["stride": 3, "frames": [1.0, 2.0, 3.0]]))
+  }
+
+  func testResolveMergesOverlappingEffectsLikeDart() {
+    let pixelate = VideoEffectFrame(pixelSize: 0.05, rgbShift: 0.01)
+    let vhs = VideoEffectFrame(
+      rgbShift: 0.006, scanlines: 0.3, scanlinePeriod: 1 / 270, noise: 0.2,
+      noiseCellSize: 1 / 540, noiseOffsetX: 9, noiseOffsetY: 4,
+      bands: [VideoEffectBand(top: 0.1, bottom: 0.2, shift: 0.01)])
+    let effects = [
+      VideoEffectConfig(startUs: nil, endUs: nil, frameRate: 24, frames: [pixelate]),
+      VideoEffectConfig(startUs: nil, endUs: 1_000, frameRate: 24, frames: [vhs]),
+    ]
+    let merged = VideoEffectConfig.resolve(effects, atUs: 0)
+    XCTAssertEqual(merged.pixelSize, 0.05)
+    XCTAssertEqual(merged.rgbShift, 0.016, accuracy: 1e-12)
+    XCTAssertEqual(merged.scanlines, 0.3)
+    XCTAssertEqual(merged.noiseOffsetX, 9)
+    XCTAssertEqual(merged.bands, vhs.bands)
+    XCTAssertEqual(VideoEffectConfig.resolve(effects, atUs: 1_000), pixelate)
+  }
+
+  func testMergeCombinesTheGeometryLikeDart() {
+    let shake = VideoEffectFrame(zoom: 0.04, offsetX: 0.01, offsetY: -0.02)
+    let split = VideoEffectFrame(zoom: 0.3, mirrorX: 0.2, tiles: 2)
+    let wave = VideoEffectFrame(waveAmplitude: -0.03, wavePeriod: 0.5, wavePhase: 0.1)
+    let weakWave = VideoEffectFrame(
+      mirrorX: 0.5, waveAmplitude: 0.01, wavePeriod: 0.9, wavePhase: 0.7)
+    let merged = shake.merged(with: split).merged(with: wave).merged(with: weakWave)
+    XCTAssertEqual(merged.zoom, 0.34, accuracy: 1e-12)
+    XCTAssertEqual(merged.offsetX, 0.01, accuracy: 1e-12)
+    XCTAssertEqual(merged.offsetY, -0.02, accuracy: 1e-12)
+    XCTAssertEqual(merged.mirrorX, 0.5)
+    XCTAssertEqual(merged.tiles, 2)
+    XCTAssertEqual(merged.waveAmplitude, -0.03)
+    XCTAssertEqual(merged.wavePeriod, 0.5)
+    XCTAssertEqual(merged.wavePhase, 0.1)
+    // A wave without a period is off, however strong.
+    let off = VideoEffectFrame(zoom: 0.1, waveAmplitude: 0.05)
+    for frame in [wave.merged(with: off), off.merged(with: wave)] {
+      XCTAssertEqual(frame.waveAmplitude, -0.03)
+      XCTAssertEqual(frame.wavePeriod, 0.5)
+      XCTAssertEqual(frame.wavePhase, 0.1)
+    }
+    XCTAssertFalse(VideoEffectFrame(tiles: 2).isIdentity)
+    XCTAssertTrue(VideoEffectFrame(tiles: 1, waveAmplitude: 0.1).isIdentity)
+  }
+
+  func testMergeCombinesTonesLikeDart() {
+    let oldFilm = VideoEffectFrame(sepia: 0.8, brightness: 0.03, vignette: 0.5, vignetteRadius: 0.3)
+    let strobe = VideoEffectFrame(brightness: -0.01, invert: 0.2, flash: 0.9)
+    let vignette = VideoEffectFrame(vignette: 0.7, vignetteRadius: 0.4)
+    let merged = oldFilm.merged(with: strobe).merged(with: vignette)
+    XCTAssertEqual(merged.sepia, 0.8)
+    XCTAssertEqual(merged.brightness, 0.02, accuracy: 1e-12)
+    XCTAssertEqual(merged.invert, 0.2)
+    XCTAssertEqual(merged.flash, 0.9)
+    XCTAssertEqual(merged.vignette, 0.7)
+    XCTAssertEqual(merged.vignetteRadius, 0.4)
+  }
 }

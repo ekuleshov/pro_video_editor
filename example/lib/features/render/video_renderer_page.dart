@@ -1,22 +1,24 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 
+import 'package:chewie/chewie.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pro_video_editor/pro_video_editor.dart';
 import 'package:pro_video_editor_example/shared/utils/render_cancel_capability.dart';
 import 'package:pro_video_editor_example/shared/widgets/video_renderer_progress.dart';
+import 'package:video_player/video_player.dart' hide VideoAudioTrack;
 
 import '/core/constants/example_constants.dart';
 import '/core/constants/example_filters.dart';
 import '/shared/utils/bytes_formatter.dart';
 import '/shared/widgets/filter_generator.dart';
+import '/shared/widgets/native_log_console.dart';
 
 /// A page that handles the video export workflow.
 ///
@@ -33,10 +35,13 @@ class VideoRendererPage extends StatefulWidget {
 class _VideoRendererPageState extends State<VideoRendererPage> {
   final _pve = ProVideoEditor.instance;
 
-  late final _playerContent = Player();
-  late final _controllerContent = VideoController(_playerContent);
-  late final _playerPreview = Player();
-  late final _controllerPreview = VideoController(_playerPreview);
+  late VideoPlayerController _controllerContent;
+  ChewieController? _chewieControllerContent;
+  bool isContentInitialized = false;
+
+  VideoPlayerController? _controllerPreview;
+  ChewieController? _chewieControllerPreview;
+  bool isPreviewInitialized = false;
 
   final _boundaryKey = GlobalKey();
   bool _isExporting = false;
@@ -60,17 +65,45 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   @override
   void initState() {
     super.initState();
-    _playerContent.open(
-      Media('asset:///$kVideoEditorExampleH264Path'),
-      play: false,
-    );
+    _initializePlayer();
     _video = EditorVideo.asset(kVideoEditorExampleH264Path);
+  }
+
+  Future<void> _initializePlayer() async {
+    _controllerContent = VideoPlayerController.asset(
+      kVideoEditorExampleH264Path,
+    );
+
+    await _controllerContent.initialize();
+
+    _chewieControllerContent = ChewieController(
+      videoPlayerController: _controllerContent,
+      autoPlay: true,
+      customControls: const MaterialControls(),
+      materialProgressColors: ChewieProgressColors(
+        playedColor: const Color(0xFFFF0000),
+        handleColor: const Color(0xFFFF0000),
+        bufferedColor: Colors.white.withValues(alpha: 0.3),
+        backgroundColor: Colors.white.withValues(alpha: 0.2),
+      ),
+      placeholder: Container(color: Colors.black),
+      autoInitialize: true,
+      showControlsOnInitialize: false,
+    );
+
+    setState(() => isContentInitialized = true);
   }
 
   @override
   void dispose() {
-    _playerContent.dispose();
-    _playerPreview.dispose();
+    if (isContentInitialized) {
+      _controllerContent.dispose();
+    }
+    if (isPreviewInitialized) {
+      _controllerPreview?.dispose();
+    }
+    _chewieControllerContent?.dispose();
+    _chewieControllerPreview?.dispose();
     super.dispose();
   }
 
@@ -124,10 +157,587 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
-  Future<void> _changeSpeed() async {
+  /// Picture-in-picture: a small second video over a full-frame base.
+  Future<void> _compositionPip() async {
+    final meta = await _pve.getMetadata(_video);
+    var Size(width: width, height: height) = meta.resolution;
+
+    // Use a distinct source for the overlay (Android's Media3 compositor can
+    // misbehave when two layers stream from the exact same file).
+    final pipVideo = EditorVideo.asset(kVideoEditorExampleAssetWorldPath);
+
     var data = VideoRenderData(
-      videoSegments: [VideoSegment(video: _video)],
-      playbackSpeed: .5,
+      composition: VideoComposition(
+        canvasSize: meta.resolution,
+        layers: [
+          // Base layer fills the canvas.
+          VideoLayer(clips: [VideoSegment(video: _video)]),
+          // PiP layer: top-left, muted, starts two seconds in.
+          VideoLayer(
+            clips: [
+              VideoSegment(
+                video: pipVideo,
+                volume: 0,
+                timelineStart: const Duration(seconds: 2),
+              ),
+            ],
+            transform: SegmentTransform(
+              offset: const Offset(24, 24),
+              size: Size(width / 3, height / 3),
+              fit: SegmentFit.cover,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Two videos stacked vertically on one canvas.
+  Future<void> _compositionStack() async {
+    final meta1 = await _pve.getMetadata(_video);
+    final video2 = EditorVideo.asset(kVideoEditorExampleAssetWorldPath);
+    final meta2 = await _pve.getMetadata(video2);
+
+    final width = max(meta1.resolution.width, meta2.resolution.width);
+    final topHeight =
+        meta1.resolution.height * (width / meta1.resolution.width);
+    final bottomHeight =
+        meta2.resolution.height * (width / meta2.resolution.width);
+
+    var data = VideoRenderData(
+      composition: VideoComposition(
+        canvasSize: Size(width, topHeight + bottomHeight),
+        layers: [
+          VideoLayer(
+            clips: [
+              VideoSegment(video: _video, endTime: const Duration(seconds: 5)),
+            ],
+            transform: SegmentTransform(
+              offset: Offset.zero,
+              size: Size(width, topHeight),
+            ),
+          ),
+          VideoLayer(
+            clips: [
+              VideoSegment(
+                video: video2,
+                endTime: const Duration(seconds: 5),
+                volume: 0,
+              ),
+            ],
+            transform: SegmentTransform(
+              offset: Offset(0, topHeight),
+              size: Size(width, bottomHeight),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// 2x2 grid of the same video, each cell staggered in time.
+  Future<void> _compositionGrid() async {
+    final meta = await _pve.getMetadata(_video);
+    var Size(width: width, height: height) = meta.resolution;
+    final cell = Size(width / 2, height / 2);
+
+    VideoLayer quadrant(int index, Offset offset) => VideoLayer(
+      clips: [
+        VideoSegment(
+          video: _video,
+          timelineStart: Duration(seconds: index * 2),
+          volume: index == 0 ? 1.0 : 0,
+        ),
+      ],
+      transform: SegmentTransform(offset: offset, size: cell),
+    );
+
+    var data = VideoRenderData(
+      composition: VideoComposition(
+        canvasSize: meta.resolution,
+        layers: [
+          quadrant(0, Offset.zero),
+          quadrant(1, Offset(width / 2, 0)),
+          quadrant(2, Offset(0, height / 2)),
+          quadrant(3, Offset(width / 2, height / 2)),
+        ],
+      ),
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Kitchen-sink composition combined with many other operations at once.
+  ///
+  /// Exercises, in a single render:
+  /// - A 3-layer [VideoComposition] on an explicit canvas with a background.
+  /// - Base layer: two trimmed clips played back-to-back, the second at
+  ///   reduced volume.
+  /// - A muted picture-in-picture layer that enters after 2s.
+  /// - A semi-transparent secondary video placed bottom-left.
+  /// - Image overlays: a timed sticker with fade in/out animations.
+  /// - A timed warm color filter over the first 6 seconds.
+  /// - A looping background audio track.
+  Future<void> _compositionKitchenSink() async {
+    final meta = await _pve.getMetadata(_video);
+    var Size(width: width, height: height) = meta.resolution;
+
+    final world = EditorVideo.asset(kVideoEditorExampleAssetWorldPath);
+    final stickerImage = EditorLayerImage.asset('assets/sticker.png');
+    final audioFile = await _writeAssetAudioToFile(
+      kVideoEditorExampleAudio1Path,
+    );
+
+    final pipSize = Size(width / 3, height / 3);
+
+    var data = VideoRenderData(
+      composition: VideoComposition(
+        canvasSize: meta.resolution,
+        backgroundColor: Colors.black,
+        layers: [
+          // Base layer: two trimmed clips back-to-back, the second at half
+          // volume. Transitions and playbackSpeed are not supported inside a
+          // composition — see the transition demos for those.
+          VideoLayer(
+            clips: [
+              VideoSegment(
+                video: _video,
+                startTime: Duration.zero,
+                endTime: const Duration(seconds: 5),
+              ),
+              VideoSegment(
+                video: _video,
+                startTime: const Duration(seconds: 10),
+                endTime: const Duration(seconds: 16),
+                volume: 0.5,
+              ),
+            ],
+          ),
+          // Muted picture-in-picture, top-right, enters at 2s.
+          VideoLayer(
+            clips: [
+              VideoSegment(
+                video: _video,
+                startTime: const Duration(seconds: 4),
+                endTime: const Duration(seconds: 9),
+                volume: 0,
+                timelineStart: const Duration(seconds: 2),
+              ),
+            ],
+            transform: SegmentTransform(
+              offset: Offset(width - pipSize.width - 24, 24),
+              size: pipSize,
+              fit: SegmentFit.cover,
+            ),
+          ),
+          // Semi-transparent secondary video, bottom-left.
+          VideoLayer(
+            opacity: 0.6,
+            clips: [
+              VideoSegment(
+                video: world,
+                endTime: const Duration(seconds: 8),
+                volume: 0,
+              ),
+            ],
+            transform: SegmentTransform(
+              offset: Offset(24, height - pipSize.height - 24),
+              size: pipSize,
+              fit: SegmentFit.contain,
+            ),
+          ),
+        ],
+      ),
+      // Timed sticker overlay with fade in/out.
+      imageLayers: [
+        ImageLayer(
+          image: stickerImage,
+          offset: const Offset(40, 40),
+          size: const Size(160, 160),
+          startTime: const Duration(seconds: 1),
+          endTime: const Duration(seconds: 7),
+          animations: const [
+            LayerAnimation(
+              type: LayerAnimationType.fade,
+              phase: AnimationPhase.animateIn,
+              duration: Duration(milliseconds: 500),
+              curve: AnimationCurve.easeIn,
+            ),
+            LayerAnimation(
+              type: LayerAnimationType.fade,
+              phase: AnimationPhase.animateOut,
+              duration: Duration(milliseconds: 500),
+              curve: AnimationCurve.easeOut,
+            ),
+          ],
+        ),
+      ],
+      // Warm color filter for the first 6 seconds.
+      colorFilters: [
+        ColorFilter(
+          matrix: const [
+            1.2, 0.0, 0.0, 0.0, 20.0, //
+            0.0, 1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.8, 0.0, -10.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+          ],
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 6),
+        ),
+      ],
+      // Looping background music.
+      audioTracks: [
+        VideoAudioTrack(path: audioFile.path, volume: 0.4, loop: true),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  Future<void> _changeSpeed() async {
+    final customAudioFile = await _writeAssetAudioToFile(
+      kVideoEditorExampleAudio1Path,
+    );
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video, playbackSpeed: 2)],
+      audioTracks: [
+        VideoAudioTrack(
+          path: customAudioFile.path,
+          volume: 1, // Full volume for custom audio
+          loop: true,
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Different playback speeds per video segment.
+  ///
+  /// This example demonstrates per-clip speed control when concatenating
+  /// multiple video clips:
+  /// - Clip 1: 2× speed (fast-forward)
+  /// - Clip 2: 0.5× speed (slow-motion)
+  Future<void> _perClipSpeed() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 0),
+          endTime: const Duration(seconds: 5),
+          playbackSpeed: 2.0, // Fast-forward
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 5),
+          endTime: const Duration(seconds: 10),
+          playbackSpeed: 0.5, // Slow-motion
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Reverse playback per video segment.
+  Future<void> _perClipReverse() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 0),
+          endTime: const Duration(seconds: 4),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 0),
+          endTime: const Duration(seconds: 4),
+          reverseVideo: true,
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Cross-dissolve transition between two split clips.
+  ///
+  /// The two clips overlap by 800ms and blend (outgoing fades out while the
+  /// incoming fades in). The total output is shortened by the overlap.
+  Future<void> _clipDissolve() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          transition: const ClipTransition(
+            type: ClipTransitionType.dissolve,
+            duration: Duration(milliseconds: 800),
+            curve: AnimationCurve.easeInOut,
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Seamless loop: a single clip whose end cross-dissolves into its start.
+  ///
+  /// The transition on the last (here: only) segment wraps back into the first
+  /// segment, so a looping player restarts without a visible cut. The output is
+  /// shortened by the 800ms overlap.
+  Future<void> _clipLoopWrap() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          transition: const ClipTransition(
+            type: ClipTransitionType.dissolve,
+            duration: Duration(milliseconds: 800),
+            curve: AnimationCurve.easeInOut,
+          ),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Fade-to-black (dip-to-black) transition between two split clips.
+  ///
+  /// The outgoing clip dips to black and the incoming rises from black at the
+  /// boundary. The total duration is unchanged.
+  Future<void> _clipFadeToBlack() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          transition: const ClipTransition(
+            type: ClipTransitionType.fadeToBlack,
+            duration: Duration(milliseconds: 1700),
+            curve: AnimationCurve.easeInOut,
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Fade-to-white (dip-to-white) transition between two split clips.
+  Future<void> _clipFadeToWhite() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          transition: const ClipTransition(
+            type: ClipTransitionType.fadeToWhite,
+            duration: Duration(milliseconds: 700),
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Slide transition: the incoming clip slides in from the right over the
+  /// outgoing clip.
+  Future<void> _clipSlide() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          transition: const ClipTransition(
+            type: ClipTransitionType.slide,
+            duration: Duration(milliseconds: 700),
+            direction: ClipTransitionDirection.left,
+            curve: AnimationCurve.easeOutCubic,
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Push transition: the incoming clip pushes the outgoing clip out of frame.
+  Future<void> _clipPush() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          transition: const ClipTransition(
+            type: ClipTransitionType.push,
+            duration: Duration(milliseconds: 700),
+            direction: ClipTransitionDirection.left,
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Wipe transition: the incoming clip is revealed with a moving edge.
+  Future<void> _clipWipe() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          transition: const ClipTransition(
+            type: ClipTransitionType.wipe,
+            duration: Duration(milliseconds: 700),
+            direction: ClipTransitionDirection.right,
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Combined transitions across three clips: a dissolve into the second clip,
+  /// then a fade-to-black into the third.
+  Future<void> _clipTransitionsCombined() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          transition: const ClipTransition(
+            type: ClipTransitionType.dissolve,
+            duration: Duration(milliseconds: 800),
+            curve: AnimationCurve.easeInOut,
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 8),
+          endTime: const Duration(seconds: 13),
+          transition: const ClipTransition(
+            type: ClipTransitionType.fadeToBlack,
+            duration: Duration(milliseconds: 600),
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 15),
+          endTime: const Duration(seconds: 20),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Cross-dissolve between two clips that both play at 2× speed.
+  ///
+  /// Demonstrates that per-segment `playbackSpeed` is applied to the footage
+  /// *inside* an overlap transition, not just outside it: both clips
+  /// fast-forward and the blend itself plays at 2×. The transition duration is
+  /// interpreted in output (post-speed) time.
+  Future<void> _clipDissolveSpeed() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          playbackSpeed: 2.0,
+          transition: const ClipTransition(
+            type: ClipTransitionType.dissolve,
+            duration: Duration(milliseconds: 600),
+            curve: AnimationCurve.easeInOut,
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+          playbackSpeed: 2.0,
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Cross-dissolve with independent per-clip speeds.
+  ///
+  /// The outgoing clip plays at 2× and the incoming clip at 0.5×, so each side
+  /// of the blend is time-scaled with its own factor while sharing a single
+  /// output-time transition duration.
+  Future<void> _clipDissolveMixedSpeed() async {
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(
+          video: _video,
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 5),
+          playbackSpeed: 2.0, // Fast-forward outgoing
+          transition: const ClipTransition(
+            type: ClipTransitionType.dissolve,
+            duration: Duration(milliseconds: 600),
+            curve: AnimationCurve.easeInOut,
+          ),
+        ),
+        VideoSegment(
+          video: _video,
+          startTime: const Duration(seconds: 10),
+          endTime: const Duration(seconds: 15),
+          playbackSpeed: 0.5, // Slow-motion incoming
+        ),
+      ],
     );
 
     await _renderVideo(data);
@@ -137,6 +747,15 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     var data = VideoRenderData(
       videoSegments: [VideoSegment(video: _video)],
       enableAudio: false,
+    );
+
+    await _renderVideo(data);
+  }
+
+  Future<void> _trimToCommonTrackEnd() async {
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      trimToCommonTrackEnd: true,
     );
 
     await _renderVideo(data);
@@ -257,7 +876,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   /// Play custom audio once without looping.
   ///
   /// By default, custom audio loops to match the video duration.
-  /// Setting `loopCustomAudio: false` plays the audio only once,
+  /// Setting `VideoAudioTrack.loop: false` plays the audio only once,
   /// with silence for the remaining video duration.
   Future<void> _customAudioNoLoop() async {
     final customAudioFile = await _writeAssetAudioToFile(
@@ -276,9 +895,9 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   /// Start custom audio from a specific offset.
   ///
-  /// This example demonstrates how to use `customAudioStartTime` to start
-  /// playing the custom audio from a specific position instead of from the
-  /// beginning. This is useful for using a specific section of a longer
+  /// This example demonstrates how to use `VideoAudioTrack.audioStartTime` to
+  /// start playing the custom audio from a specific position instead of from
+  /// the beginning. This is useful for using a specific section of a longer
   /// audio file.
   Future<void> _customAudioStartOffset() async {
     final customAudioFile = await _writeAssetAudioToFile(
@@ -290,7 +909,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
       audioTracks: [
         VideoAudioTrack(
           path: customAudioFile.path,
-          startTime: const Duration(seconds: 5),
+          audioStartTime: const Duration(seconds: 5),
           volume: 1.0,
           loop: false,
         ),
@@ -354,6 +973,71 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           volume: 1.0,
           audioStartTime: const Duration(seconds: 3),
           audioEndTime: const Duration(seconds: 8),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// **Loop seam stress test** — short clipped audio looped many times.
+  ///
+  /// Extracts only a ~1 second window from the source audio file and lets it
+  /// loop continuously across the full video duration. With a typical 21s
+  /// demo video this produces ~20 loop boundaries — the most aggressive
+  /// scenario to expose audible clicks/gaps at each loop restart.
+  ///
+  /// Use this to A/B compare the audio quality at every seam before and
+  /// after the seamless audio pre-render implementation.
+  Future<void> _loopSeamStressShort() async {
+    final customAudioFile = await _writeAssetAudioToFile(
+      kVideoEditorExampleAudio1Path,
+    );
+
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video, volume: 0)],
+      audioTracks: [
+        VideoAudioTrack(
+          path: customAudioFile.path,
+          volume: 1.0,
+          loop: true,
+          audioStartTime: const Duration(seconds: 2),
+          audioEndTime: const Duration(milliseconds: 3000),
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// **Loop seam stress test** — looped audio across multiple video clips.
+  ///
+  /// Concatenates the same video three times (~63s total) and lets a
+  /// short 2-second audio window loop continuously across the entire
+  /// timeline. This stresses both:
+  /// - Loop boundaries inside the audio track
+  /// - Audio continuity across video clip transitions
+  ///
+  /// Use this to A/B compare seamless audio behaviour before and after
+  /// the pre-render implementation.
+  Future<void> _loopSeamStressMultiClip() async {
+    final customAudioFile = await _writeAssetAudioToFile(
+      kVideoEditorExampleAudio1Path,
+    );
+
+    var data = VideoRenderData(
+      videoSegments: [
+        VideoSegment(video: _video, volume: 0),
+        VideoSegment(video: _video, volume: 0),
+        VideoSegment(video: _video, volume: 0),
+      ],
+      audioTracks: [
+        VideoAudioTrack(
+          path: customAudioFile.path,
+          volume: 1.0,
+          loop: true,
+          audioStartTime: const Duration(seconds: 1),
+          audioEndTime: const Duration(seconds: 3),
         ),
       ],
     );
@@ -474,6 +1158,63 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
         /// Original size (no size set) in the center
         ImageLayer(image: stickerImage, offset: const Offset(500, 230)),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Rotate image layers around their own center.
+  ///
+  /// [ImageLayer.rotation] is in radians (clockwise, like Flutter's
+  /// `Transform.rotate`), so a `pro_image_editor` layer rotation can be
+  /// forwarded directly. [offset] and [size] keep describing the layout box
+  /// before rotation.
+  Future<void> _layersWithRotation() async {
+    final stickerImage = EditorLayerImage.asset('assets/sticker.png');
+
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      imageLayers: [
+        /// Tilted 30° clockwise at top-left
+        ImageLayer(
+          image: stickerImage,
+          offset: const Offset(40, 40),
+          size: const Size(200, 200),
+          rotation: 30 * pi / 180,
+        ),
+
+        /// Tilted 45° counter-clockwise in the center
+        ImageLayer(
+          image: stickerImage,
+          offset: const Offset(500, 300),
+          size: const Size(200, 200),
+          rotation: -45 * pi / 180,
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Overlay an animated GIF.
+  ///
+  /// Animated formats are detected automatically — the GIF plays back frame by
+  /// frame and, with [ImageLayer.loop] (default `true`), repeats for the
+  /// layer's whole time range. All other layer properties (position, size,
+  /// rotation, timing, animations) apply just like a static image.
+  Future<void> _gifLayer() async {
+    final gifImage = EditorLayerImage.asset('assets/dev.gif');
+
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      imageLayers: [
+        ImageLayer(
+          image: gifImage,
+          offset: const Offset(60, 60),
+          size: const Size(240, 240),
+          // loop: true, // default — repeats while visible
+        ),
       ],
     );
 
@@ -711,6 +1452,136 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
+  /// Edge-aware slide showcase — verifies the slide fix.
+  ///
+  /// A centered sticker slides fully in from off-screen and fully back out
+  /// for each direction in sequence (left → right → top → bottom). With the
+  /// fix the sticker must be completely off-screen at the start/end of every
+  /// window; the old behavior only moved it by its own size, so it stayed
+  /// partly visible. A `linear` curve makes the travel easy to judge.
+  Future<void> _layerSlideEdgeAware() async {
+    final stickerImage = EditorLayerImage.asset('assets/sticker.png');
+
+    const stickerSize = 200.0;
+    const videoWidth = 1280.0;
+    const videoHeight = 720.0;
+    const center = Offset(
+      (videoWidth - stickerSize) / 2,
+      (videoHeight - stickerSize) / 2,
+    );
+
+    ImageLayer slideWindow(SlideDirection direction, int fromSec, int toSec) {
+      return ImageLayer(
+        image: stickerImage,
+        offset: center,
+        size: const Size(stickerSize, stickerSize),
+        startTime: Duration(seconds: fromSec),
+        endTime: Duration(seconds: toSec),
+        animations: [
+          LayerAnimation(
+            type: LayerAnimationType.slide,
+            phase: AnimationPhase.animateInOut,
+            duration: const Duration(milliseconds: 700),
+            slideDirection: direction,
+            curve: AnimationCurve.linear,
+          ),
+        ],
+      );
+    }
+
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      imageLayers: [
+        slideWindow(SlideDirection.left, 0, 3),
+        slideWindow(SlideDirection.right, 3, 6),
+        slideWindow(SlideDirection.top, 6, 9),
+        slideWindow(SlideDirection.bottom, 9, 12),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Slide from a custom start point.
+  ///
+  /// Instead of naming an edge, this example hands the slide a `slideFrom`
+  /// point in the same pixel coordinates as [ImageLayer.offset]. The first
+  /// sticker comes in diagonally from beyond the top-left corner and leaves
+  /// through a point past the bottom-right one; the second starts from a
+  /// point *inside* the frame, which an edge direction cannot express.
+  Future<void> _layerSlideCustomStart() async {
+    final stickerImage = EditorLayerImage.asset('assets/sticker.png');
+
+    const stickerSize = 200.0;
+    const videoWidth = 1280.0;
+    const videoHeight = 720.0;
+
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      imageLayers: [
+        ImageLayer(
+          image: stickerImage,
+          offset: const Offset(
+            (videoWidth - stickerSize) / 2,
+            (videoHeight - stickerSize) / 2,
+          ),
+          size: const Size(stickerSize, stickerSize),
+          startTime: const Duration(seconds: 1),
+          endTime: const Duration(seconds: 7),
+          animations: [
+            const LayerAnimation(
+              type: LayerAnimationType.slide,
+              phase: AnimationPhase.animateIn,
+              duration: Duration(milliseconds: 800),
+              // The frame's top-left corner, one sticker further out.
+              slideFrom: Offset(-stickerSize, -stickerSize),
+              curve: AnimationCurve.easeOutCubic,
+            ),
+            const LayerAnimation(
+              type: LayerAnimationType.slide,
+              phase: AnimationPhase.animateOut,
+              duration: Duration(milliseconds: 600),
+              // Out past the bottom-right corner.
+              slideFrom: Offset(videoWidth, videoHeight),
+              curve: AnimationCurve.easeIn,
+            ),
+          ],
+        ),
+        ImageLayer(
+          image: stickerImage,
+          offset: const Offset(
+            videoWidth / 2 + stickerSize,
+            videoHeight / 2 + stickerSize / 2,
+          ),
+          size: const Size(stickerSize, stickerSize),
+          startTime: const Duration(seconds: 3),
+          endTime: const Duration(seconds: 12),
+          animations: [
+            const LayerAnimation(
+              type: LayerAnimationType.slide,
+              phase: AnimationPhase.animateIn,
+              duration: Duration(milliseconds: 2000),
+              // A start point inside the frame: the sticker drifts up and
+              // across from here rather than entering from off-screen.
+              slideFrom: Offset(300, 300),
+              curve: AnimationCurve.easeOutCubic,
+            ),
+            const LayerAnimation(
+              type: LayerAnimationType.slide,
+              phase: AnimationPhase.animateOut,
+              duration: Duration(milliseconds: 600),
+              // Out past the bottom-right corner.
+              slideFrom: Offset(videoWidth, videoHeight),
+              curve: AnimationCurve.easeIn,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await _renderVideo(data);
+  }
+
   /// Combined animations on image layer.
   ///
   /// This example combines fade, slide, and scale animations on a single
@@ -764,6 +1635,20 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     await _renderVideo(data);
   }
 
+  /// Cap the output frame rate.
+  ///
+  /// [VideoRenderData.maxFrameRate] is an upper limit: a faster source is
+  /// slowed to it (here 30 fps) while a slower source is left untouched. This
+  /// reduces the encoding workload and output file size.
+  Future<void> _limitFrameRate() async {
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      maxFrameRate: 5,
+    );
+
+    await _renderVideo(data);
+  }
+
   Future<void> _generateMov() async {
     var data = VideoRenderData(
       outputFormat: VideoOutputFormat.mov,
@@ -795,6 +1680,25 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     var data = VideoRenderData.withQualityPreset(
       videoSegments: [VideoSegment(video: _video)],
       qualityPreset: VideoQualityPreset.k4,
+    );
+
+    await _renderVideo(data);
+  }
+
+  /// Export to an exact custom resolution (portrait), letterboxed.
+  ///
+  /// [VideoQualityConfig.custom] with a `resolution` produces a video of
+  /// exactly that size: the source is scaled to fit (preserving aspect ratio),
+  /// centered, and the remaining space is padded with black. A landscape source
+  /// exported to 1080x1920 therefore ends up centered with black bars top and
+  /// bottom.
+  Future<void> _qualityCustomResolution() async {
+    var data = VideoRenderData(
+      videoSegments: [VideoSegment(video: _video)],
+      qualityConfig: VideoQualityConfig.custom(
+        bitrate: 8000000,
+        resolution: const Size(1080, 1920),
+      ),
     );
 
     await _renderVideo(data);
@@ -933,8 +1837,41 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   }
 
   Future<void> _renderVideo(VideoRenderData value) async {
+    if (_isExporting) {
+      debugPrint('An export task is already running. Action ignored.');
+      return;
+    }
     _taskId = DateTime.now().microsecondsSinceEpoch.toString();
-    setState(() => _isExporting = true);
+    setState(() {
+      _isExporting = true;
+      isPreviewInitialized = false;
+    });
+
+    if (_chewieControllerPreview != null) {
+      await _chewieControllerPreview!.pause();
+      _chewieControllerPreview!.dispose();
+      _chewieControllerPreview = null;
+    }
+    if (_controllerPreview != null) {
+      final controllerToDispose = _controllerPreview!;
+      _controllerPreview = null;
+
+      try {
+        controllerToDispose.removeListener(() {});
+      } catch (_) {}
+
+      unawaited(() async {
+        try {
+          await controllerToDispose.pause();
+
+          await Future.delayed(const Duration(milliseconds: 100));
+
+          await controllerToDispose.dispose();
+        } catch (e) {
+          debugPrint('Silent catch during old controller disposal: $e');
+        }
+      }());
+    }
 
     final directory = await getTemporaryDirectory();
     var sp = Stopwatch()..start();
@@ -945,7 +1882,11 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     String outputPath = '${directory.path}/my_video_$now.$extension';
 
     try {
-      await _pve.renderVideoToFile(outputPath, value.copyWith(id: _taskId));
+      await _pve.renderVideoToFile(
+        outputPath,
+        value.copyWith(id: _taskId),
+        nativeLogLevel: NativeLogLevel.debug,
+      );
     } on RenderCanceledException {
       setState(() => _isExporting = false);
       return;
@@ -962,10 +1903,30 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
     _isExporting = false;
     _videoBytes = result;
+
+    _controllerPreview = VideoPlayerController.file(File(outputPath));
+    await _controllerPreview?.initialize();
+
     setState(() {});
 
-    await _playerPreview.open(Media(outputPath));
-    await _playerPreview.play();
+    _chewieControllerPreview = ChewieController(
+      videoPlayerController: _controllerPreview!,
+      autoPlay: true,
+      customControls: const MaterialControls(),
+
+      materialProgressColors: ChewieProgressColors(
+        playedColor: const Color(0xFFFF0000),
+        handleColor: const Color(0xFFFF0000),
+        bufferedColor: Colors.white.withValues(alpha: 0.3),
+        backgroundColor: Colors.white.withValues(alpha: 0.2),
+      ),
+      looping: true,
+      placeholder: Container(color: Colors.black),
+      autoInitialize: true,
+      showControlsOnInitialize: false,
+    );
+
+    setState(() => isPreviewInitialized = true);
   }
 
   Future<void> _cancelRender() async {
@@ -1020,6 +1981,7 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
                 alignment: WrapAlignment.center,
                 children: [
                   ConstrainedBox(
+                    key: ValueKey(isContentInitialized),
                     constraints: const BoxConstraints(maxWidth: 360),
                     child: _buildDemoEditorContent(),
                   ),
@@ -1031,6 +1993,10 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
               ),
             ),
             _buildOptions(),
+            Padding(
+              padding: const .symmetric(horizontal: 16.0),
+              child: NativeLogConsole(logStream: _pve.logStream),
+            ),
           ],
         ),
       ),
@@ -1049,7 +2015,9 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
             children: [
               ColorFilterGenerator(
                 filters: _colorFilters,
-                child: Video(controller: _controllerContent),
+                child: isContentInitialized == true
+                    ? Chewie(controller: _chewieControllerContent!)
+                    : const Center(child: CircularProgressIndicator()),
               ),
               IgnorePointer(
                 child: ClipRect(
@@ -1108,7 +2076,9 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
                   _outputMetadata?.resolution.aspectRatio ?? 0,
                   1280 / 720,
                 ),
-                child: Video(controller: _controllerPreview),
+                child: isPreviewInitialized == true
+                    ? Chewie(controller: _chewieControllerPreview!)
+                    : const Center(child: CircularProgressIndicator()),
               ),
               Text(
                 'Result: ${formatBytes(_videoBytes!.lengthInBytes)} '
@@ -1175,9 +2145,50 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           title: const Text('Trim'),
         ),
         ListTile(
+          onTap: _compositionPip,
+          leading: const Icon(Icons.picture_in_picture_alt),
+          title: const Text('Composition: picture-in-picture'),
+          subtitle: const Text('Small second video over a full-frame base'),
+        ),
+        ListTile(
+          onTap: _compositionStack,
+          leading: const Icon(Icons.stacked_bar_chart),
+          title: const Text('Composition: stack'),
+          subtitle: const Text('Two videos stacked vertically'),
+        ),
+        ListTile(
+          onTap: _compositionGrid,
+          leading: const Icon(Icons.grid_view),
+          title: const Text('Composition: grid'),
+          subtitle: const Text('2x2 grid, each cell staggered in time'),
+        ),
+        ListTile(
+          onTap: _compositionKitchenSink,
+          leading: const Icon(Icons.auto_awesome_motion),
+          title: const Text('Composition: kitchen sink'),
+          subtitle: const Text(
+            'Layers + trim, speed, reverse, transition, overlays, '
+            'color filter & audio',
+          ),
+        ),
+        ListTile(
           onTap: _changeSpeed,
           leading: const Icon(Icons.speed_outlined),
           title: const Text('Change playback speed'),
+        ),
+        ListTile(
+          onTap: _perClipSpeed,
+          leading: const Icon(Icons.speed_rounded),
+          title: const Text('Per-clip playback speed'),
+          subtitle: const Text(
+            'Clip 1: 2× fast-forward · Clip 2: 0.5× slow-motion',
+          ),
+        ),
+        ListTile(
+          onTap: _perClipReverse,
+          leading: const Icon(Icons.replay_outlined),
+          title: const Text('Per-clip reverse playback'),
+          subtitle: const Text('Clip 1 forward · Clip 2 backwards'),
         ),
         ListTile(
           onTap: _layers,
@@ -1194,6 +2205,18 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           leading: const Icon(Icons.photo_size_select_large_outlined),
           title: const Text('Layers with custom size'),
           subtitle: const Text('Scale layers to specific dimensions'),
+        ),
+        ListTile(
+          onTap: _layersWithRotation,
+          leading: const Icon(Icons.rotate_right_outlined),
+          title: const Text('Layers with rotation'),
+          subtitle: const Text('Rotate layers around their own center'),
+        ),
+        ListTile(
+          onTap: _gifLayer,
+          leading: const Icon(Icons.gif_box_outlined),
+          title: const Text('Animated GIF layer'),
+          subtitle: const Text('Overlay a looping animated GIF'),
         ),
         ListTile(
           onTap: _colorMatrix,
@@ -1227,6 +2250,12 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           leading: const Icon(Icons.animation),
           title: const Text('Bitrate'),
         ),
+        ListTile(
+          onTap: _limitFrameRate,
+          leading: const Icon(Icons.speed_outlined),
+          title: const Text('Limit frame rate'),
+          subtitle: const Text('Cap the output at 5 fps'),
+        ),
         if (!kIsWeb && (Platform.isIOS || Platform.isMacOS))
           ListTile(
             onTap: _generateMov,
@@ -1247,10 +2276,85 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           subtitle: const Text('Slide in from left, out to bottom'),
         ),
         ListTile(
+          onTap: _layerSlideEdgeAware,
+          leading: const Icon(Icons.open_in_full_outlined),
+          title: const Text('Slide Edge-Aware (all directions)'),
+          subtitle: const Text(
+            'Centered sticker slides fully off-screen: L → R → T → B',
+          ),
+        ),
+        ListTile(
+          onTap: _layerSlideCustomStart,
+          leading: const Icon(Icons.control_camera_outlined),
+          title: const Text('Slide From Custom Point'),
+          subtitle: const Text('Diagonal in from top-left, out bottom-right'),
+        ),
+        ListTile(
           onTap: _layerCombinedAnimations,
           leading: const Icon(Icons.auto_awesome_outlined),
           title: const Text('Combined Animations'),
           subtitle: const Text('Fade + slide + scale with curves'),
+        ),
+        ..._buildSectionTitle('Clip Transitions'),
+        ListTile(
+          onTap: _clipDissolve,
+          leading: const Icon(Icons.gradient_outlined),
+          title: const Text('Dissolve'),
+          subtitle: const Text('800ms cross-dissolve between two clips'),
+        ),
+        ListTile(
+          onTap: _clipLoopWrap,
+          leading: const Icon(Icons.loop_outlined),
+          title: const Text('Loop wrap (dissolve)'),
+          subtitle: const Text('One clip: end cross-dissolves into the start'),
+        ),
+        ListTile(
+          onTap: _clipFadeToBlack,
+          leading: const Icon(Icons.nightlight_outlined),
+          title: const Text('Fade to Black'),
+          subtitle: const Text('Dip to black at the clip boundary'),
+        ),
+        ListTile(
+          onTap: _clipFadeToWhite,
+          leading: const Icon(Icons.wb_sunny_outlined),
+          title: const Text('Fade to White'),
+          subtitle: const Text('Dip to white at the clip boundary'),
+        ),
+        ListTile(
+          onTap: _clipSlide,
+          leading: const Icon(Icons.slideshow_outlined),
+          title: const Text('Slide'),
+          subtitle: const Text('Incoming slides in over the outgoing clip'),
+        ),
+        ListTile(
+          onTap: _clipPush,
+          leading: const Icon(Icons.swap_horizontal_circle_outlined),
+          title: const Text('Push'),
+          subtitle: const Text('Incoming pushes the outgoing clip out'),
+        ),
+        ListTile(
+          onTap: _clipWipe,
+          leading: const Icon(Icons.compare_outlined),
+          title: const Text('Wipe'),
+          subtitle: const Text('Incoming revealed with a moving edge'),
+        ),
+        ListTile(
+          onTap: _clipTransitionsCombined,
+          leading: const Icon(Icons.auto_awesome_motion_outlined),
+          title: const Text('Combined Transitions'),
+          subtitle: const Text('Dissolve → fade-to-black across 3 clips'),
+        ),
+        ListTile(
+          onTap: _clipDissolveSpeed,
+          leading: const Icon(Icons.fast_forward_outlined),
+          title: const Text('Dissolve + Speed'),
+          subtitle: const Text('Both clips at 2× — blend plays sped up too'),
+        ),
+        ListTile(
+          onTap: _clipDissolveMixedSpeed,
+          leading: const Icon(Icons.compare_arrows_outlined),
+          title: const Text('Dissolve + Mixed Speed'),
+          subtitle: const Text('Outgoing 2× · incoming 0.5×'),
         ),
         ..._buildSectionTitle('Video Concatenation'),
         ListTile(
@@ -1271,6 +2375,15 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           leading: const Icon(Icons.volume_off_outlined),
           title: const Text('Remove Audio'),
         ),
+        if (!kIsWeb && (Platform.isIOS || Platform.isMacOS))
+          ListTile(
+            onTap: _trimToCommonTrackEnd,
+            leading: const Icon(Icons.content_cut_outlined),
+            title: const Text('Trim to Common Track End'),
+            subtitle: const Text(
+              'End the clip where both tracks still have content',
+            ),
+          ),
         ListTile(
           onTap: _customAudioReplace,
           leading: const Icon(Icons.library_music_outlined),
@@ -1314,6 +2427,22 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           subtitle: const Text('Extract 3s–8s from audio file'),
         ),
         ListTile(
+          onTap: _loopSeamStressShort,
+          leading: const Icon(Icons.repeat_outlined),
+          title: const Text('Loop Seam Stress (short)'),
+          subtitle: const Text(
+            '1s audio window looped across full video — exposes loop clicks',
+          ),
+        ),
+        ListTile(
+          onTap: _loopSeamStressMultiClip,
+          leading: const Icon(Icons.repeat_on_outlined),
+          title: const Text('Loop Seam Stress (multi-clip)'),
+          subtitle: const Text(
+            '2s audio window looped across 3 concatenated clips',
+          ),
+        ),
+        ListTile(
           onTap: _perClipVolume,
           leading: const Icon(Icons.tune_outlined),
           title: const Text('Per-Clip Volume'),
@@ -1337,6 +2466,12 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
           leading: const Icon(Icons.four_k),
           title: const Text('Export with 4K Quality Preset'),
           subtitle: const Text('35 Mbps bitrate'),
+        ),
+        ListTile(
+          onTap: _qualityCustomResolution,
+          leading: const Icon(Icons.aspect_ratio_outlined),
+          title: const Text('Custom resolution (1080x1920)'),
+          subtitle: const Text('Exact output, contain-fit + black padding'),
         ),
         ..._buildSectionTitle('Network Streaming'),
         ListTile(

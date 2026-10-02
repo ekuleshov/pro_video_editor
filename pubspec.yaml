@@ -1,6 +1,6 @@
 name: pro_video_editor
 description: "A Flutter video editor: Seamlessly enhance your videos with user-friendly editing features."
-version: 1.14.4
+version: 2.21.0
 homepage: https://github.com/hm21/pro_video_editor/
 repository: https://github.com/hm21/pro_video_editor/
 documentation: https://github.com/hm21/pro_video_editor/
@@ -21,8 +21,8 @@ screenshots:
     path: assets/showcase1.jpg
 
 environment:
-  sdk: '>=3.4.0 <4.0.0'
-  flutter: ">=3.35.0"
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: ">=3.44.0"
 
 dependencies:
   flutter:
@@ -44,20 +44,26 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   import_sorter: ^4.6.0
   mockito: ^5.4.6
-  network_image_mock: ^2.1.1
 
 flutter:
+  # The live preview of `VideoEffect`s; see `VideoEffectPreview`.
+  shaders:
+    - shaders/video_effect.frag
+    - shaders/video_effect_glow.frag
+
   plugin:
     platforms:
       android:
         package: ch.waio.pro_video_editor
         pluginClass: ProVideoEditorPlugin
-      ios:
-        pluginClass: ProVideoEditorPlugin
       linux:
         pluginClass: ProVideoEditorPlugin
+      ios:
+        pluginClass: ProVideoEditorPlugin
+        sharedDarwinSource: true
       macos:
         pluginClass: ProVideoEditorPlugin
+        sharedDarwinSource: true
       windows:
         pluginClass: ProVideoEditorPluginCApi
       web:

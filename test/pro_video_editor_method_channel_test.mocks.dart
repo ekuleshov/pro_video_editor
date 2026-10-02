@@ -3,6 +3,7 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
+
 import 'dart:async' as _i7;
 import 'dart:typed_data' as _i5;
 import 'dart:ui' as _i3;
@@ -35,34 +36,19 @@ import 'package:pro_video_editor/pro_video_editor.dart' as _i4;
 // ignore_for_file: invalid_use_of_internal_member
 
 class _FakeEditorVideo_0 extends _i1.SmartFake implements _i2.EditorVideo {
-  _FakeEditorVideo_0(
-    Object parent,
-    Invocation parentInvocation,
-  ) : super(
-          parent,
-          parentInvocation,
-        );
+  _FakeEditorVideo_0(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
 }
 
 class _FakeSize_1 extends _i1.SmartFake implements _i3.Size {
-  _FakeSize_1(
-    Object parent,
-    Invocation parentInvocation,
-  ) : super(
-          parent,
-          parentInvocation,
-        );
+  _FakeSize_1(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
 }
 
 class _FakeVideoRenderData_2 extends _i1.SmartFake
     implements _i4.VideoRenderData {
-  _FakeVideoRenderData_2(
-    Object parent,
-    Invocation parentInvocation,
-  ) : super(
-          parent,
-          parentInvocation,
-        );
+  _FakeVideoRenderData_2(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
 }
 
 /// A class which mocks [EditorVideo].
@@ -74,82 +60,73 @@ class MockEditorVideo extends _i1.Mock implements _i2.EditorVideo {
   }
 
   @override
-  bool get hasBytes => (super.noSuchMethod(
-        Invocation.getter(#hasBytes),
-        returnValue: false,
-      ) as bool);
+  bool get hasBytes =>
+      (super.noSuchMethod(Invocation.getter(#hasBytes), returnValue: false)
+          as bool);
 
   @override
-  bool get hasNetworkUrl => (super.noSuchMethod(
-        Invocation.getter(#hasNetworkUrl),
-        returnValue: false,
-      ) as bool);
+  bool get hasNetworkUrl =>
+      (super.noSuchMethod(Invocation.getter(#hasNetworkUrl), returnValue: false)
+          as bool);
 
   @override
-  bool get hasFile => (super.noSuchMethod(
-        Invocation.getter(#hasFile),
-        returnValue: false,
-      ) as bool);
+  bool get hasFile =>
+      (super.noSuchMethod(Invocation.getter(#hasFile), returnValue: false)
+          as bool);
 
   @override
-  bool get hasAssetPath => (super.noSuchMethod(
-        Invocation.getter(#hasAssetPath),
-        returnValue: false,
-      ) as bool);
+  bool get hasAssetPath =>
+      (super.noSuchMethod(Invocation.getter(#hasAssetPath), returnValue: false)
+          as bool);
 
   @override
-  _i2.EditorVideoType get type => (super.noSuchMethod(
-        Invocation.getter(#type),
-        returnValue: _i2.EditorVideoType.file,
-      ) as _i2.EditorVideoType);
+  _i2.EditorVideoType get type =>
+      (super.noSuchMethod(
+            Invocation.getter(#type),
+            returnValue: _i2.EditorVideoType.file,
+          )
+          as _i2.EditorVideoType);
 
   @override
-  _i2.EditorVideoType get typePreferredFile => (super.noSuchMethod(
-        Invocation.getter(#typePreferredFile),
-        returnValue: _i2.EditorVideoType.file,
-      ) as _i2.EditorVideoType);
+  _i2.EditorVideoType get typePreferredFile =>
+      (super.noSuchMethod(
+            Invocation.getter(#typePreferredFile),
+            returnValue: _i2.EditorVideoType.file,
+          )
+          as _i2.EditorVideoType);
 
   @override
   set byteArray(_i5.Uint8List? value) => super.noSuchMethod(
-        Invocation.setter(
-          #byteArray,
-          value,
-        ),
-        returnValueForMissingStub: null,
-      );
+    Invocation.setter(#byteArray, value),
+    returnValueForMissingStub: null,
+  );
 
   @override
   set file(_i6.File? value) => super.noSuchMethod(
-        Invocation.setter(
-          #file,
-          value,
-        ),
-        returnValueForMissingStub: null,
-      );
+    Invocation.setter(#file, value),
+    returnValueForMissingStub: null,
+  );
 
   @override
-  _i7.Future<_i5.Uint8List> safeByteArray() => (super.noSuchMethod(
-        Invocation.method(
-          #safeByteArray,
-          [],
-        ),
-        returnValue: _i7.Future<_i5.Uint8List>.value(_i5.Uint8List(0)),
-      ) as _i7.Future<_i5.Uint8List>);
+  _i7.Future<_i5.Uint8List> safeByteArray() =>
+      (super.noSuchMethod(
+            Invocation.method(#safeByteArray, []),
+            returnValue: _i7.Future<_i5.Uint8List>.value(_i5.Uint8List(0)),
+          )
+          as _i7.Future<_i5.Uint8List>);
 
   @override
-  _i7.Future<String> safeFilePath() => (super.noSuchMethod(
-        Invocation.method(
-          #safeFilePath,
-          [],
-        ),
-        returnValue: _i7.Future<String>.value(_i8.dummyValue<String>(
-          this,
-          Invocation.method(
-            #safeFilePath,
-            [],
-          ),
-        )),
-      ) as _i7.Future<String>);
+  _i7.Future<String> safeFilePath() =>
+      (super.noSuchMethod(
+            Invocation.method(#safeFilePath, []),
+            returnValue: _i7.Future<String>.value(
+              _i8.dummyValue<String>(
+                this,
+                Invocation.method(#safeFilePath, []),
+              ),
+            ),
+          )
+          as _i7.Future<String>);
 
   @override
   _i2.EditorVideo copyWith({
@@ -159,39 +136,31 @@ class MockEditorVideo extends _i1.Mock implements _i2.EditorVideo {
     String? assetPath,
   }) =>
       (super.noSuchMethod(
-        Invocation.method(
-          #copyWith,
-          [],
-          {
-            #byteArray: byteArray,
-            #file: file,
-            #networkUrl: networkUrl,
-            #assetPath: assetPath,
-          },
-        ),
-        returnValue: _FakeEditorVideo_0(
-          this,
-          Invocation.method(
-            #copyWith,
-            [],
-            {
+            Invocation.method(#copyWith, [], {
               #byteArray: byteArray,
               #file: file,
               #networkUrl: networkUrl,
               #assetPath: assetPath,
-            },
-          ),
-        ),
-      ) as _i2.EditorVideo);
+            }),
+            returnValue: _FakeEditorVideo_0(
+              this,
+              Invocation.method(#copyWith, [], {
+                #byteArray: byteArray,
+                #file: file,
+                #networkUrl: networkUrl,
+                #assetPath: assetPath,
+              }),
+            ),
+          )
+          as _i2.EditorVideo);
 
   @override
-  Map<String, dynamic> toMap() => (super.noSuchMethod(
-        Invocation.method(
-          #toMap,
-          [],
-        ),
-        returnValue: <String, dynamic>{},
-      ) as Map<String, dynamic>);
+  Map<String, dynamic> toMap() =>
+      (super.noSuchMethod(
+            Invocation.method(#toMap, []),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
 }
 
 /// A class which mocks [ThumbnailConfigs].
@@ -203,70 +172,73 @@ class MockThumbnailConfigs extends _i1.Mock implements _i4.ThumbnailConfigs {
   }
 
   @override
-  List<Duration> get timestamps => (super.noSuchMethod(
-        Invocation.getter(#timestamps),
-        returnValue: <Duration>[],
-      ) as List<Duration>);
+  List<Duration> get timestamps =>
+      (super.noSuchMethod(
+            Invocation.getter(#timestamps),
+            returnValue: <Duration>[],
+          )
+          as List<Duration>);
 
   @override
-  String get id => (super.noSuchMethod(
-        Invocation.getter(#id),
-        returnValue: _i8.dummyValue<String>(
-          this,
-          Invocation.getter(#id),
-        ),
-      ) as String);
+  String get id =>
+      (super.noSuchMethod(
+            Invocation.getter(#id),
+            returnValue: _i8.dummyValue<String>(this, Invocation.getter(#id)),
+          )
+          as String);
 
   @override
-  _i2.EditorVideo get video => (super.noSuchMethod(
-        Invocation.getter(#video),
-        returnValue: _FakeEditorVideo_0(
-          this,
-          Invocation.getter(#video),
-        ),
-      ) as _i2.EditorVideo);
+  _i2.EditorVideo get video =>
+      (super.noSuchMethod(
+            Invocation.getter(#video),
+            returnValue: _FakeEditorVideo_0(this, Invocation.getter(#video)),
+          )
+          as _i2.EditorVideo);
 
   @override
-  _i3.Size get outputSize => (super.noSuchMethod(
-        Invocation.getter(#outputSize),
-        returnValue: _FakeSize_1(
-          this,
-          Invocation.getter(#outputSize),
-        ),
-      ) as _i3.Size);
+  _i3.Size get outputSize =>
+      (super.noSuchMethod(
+            Invocation.getter(#outputSize),
+            returnValue: _FakeSize_1(this, Invocation.getter(#outputSize)),
+          )
+          as _i3.Size);
 
   @override
-  int get jpegQuality => (super.noSuchMethod(
-        Invocation.getter(#jpegQuality),
-        returnValue: 0,
-      ) as int);
+  int get jpegQuality =>
+      (super.noSuchMethod(Invocation.getter(#jpegQuality), returnValue: 0)
+          as int);
 
   @override
-  _i9.ThumbnailFormat get outputFormat => (super.noSuchMethod(
-        Invocation.getter(#outputFormat),
-        returnValue: _i9.ThumbnailFormat.jpeg,
-      ) as _i9.ThumbnailFormat);
+  _i9.ThumbnailFormat get outputFormat =>
+      (super.noSuchMethod(
+            Invocation.getter(#outputFormat),
+            returnValue: _i9.ThumbnailFormat.jpeg,
+          )
+          as _i9.ThumbnailFormat);
 
   @override
-  _i10.ThumbnailBoxFit get boxFit => (super.noSuchMethod(
-        Invocation.getter(#boxFit),
-        returnValue: _i10.ThumbnailBoxFit.cover,
-      ) as _i10.ThumbnailBoxFit);
+  _i10.ThumbnailBoxFit get boxFit =>
+      (super.noSuchMethod(
+            Invocation.getter(#boxFit),
+            returnValue: _i10.ThumbnailBoxFit.cover,
+          )
+          as _i10.ThumbnailBoxFit);
 
   @override
-  _i7.Stream<_i11.ProgressModel> get progressStream => (super.noSuchMethod(
-        Invocation.getter(#progressStream),
-        returnValue: _i7.Stream<_i11.ProgressModel>.empty(),
-      ) as _i7.Stream<_i11.ProgressModel>);
+  _i7.Stream<_i11.ProgressModel> get progressStream =>
+      (super.noSuchMethod(
+            Invocation.getter(#progressStream),
+            returnValue: _i7.Stream<_i11.ProgressModel>.empty(),
+          )
+          as _i7.Stream<_i11.ProgressModel>);
 
   @override
-  Map<String, dynamic> toMap() => (super.noSuchMethod(
-        Invocation.method(
-          #toMap,
-          [],
-        ),
-        returnValue: <String, dynamic>{},
-      ) as Map<String, dynamic>);
+  Map<String, dynamic> toMap() =>
+      (super.noSuchMethod(
+            Invocation.method(#toMap, []),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
 }
 
 /// A class which mocks [KeyFramesConfigs].
@@ -278,70 +250,70 @@ class MockKeyFramesConfigs extends _i1.Mock implements _i4.KeyFramesConfigs {
   }
 
   @override
-  int get maxOutputFrames => (super.noSuchMethod(
-        Invocation.getter(#maxOutputFrames),
-        returnValue: 0,
-      ) as int);
+  int get maxOutputFrames =>
+      (super.noSuchMethod(Invocation.getter(#maxOutputFrames), returnValue: 0)
+          as int);
 
   @override
-  String get id => (super.noSuchMethod(
-        Invocation.getter(#id),
-        returnValue: _i8.dummyValue<String>(
-          this,
-          Invocation.getter(#id),
-        ),
-      ) as String);
+  String get id =>
+      (super.noSuchMethod(
+            Invocation.getter(#id),
+            returnValue: _i8.dummyValue<String>(this, Invocation.getter(#id)),
+          )
+          as String);
 
   @override
-  _i2.EditorVideo get video => (super.noSuchMethod(
-        Invocation.getter(#video),
-        returnValue: _FakeEditorVideo_0(
-          this,
-          Invocation.getter(#video),
-        ),
-      ) as _i2.EditorVideo);
+  _i2.EditorVideo get video =>
+      (super.noSuchMethod(
+            Invocation.getter(#video),
+            returnValue: _FakeEditorVideo_0(this, Invocation.getter(#video)),
+          )
+          as _i2.EditorVideo);
 
   @override
-  _i3.Size get outputSize => (super.noSuchMethod(
-        Invocation.getter(#outputSize),
-        returnValue: _FakeSize_1(
-          this,
-          Invocation.getter(#outputSize),
-        ),
-      ) as _i3.Size);
+  _i3.Size get outputSize =>
+      (super.noSuchMethod(
+            Invocation.getter(#outputSize),
+            returnValue: _FakeSize_1(this, Invocation.getter(#outputSize)),
+          )
+          as _i3.Size);
 
   @override
-  int get jpegQuality => (super.noSuchMethod(
-        Invocation.getter(#jpegQuality),
-        returnValue: 0,
-      ) as int);
+  int get jpegQuality =>
+      (super.noSuchMethod(Invocation.getter(#jpegQuality), returnValue: 0)
+          as int);
 
   @override
-  _i9.ThumbnailFormat get outputFormat => (super.noSuchMethod(
-        Invocation.getter(#outputFormat),
-        returnValue: _i9.ThumbnailFormat.jpeg,
-      ) as _i9.ThumbnailFormat);
+  _i9.ThumbnailFormat get outputFormat =>
+      (super.noSuchMethod(
+            Invocation.getter(#outputFormat),
+            returnValue: _i9.ThumbnailFormat.jpeg,
+          )
+          as _i9.ThumbnailFormat);
 
   @override
-  _i10.ThumbnailBoxFit get boxFit => (super.noSuchMethod(
-        Invocation.getter(#boxFit),
-        returnValue: _i10.ThumbnailBoxFit.cover,
-      ) as _i10.ThumbnailBoxFit);
+  _i10.ThumbnailBoxFit get boxFit =>
+      (super.noSuchMethod(
+            Invocation.getter(#boxFit),
+            returnValue: _i10.ThumbnailBoxFit.cover,
+          )
+          as _i10.ThumbnailBoxFit);
 
   @override
-  _i7.Stream<_i11.ProgressModel> get progressStream => (super.noSuchMethod(
-        Invocation.getter(#progressStream),
-        returnValue: _i7.Stream<_i11.ProgressModel>.empty(),
-      ) as _i7.Stream<_i11.ProgressModel>);
+  _i7.Stream<_i11.ProgressModel> get progressStream =>
+      (super.noSuchMethod(
+            Invocation.getter(#progressStream),
+            returnValue: _i7.Stream<_i11.ProgressModel>.empty(),
+          )
+          as _i7.Stream<_i11.ProgressModel>);
 
   @override
-  Map<String, dynamic> toMap() => (super.noSuchMethod(
-        Invocation.method(
-          #toMap,
-          [],
-        ),
-        returnValue: <String, dynamic>{},
-      ) as Map<String, dynamic>);
+  Map<String, dynamic> toMap() =>
+      (super.noSuchMethod(
+            Invocation.method(#toMap, []),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
 }
 
 /// A class which mocks [VideoRenderData].
@@ -353,192 +325,182 @@ class MockVideoRenderData extends _i1.Mock implements _i4.VideoRenderData {
   }
 
   @override
-  String get id => (super.noSuchMethod(
-        Invocation.getter(#id),
-        returnValue: _i8.dummyValue<String>(
-          this,
-          Invocation.getter(#id),
-        ),
-      ) as String);
+  String get id =>
+      (super.noSuchMethod(
+            Invocation.getter(#id),
+            returnValue: _i8.dummyValue<String>(this, Invocation.getter(#id)),
+          )
+          as String);
 
   @override
-  _i4.VideoOutputFormat get outputFormat => (super.noSuchMethod(
-        Invocation.getter(#outputFormat),
-        returnValue: _i4.VideoOutputFormat.mp4,
-      ) as _i4.VideoOutputFormat);
+  _i4.VideoOutputFormat get outputFormat =>
+      (super.noSuchMethod(
+            Invocation.getter(#outputFormat),
+            returnValue: _i4.VideoOutputFormat.mp4,
+          )
+          as _i4.VideoOutputFormat);
 
   @override
-  bool get enableAudio => (super.noSuchMethod(
-        Invocation.getter(#enableAudio),
-        returnValue: false,
-      ) as bool);
+  bool get enableAudio =>
+      (super.noSuchMethod(Invocation.getter(#enableAudio), returnValue: false)
+          as bool);
 
   @override
-  List<List<double>> get colorMatrixList => (super.noSuchMethod(
-        Invocation.getter(#colorMatrixList),
-        returnValue: <List<double>>[],
-      ) as List<List<double>>);
+  bool get trimToCommonTrackEnd =>
+      (super.noSuchMethod(
+            Invocation.getter(#trimToCommonTrackEnd),
+            returnValue: false,
+          )
+          as bool);
 
   @override
-  List<_i4.ColorFilter> get colorFilters => (super.noSuchMethod(
-        Invocation.getter(#colorFilters),
-        returnValue: <_i4.ColorFilter>[],
-      ) as List<_i4.ColorFilter>);
+  List<_i4.ColorFilter> get colorFilters =>
+      (super.noSuchMethod(
+            Invocation.getter(#colorFilters),
+            returnValue: <_i4.ColorFilter>[],
+          )
+          as List<_i4.ColorFilter>);
 
   @override
-  List<_i4.VideoAudioTrack> get audioTracks => (super.noSuchMethod(
-        Invocation.getter(#audioTracks),
-        returnValue: <_i4.VideoAudioTrack>[],
-      ) as List<_i4.VideoAudioTrack>);
+  List<_i4.VideoEffect> get effects =>
+      (super.noSuchMethod(
+            Invocation.getter(#effects),
+            returnValue: <_i4.VideoEffect>[],
+          )
+          as List<_i4.VideoEffect>);
 
   @override
-  bool get shouldOptimizeForNetworkUse => (super.noSuchMethod(
-        Invocation.getter(#shouldOptimizeForNetworkUse),
-        returnValue: false,
-      ) as bool);
+  List<_i4.VideoAudioTrack> get audioTracks =>
+      (super.noSuchMethod(
+            Invocation.getter(#audioTracks),
+            returnValue: <_i4.VideoAudioTrack>[],
+          )
+          as List<_i4.VideoAudioTrack>);
 
   @override
-  bool get imageBytesWithCropping => (super.noSuchMethod(
-        Invocation.getter(#imageBytesWithCropping),
-        returnValue: false,
-      ) as bool);
+  bool get shouldOptimizeForNetworkUse =>
+      (super.noSuchMethod(
+            Invocation.getter(#shouldOptimizeForNetworkUse),
+            returnValue: false,
+          )
+          as bool);
 
   @override
-  bool get loopCustomAudio => (super.noSuchMethod(
-        Invocation.getter(#loopCustomAudio),
-        returnValue: false,
-      ) as bool);
+  bool get imageBytesWithCropping =>
+      (super.noSuchMethod(
+            Invocation.getter(#imageBytesWithCropping),
+            returnValue: false,
+          )
+          as bool);
 
   @override
-  _i7.Stream<_i11.ProgressModel> get progressStream => (super.noSuchMethod(
-        Invocation.getter(#progressStream),
-        returnValue: _i7.Stream<_i11.ProgressModel>.empty(),
-      ) as _i7.Stream<_i11.ProgressModel>);
+  _i7.Stream<_i11.ProgressModel> get progressStream =>
+      (super.noSuchMethod(
+            Invocation.getter(#progressStream),
+            returnValue: _i7.Stream<_i11.ProgressModel>.empty(),
+          )
+          as _i7.Stream<_i11.ProgressModel>);
 
   @override
-  _i7.Future<Map<String, dynamic>> toAsyncMap() => (super.noSuchMethod(
-        Invocation.method(
-          #toAsyncMap,
-          [],
-        ),
-        returnValue:
-            _i7.Future<Map<String, dynamic>>.value(<String, dynamic>{}),
-      ) as _i7.Future<Map<String, dynamic>>);
+  _i7.Future<Map<String, dynamic>> toAsyncMap() =>
+      (super.noSuchMethod(
+            Invocation.method(#toAsyncMap, []),
+            returnValue: _i7.Future<Map<String, dynamic>>.value(
+              <String, dynamic>{},
+            ),
+          )
+          as _i7.Future<Map<String, dynamic>>);
 
   @override
   _i4.VideoRenderData copyWith({
     String? id,
     _i4.VideoQualityConfig? qualityConfig,
     _i4.VideoOutputFormat? outputFormat,
-    _i2.EditorVideo? video,
     List<_i4.VideoSegment>? videoSegments,
-    _i5.Uint8List? imageBytes,
+    _i4.VideoComposition? composition,
     List<_i4.ImageLayer>? imageLayers,
     _i4.ExportTransform? transform,
     bool? enableAudio,
-    double? playbackSpeed,
+    bool? trimToCommonTrackEnd,
     Duration? startTime,
     Duration? endTime,
-    List<List<double>>? colorMatrixList,
     List<_i4.ColorFilter>? colorFilters,
+    List<_i4.VideoEffect>? effects,
     List<_i4.VideoAudioTrack>? audioTracks,
     double? blur,
+    _i4.ChromaKey? chromaKey,
     int? bitrate,
-    String? customAudioPath,
-    Duration? customAudioStartTime,
-    double? originalAudioVolume,
-    double? customAudioVolume,
+    int? maxFrameRate,
     bool? shouldOptimizeForNetworkUse,
     bool? imageBytesWithCropping,
-    bool? loopCustomAudio,
   }) =>
       (super.noSuchMethod(
-        Invocation.method(
-          #copyWith,
-          [],
-          {
-            #id: id,
-            #qualityConfig: qualityConfig,
-            #outputFormat: outputFormat,
-            #video: video,
-            #videoSegments: videoSegments,
-            #imageBytes: imageBytes,
-            #imageLayers: imageLayers,
-            #transform: transform,
-            #enableAudio: enableAudio,
-            #playbackSpeed: playbackSpeed,
-            #startTime: startTime,
-            #endTime: endTime,
-            #colorMatrixList: colorMatrixList,
-            #colorFilters: colorFilters,
-            #audioTracks: audioTracks,
-            #blur: blur,
-            #bitrate: bitrate,
-            #customAudioPath: customAudioPath,
-            #customAudioStartTime: customAudioStartTime,
-            #originalAudioVolume: originalAudioVolume,
-            #customAudioVolume: customAudioVolume,
-            #shouldOptimizeForNetworkUse: shouldOptimizeForNetworkUse,
-            #imageBytesWithCropping: imageBytesWithCropping,
-            #loopCustomAudio: loopCustomAudio,
-          },
-        ),
-        returnValue: _FakeVideoRenderData_2(
-          this,
-          Invocation.method(
-            #copyWith,
-            [],
-            {
+            Invocation.method(#copyWith, [], {
               #id: id,
               #qualityConfig: qualityConfig,
               #outputFormat: outputFormat,
-              #video: video,
               #videoSegments: videoSegments,
-              #imageBytes: imageBytes,
+              #composition: composition,
               #imageLayers: imageLayers,
               #transform: transform,
               #enableAudio: enableAudio,
-              #playbackSpeed: playbackSpeed,
+              #trimToCommonTrackEnd: trimToCommonTrackEnd,
               #startTime: startTime,
               #endTime: endTime,
-              #colorMatrixList: colorMatrixList,
               #colorFilters: colorFilters,
+              #effects: effects,
               #audioTracks: audioTracks,
               #blur: blur,
+              #chromaKey: chromaKey,
               #bitrate: bitrate,
-              #customAudioPath: customAudioPath,
-              #customAudioStartTime: customAudioStartTime,
-              #originalAudioVolume: originalAudioVolume,
-              #customAudioVolume: customAudioVolume,
+              #maxFrameRate: maxFrameRate,
               #shouldOptimizeForNetworkUse: shouldOptimizeForNetworkUse,
               #imageBytesWithCropping: imageBytesWithCropping,
-              #loopCustomAudio: loopCustomAudio,
-            },
-          ),
-        ),
-      ) as _i4.VideoRenderData);
+            }),
+            returnValue: _FakeVideoRenderData_2(
+              this,
+              Invocation.method(#copyWith, [], {
+                #id: id,
+                #qualityConfig: qualityConfig,
+                #outputFormat: outputFormat,
+                #videoSegments: videoSegments,
+                #composition: composition,
+                #imageLayers: imageLayers,
+                #transform: transform,
+                #enableAudio: enableAudio,
+                #trimToCommonTrackEnd: trimToCommonTrackEnd,
+                #startTime: startTime,
+                #endTime: endTime,
+                #colorFilters: colorFilters,
+                #effects: effects,
+                #audioTracks: audioTracks,
+                #blur: blur,
+                #chromaKey: chromaKey,
+                #bitrate: bitrate,
+                #maxFrameRate: maxFrameRate,
+                #shouldOptimizeForNetworkUse: shouldOptimizeForNetworkUse,
+                #imageBytesWithCropping: imageBytesWithCropping,
+              }),
+            ),
+          )
+          as _i4.VideoRenderData);
 
   @override
-  Map<String, dynamic> toMap() => (super.noSuchMethod(
-        Invocation.method(
-          #toMap,
-          [],
-        ),
-        returnValue: <String, dynamic>{},
-      ) as Map<String, dynamic>);
+  Map<String, dynamic> toMap() =>
+      (super.noSuchMethod(
+            Invocation.method(#toMap, []),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
 
   @override
-  String toJson() => (super.noSuchMethod(
-        Invocation.method(
-          #toJson,
-          [],
-        ),
-        returnValue: _i8.dummyValue<String>(
-          this,
-          Invocation.method(
-            #toJson,
-            [],
-          ),
-        ),
-      ) as String);
+  String toJson() =>
+      (super.noSuchMethod(
+            Invocation.method(#toJson, []),
+            returnValue: _i8.dummyValue<String>(
+              this,
+              Invocation.method(#toJson, []),
+            ),
+          )
+          as String);
 }

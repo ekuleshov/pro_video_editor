@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:media_kit/media_kit.dart';
+import 'package:fvp/fvp.dart' as fvp;
 import 'package:pro_video_editor/pro_video_editor.dart';
 import 'package:pro_video_editor_example/features/editor/pages/video_editor_basic_example_page.dart';
 import 'package:pro_video_editor_example/features/editor/pages/video_editor_grounded_example_page.dart';
 
 import 'features/audio/audio_extract_example_page.dart';
+import 'features/audio/audio_merge_example_page.dart';
+import 'features/chroma_key/chroma_key_example_page.dart';
 import 'features/metadata/video_metadata_example_page.dart';
 import 'features/render/video_renderer_page.dart';
+import 'features/split/split_example_page.dart';
+import 'features/stop_motion/stop_motion_example_page.dart';
 import 'features/thumbnail/thumbnail_example_page.dart';
+import 'features/video_effects/video_effects_example_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  MediaKit.ensureInitialized();
+  fvp.registerWith();
 
   runApp(const MyApp());
 }
@@ -72,9 +77,34 @@ class _HomePageState extends State<HomePage> {
       pageBuilder: () => const AudioExtractExamplePage(),
     ),
     _ExampleListItem(
+      icon: Icons.merge,
+      title: 'Audio-Merge',
+      pageBuilder: () => const AudioMergeExamplePage(),
+    ),
+    _ExampleListItem(
       icon: Icons.developer_board_outlined,
       title: 'Video-Renderer',
       pageBuilder: () => const VideoRendererPage(),
+    ),
+    _ExampleListItem(
+      icon: Icons.filter_center_focus,
+      title: 'Chroma Key (Greenscreen)',
+      pageBuilder: () => const ChromaKeyExamplePage(),
+    ),
+    _ExampleListItem(
+      icon: Icons.auto_awesome_outlined,
+      title: 'Video Effects (Glitch, VHS, Pixelate)',
+      pageBuilder: () => const VideoEffectsExamplePage(),
+    ),
+    _ExampleListItem(
+      icon: Icons.burst_mode_outlined,
+      title: 'Stop-Motion',
+      pageBuilder: () => const StopMotionExamplePage(),
+    ),
+    _ExampleListItem(
+      icon: Icons.content_cut,
+      title: 'Split',
+      pageBuilder: () => const SplitExamplePage(),
     ),
     _ExampleListItem(
       icon: Icons.edit,

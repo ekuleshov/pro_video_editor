@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -169,6 +170,65 @@ void main() {
               image: overlayImage,
               startTime: const Duration(seconds: 1),
               endTime: const Duration(seconds: 4),
+            ),
+          ],
+        ),
+      );
+    });
+
+    testWidgets('image layer with its own rotation', (_) async {
+      await testRender(
+        description: 'Image layer (rotated 45°)',
+        renderModel: VideoRenderData(
+          videoSegments: [VideoSegment(video: inputVideo)],
+          outputFormat: VideoOutputFormat.mp4,
+          imageLayers: [
+            ImageLayer(
+              image: overlayImage,
+              offset: const ui.Offset(120, 80),
+              size: const ui.Size(200, 120),
+              rotation: math.pi / 4,
+              startTime: const Duration(seconds: 1),
+              endTime: const Duration(seconds: 4),
+            ),
+          ],
+        ),
+      );
+    });
+
+    testWidgets('animated GIF layer (looping)', (_) async {
+      final gifImage = EditorLayerImage.asset('assets/dev.gif');
+      await testRender(
+        description: 'Animated GIF layer',
+        renderModel: VideoRenderData(
+          videoSegments: [VideoSegment(video: inputVideo)],
+          outputFormat: VideoOutputFormat.mp4,
+          imageLayers: [
+            ImageLayer(
+              image: gifImage,
+              offset: const ui.Offset(60, 60),
+              size: const ui.Size(200, 200),
+              startTime: const Duration(seconds: 1),
+              endTime: const Duration(seconds: 5),
+            ),
+          ],
+        ),
+      );
+    });
+
+    testWidgets('animated GIF layer (play once, no loop)', (_) async {
+      final gifImage = EditorLayerImage.asset('assets/dev.gif');
+      await testRender(
+        description: 'Animated GIF layer (loop=false)',
+        renderModel: VideoRenderData(
+          videoSegments: [VideoSegment(video: inputVideo)],
+          outputFormat: VideoOutputFormat.mp4,
+          imageLayers: [
+            ImageLayer(
+              image: gifImage,
+              offset: const ui.Offset(60, 60),
+              size: const ui.Size(200, 200),
+              loop: false,
             ),
           ],
         ),

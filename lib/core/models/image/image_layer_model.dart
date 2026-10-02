@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:pro_video_editor/shared/models/time_range_mixin.dart';
 import 'package:pro_video_editor/shared/utils/parser/double_parser.dart';
 import 'package:pro_video_editor/shared/utils/parser/int_parser.dart';
+import 'package:pro_video_editor/shared/utils/parser/offset_parser.dart';
 
 import 'editor_layer_image_model.dart';
 import 'layer_animation_model.dart';
@@ -20,13 +21,24 @@ class ImageLayer with TimeRangeMixin {
     this.endTime,
     this.offset,
     this.size,
+    this.rotation = 0.0,
+    this.loop = true,
+    this.animationOffset = Duration.zero,
     this.animations = const [],
   }) : assert(
-          startTime == null || endTime == null || startTime < endTime,
-          'startTime must be before endTime',
-        );
+         startTime == null || endTime == null || startTime < endTime,
+         'startTime must be before endTime',
+       ),
+       assert(
+         animationOffset >= Duration.zero,
+         'animationOffset must not be negative',
+       );
 
   /// The image to overlay on the video.
+  ///
+  /// Animated formats (e.g. GIF) are detected automatically and played back
+  /// frame by frame for the time the layer is visible — see [loop]. Static
+  /// images are drawn unchanged.
   final EditorLayerImage image;
 
   @override
@@ -43,9 +55,16 @@ class ImageLayer with TimeRangeMixin {
   /// When `null`, the image is stretched to fill the entire video frame.
   /// When set to a specific value (e.g., [Offset.zero]), the image is
   /// placed at that position at its original size.
+  ///
+  /// When the video segments differ in resolution, the video frame is the one
+  /// they are composited into: the first segment's size, replaced by each
+  /// later segment that is wider or taller. Every segment is scaled to fit
+  /// inside it and the layer is placed from the scaled segment's top-left
+  /// corner, so a layer keeps its place and size on segments of one shape.
   final Offset? offset;
 
-  /// The display size of the image layer, in pixels.
+  /// The display size of the image layer, in pixels of the same frame as
+  /// [offset].
   ///
   /// [Size.width] is the target width of the image.
   /// [Size.height] is the target height of the image.
@@ -53,6 +72,45 @@ class ImageLayer with TimeRangeMixin {
   /// When `null`, the image is used at its original size (or stretched to
   /// fill the frame when [offset] is also `null`).
   final Size? size;
+
+  /// Clockwise rotation applied to the image layer, in **radians**.
+  ///
+  /// The image is rotated around its own center, so [offset] and [size] still
+  /// describe the unrotated layout box. This matches Flutter's
+  /// [Transform.rotate] convention, which makes it possible to forward a
+  /// `pro_image_editor` layer rotation directly.
+  ///
+  /// **Default**: `0.0` (no rotation).
+  final double rotation;
+
+  /// Whether an animated [image] (e.g. GIF) repeats while the layer is visible.
+  ///
+  /// - `true` (default): the animation loops for the layer's whole time range.
+  /// - `false`: the animation plays once and then holds its last frame until
+  ///   the layer disappears.
+  ///
+  /// Has no effect on static images.
+  final bool loop;
+
+  /// How far into an animated [image] (e.g. GIF) playback begins when the
+  /// layer appears at [startTime].
+  ///
+  /// By default an animated layer starts on its first frame. Set this to
+  /// continue one animation across several layers: a layer that picks up
+  /// where `previous` left off passes
+  ///
+  /// ```dart
+  /// previous.animationOffset +
+  ///     (previous.endTime! - (previous.startTime ?? Duration.zero))
+  /// ```
+  ///
+  /// The offset counts toward [loop], so it wraps around a looping image and
+  /// lands on the last frame of one that does not loop.
+  ///
+  /// Has no effect on static images.
+  ///
+  /// **Default**: [Duration.zero].
+  final Duration animationOffset;
 
   /// Animations to apply to this layer (e.g. fade, slide, scale).
   ///
@@ -67,6 +125,9 @@ class ImageLayer with TimeRangeMixin {
     Duration? endTime,
     Offset? offset,
     Size? size,
+    double? rotation,
+    bool? loop,
+    Duration? animationOffset,
     List<LayerAnimation>? animations,
   }) {
     return ImageLayer(
@@ -75,6 +136,9 @@ class ImageLayer with TimeRangeMixin {
       endTime: endTime ?? this.endTime,
       offset: offset ?? this.offset,
       size: size ?? this.size,
+      rotation: rotation ?? this.rotation,
+      loop: loop ?? this.loop,
+      animationOffset: animationOffset ?? this.animationOffset,
       animations: animations ?? this.animations,
     );
   }
@@ -85,8 +149,12 @@ class ImageLayer with TimeRangeMixin {
       'startTime': startTime?.inMicroseconds,
       'endTime': endTime?.inMicroseconds,
       'offset': offset != null ? {'dx': offset!.dx, 'dy': offset!.dy} : null,
-      'size':
-          size != null ? {'width': size!.width, 'height': size!.height} : null,
+      'size': size != null
+          ? {'width': size!.width, 'height': size!.height}
+          : null,
+      'rotation': rotation,
+      'loop': loop,
+      'animationOffset': animationOffset.inMicroseconds,
       'animations': animations.map((a) => a.toMap()).toList(),
     };
   }
@@ -101,10 +169,7 @@ class ImageLayer with TimeRangeMixin {
           ? Duration(microseconds: safeParseInt(map['endTime']))
           : null,
       offset: map['offset'] != null
-          ? Offset(
-              safeParseDouble((map['offset'] as Map<String, dynamic>)['dx']),
-              safeParseDouble((map['offset'] as Map<String, dynamic>)['dy']),
-            )
+          ? safeParseOffset(map['offset'] as Map<String, dynamic>)
           : null,
       size: map['size'] != null
           ? Size(
@@ -112,7 +177,15 @@ class ImageLayer with TimeRangeMixin {
               safeParseDouble((map['size'] as Map<String, dynamic>)['height']),
             )
           : null,
-      animations: (map['animations'] as List<dynamic>?)
+      rotation: map['rotation'] != null
+          ? safeParseDouble(map['rotation'])
+          : 0.0,
+      loop: map['loop'] as bool? ?? true,
+      animationOffset: map['animationOffset'] != null
+          ? Duration(microseconds: safeParseInt(map['animationOffset']))
+          : Duration.zero,
+      animations:
+          (map['animations'] as List<dynamic>?)
               ?.map((a) => LayerAnimation.fromMap(a as Map<String, dynamic>))
               .toList() ??
           const [],
@@ -132,6 +205,9 @@ class ImageLayer with TimeRangeMixin {
         'endTime: $endTime, '
         'offset: $offset, '
         'size: $size, '
+        'rotation: $rotation, '
+        'loop: $loop, '
+        'animationOffset: $animationOffset, '
         'animations: $animations'
         ')';
   }
@@ -145,6 +221,9 @@ class ImageLayer with TimeRangeMixin {
         other.endTime == endTime &&
         other.offset == offset &&
         other.size == size &&
+        other.rotation == rotation &&
+        other.loop == loop &&
+        other.animationOffset == animationOffset &&
         listEquals(other.animations, animations);
   }
 
@@ -155,6 +234,9 @@ class ImageLayer with TimeRangeMixin {
         endTime.hashCode ^
         offset.hashCode ^
         size.hashCode ^
+        rotation.hashCode ^
+        loop.hashCode ^
+        animationOffset.hashCode ^
         animations.hashCode;
   }
 }

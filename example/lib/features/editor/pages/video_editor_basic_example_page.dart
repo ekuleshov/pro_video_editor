@@ -307,8 +307,10 @@ class _VideoEditorBasicExamplePageState
     unawaited(_audioService.pause());
     final directory = await getTemporaryDirectory();
 
-    final AudioTrack? customAudioTrack = parameters.customAudioTrack;
-    final double volumeBalance = customAudioTrack?.volumeBalance ?? 0;
+    final AudioTrack? selectedAudioTrack = parameters.audioTracks.isNotEmpty
+        ? parameters.audioTracks.first
+        : null;
+    final double volumeBalance = selectedAudioTrack?.volumeBalance ?? 0;
     double overlayVolume = 1;
     double originalVolume = 1;
     if (volumeBalance < 0) {
@@ -342,11 +344,11 @@ class _VideoEditorBasicExamplePageState
               flipY: parameters.flipY,
             )
           : null,
-      audioTracks: customAudioTrack != null
+      audioTracks: selectedAudioTrack != null
           ? [
               VideoAudioTrack(
                 path: (await _audioService.safeCustomAudioPath(
-                  customAudioTrack,
+                  selectedAudioTrack,
                 ))!,
                 volume: overlayVolume,
               ),
@@ -395,15 +397,10 @@ class _VideoEditorBasicExamplePageState
 
   Future<VideoClip?> _addClip() async {
     // Open video picker
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
-      allowMultiple: false,
-    );
+    final file = await FilePicker.pickFile(type: FileType.video);
 
     // User cancelled picker
-    if (!mounted || result == null || result.files.isEmpty) return null;
-
-    final file = result.files.single;
+    if (!mounted || file == null) return null;
     final path = file.path;
     if (path == null) return null;
 

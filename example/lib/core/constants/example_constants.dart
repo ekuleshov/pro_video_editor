@@ -10,6 +10,21 @@ const String kVideoEditorExampleH264Path = 'assets/demo.mp4';
 /// examples.
 const String kVideoEditorExampleAssetWorldPath = 'assets/demo_world.mp4';
 
+/// A local path to a H.264 MP4 where the container duration slightly exceeds
+/// the video track's actual frame duration. Used to reproduce issue #131
+/// (compositor crash: "No source tracks available") reported by @rabble.
+const String kVideoEditorExampleDivinePath =
+    'assets/tests/divine_transcribed.mp4';
+
+/// A local path to a short H.264 clip with a 5.1 surround audio track. Used to
+/// verify that multichannel sources survive a bitrate-capped export (the
+/// Darwin AVAssetWriter path downmixes them to stereo).
+const String kVideoEditorExampleSurround51Path = 'assets/surround_5_1.mp4';
+
+/// A local path to a real green-screen clip: a person in front of a lit studio
+/// screen. Cropped to the screen area, so nothing outside it survives the key.
+const String kVideoEditorExampleGreenScreenPath = 'assets/greenscreen.mp4';
+
 /// A local path to the first example audio track used in video editor demos.
 const String kVideoEditorExampleAudio1Path = 'assets/audio1.mp3';
 

@@ -401,6 +401,57 @@ void main() {
     });
   });
 
+  group('glow', () {
+    late EditorVideo stripe;
+
+    setUpAll(() async {
+      stripe = await videoFromImage(await stripePng());
+    });
+
+    testWidgets('spreads the white stripe into the black beside it', (
+      tester,
+    ) async {
+      final out = await frameOf(
+        await render(stripe, const [VideoEffect.glow()]),
+        Duration.zero,
+      );
+      // The stripe spans x = 256..383. A blur of 0.035 * 360 = 12.6 pixels
+      // puts about a third of the stripe's halo six pixels outside it, which
+      // the screen blend turns into a grey of about 84.
+      expect(grey(pixel(out, 320, 180)), greaterThan(240));
+      expect(grey(pixel(out, 250, 180)), inInclusiveRange(55, 115));
+      expect(grey(pixel(out, 389, 180)), inInclusiveRange(55, 115));
+      expect(grey(pixel(out, 150, 180)), lessThan(12));
+    });
+
+    testWidgets('glows a thin line at the left edge as if it went on', (
+      tester,
+    ) async {
+      final line = await videoFromImage(
+        await paintPng((c, size) {
+          c
+            ..drawRect(
+              Offset.zero & size,
+              Paint()..color = const Color(0xFF000000),
+            )
+            ..drawRect(
+              Rect.fromLTWH(0, 0, 2, size.height),
+              Paint()..color = const Color(0xFFFFFFFF),
+            );
+        }),
+      );
+      final out = await frameOf(
+        await render(line, const [VideoEffect.glow()]),
+        Duration.zero,
+      );
+      // The spec repeats the edge pixels beyond the frame, so the line x = 0..1
+      // halos like a wide bright area: a grey of about 92 at x = 6. Spread
+      // over a whole block of a downscaled blur first, it would be about 66.
+      expect(grey(pixel(out, 6, 180)), inInclusiveRange(80, 125));
+      expect(grey(pixel(out, 40, 180)), lessThan(12));
+    });
+  });
+
   group('tones', () {
     late EditorVideo darkGrey;
     late EditorVideo midGrey;

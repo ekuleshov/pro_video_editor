@@ -146,5 +146,35 @@ void main() {
       expect(pixel(out, 5, 13)[0], greaterThan(pixel(out, 5, 9)[0]));
       expect(pixel(out, 14, 13)[0], lessThan(pixel(out, 14, 9)[0]));
     });
+
+    testWidgets('glow spreads a white column into the black beside it', (
+      tester,
+    ) async {
+      // A white column, x = 24..39, on black.
+      const column = Stack(
+        textDirection: TextDirection.ltr,
+        children: [
+          ColoredBox(color: Color(0xFF000000), child: SizedBox.expand()),
+          Positioned(
+            left: 24,
+            top: 0,
+            bottom: 0,
+            width: 16,
+            child: ColoredBox(color: Color(0xFFFFFFFF)),
+          ),
+        ],
+      );
+      final plain = await preview(tester, const [], child: column);
+      final out = await preview(tester, const [
+        VideoEffect.glow(),
+      ], child: column);
+      expect(pixel(plain, 22, 18), everyElement(lessThanOrEqualTo(2)));
+      // A blur of 0.035 * 36 = 1.26 pixels: the glow reaches only a few
+      // pixels beside the column.
+      expect(pixel(out, 23, 18), everyElement(greaterThan(20)));
+      expect(pixel(out, 40, 18), everyElement(greaterThan(20)));
+      expect(pixel(out, 10, 18), everyElement(lessThanOrEqualTo(8)));
+      expect(pixel(out, 32, 18), everyElement(greaterThanOrEqualTo(250)));
+    });
   });
 }

@@ -49,6 +49,7 @@ flutter:
   # The live preview of `VideoEffect`s; see `VideoEffectPreview`.
   shaders:
     - shaders/video_effect.frag
+    - shaders/video_effect_glow.frag
 
   plugin:
     platforms:

@@ -404,8 +404,8 @@ class ExtractAudio {
         }
 
         let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)!.pointee
-        let sampleRate = Int(asbd.mSampleRate)
-        let channels = Int(asbd.mChannelsPerFrame)
+        var sampleRate = Int(asbd.mSampleRate)
+        var channels = Int(asbd.mChannelsPerFrame)
         let bitsPerSample = 16
 
         var timeRange: CMTimeRange
@@ -534,6 +534,18 @@ class ExtractAudio {
 
         while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
           if isCancelled { break }
+
+          // Update format info from the first decoded buffer to handle HE-AAC (SBR/PS)
+          // Decoders often double the sample rate for HE-AAC which isn't reflected in the track metadata
+          if totalPcmBytes == 0,
+            let desc = CMSampleBufferGetFormatDescription(sampleBuffer),
+            let streamDesc = CMAudioFormatDescriptionGetStreamBasicDescription(desc)
+          {
+            let decodedRate = Int(streamDesc.pointee.mSampleRate)
+            let decodedChannels = Int(streamDesc.pointee.mChannelsPerFrame)
+            if decodedRate > 0 { sampleRate = decodedRate }
+            if decodedChannels > 0 { channels = decodedChannels }
+          }
 
           if let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
             let length = CMBlockBufferGetDataLength(blockBuffer)

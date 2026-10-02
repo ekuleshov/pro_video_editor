@@ -78,8 +78,8 @@ class VideoMetadata {
   /// file size, and others.
   /// The [extension] is the video file format (e.g., 'mp4').
   factory VideoMetadata.fromMap(
-      Map<dynamic, dynamic> value,
-      String? extension,
+    Map<dynamic, dynamic> value,
+    String? extension,
   ) {
     // All platforms now return display dimensions (after rotation correction)
     final resolution = Size(

@@ -39,26 +39,26 @@ class EditorVideo {
   ///
   /// At least one of `byteArray`, `file`, `networkUrl`, `contentUrl`
   /// or `assetPath` must not be null.
-  EditorVideo._(
-      {this.byteArray,
-      this.networkUrl,
-      this.contentUrl,
-      this.assetPath,
-      dynamic file})
-      : file = file == null ? null : ensureFileInstance(file),
-        assert(
-          byteArray != null ||
-              file != null ||
-              networkUrl != null ||
-              contentUrl != null ||
-              assetPath != null,
-          'At least one of bytes, file, networkUrl, assetPath or contentUrl'
-          ' must not be null.',
-        ),
-        assert(
-          contentUrl == null || (!kIsWeb && Platform.isAndroid),
-          'contentUrl is only supported on Android',
-        );
+  EditorVideo._({
+    this.byteArray,
+    this.networkUrl,
+    this.contentUrl,
+    this.assetPath,
+    dynamic file,
+  }) : file = file == null ? null : ensureFileInstance(file),
+       assert(
+         byteArray != null ||
+             file != null ||
+             networkUrl != null ||
+             contentUrl != null ||
+             assetPath != null,
+         'At least one of bytes, file, networkUrl, assetPath or contentUrl'
+         ' must not be null.',
+       ),
+       assert(
+         contentUrl == null || (!kIsWeb && Platform.isAndroid),
+         'contentUrl is only supported on Android',
+       );
 
   /// Creates an [EditorVideo] instance from any supported source.
   ///

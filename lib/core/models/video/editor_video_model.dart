@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 
 import '/core/platform/io/io_helper.dart';
 import '/core/platform/path/path_provider_helper.dart';
@@ -54,15 +55,12 @@ class EditorVideo {
              assetPath != null,
          'At least one of bytes, file, networkUrl, assetPath or contentUrl'
          ' must not be null.',
-       ),
-       assert(
-         contentUrl == null || (!kIsWeb && Platform.isAndroid),
-         'contentUrl is only supported on Android',
        );
 
   /// Creates an [EditorVideo] instance from any supported source.
   ///
-  /// Provide one of [byteArray], [networkUrl], [assetPath], or [file].
+  /// Provide one of [byteArray], [networkUrl], [contentUrl], [assetPath], or
+  /// [file].
   /// Useful for dynamically choosing the video input at runtime.
   ///
   /// Example:
@@ -129,11 +127,21 @@ class EditorVideo {
   /// ```
   factory EditorVideo.network(String src) => EditorVideo._(networkUrl: src);
 
-  /// Creates an [EditorVideo] from a `content://` URL (Android only).
+  /// Creates an [EditorVideo] from an Android `content://` URI, such as one
+  /// returned by the photo picker or the Storage Access Framework.
+  ///
+  /// The video is read in place through the `ContentResolver`, so large files
+  /// are not copied. Your app must be able to read the URI for as long as the
+  /// video is used, for example by taking a persistable URI permission.
+  ///
+  /// **Android only.** Using it on another platform throws an
+  /// [UnsupportedError].
   ///
   /// Example:
   /// ```dart
-  /// final video = EditorVideo.content('content://media/picker_get_content/0/com.android.providers.media.photopicker/media/1000032497');
+  /// final video = EditorVideo.content(
+  ///   'content://media/picker_get_content/0/com.android.providers.media.photopicker/media/1000032497',
+  /// );
   /// ```
   factory EditorVideo.content(String url) => EditorVideo._(contentUrl: url);
 
@@ -146,7 +154,7 @@ class EditorVideo {
   /// A URL string pointing to an video on the internet.
   final String? networkUrl;
 
-  /// A URL string pointing to a `content://` resource (Android only).
+  /// An Android `content://` URI pointing to the video (Android only).
   final String? contentUrl;
 
   /// A string representing the asset path of an video.
@@ -169,6 +177,9 @@ class EditorVideo {
 
   /// A future that retrieves the image data as a `Uint8List` from the
   /// appropriate source based on the `EditorVideoType`.
+  ///
+  /// Throws an [UnsupportedError] for an [EditorVideo.content] video, which is
+  /// only read natively on Android.
   Future<Uint8List> safeByteArray() async {
     switch (type) {
       case EditorVideoType.memory:
@@ -180,18 +191,34 @@ class EditorVideo {
       case EditorVideoType.network:
         byteArray = await fetchVideoAsUint8List(networkUrl!);
       case EditorVideoType.content:
-        throw UnsupportedError('safeByteArray is not supported for content://');
+        throw UnsupportedError(
+          'A content:// video cannot be read as bytes; it is only supported '
+          'by the native Android implementation.',
+        );
     }
     return byteArray!;
   }
 
-  /// Returns a [contentUrl] if available, or fall back to [safeFilePath].
+  /// Returns what the native side opens the video from: the [contentUrl] for
+  /// a content video, or else the local path from [safeFilePath].
+  ///
+  /// Throws an [UnsupportedError] for a content video on any platform but
+  /// Android.
   Future<String> contentOrSafeFilePath() async {
-    return contentUrl ?? await safeFilePath();
+    if (typePreferredFile != EditorVideoType.content) return safeFilePath();
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      throw UnsupportedError(
+        'EditorVideo.content (content:// URIs) is only supported on Android.',
+      );
+    }
+    return contentUrl!;
   }
 
   /// Safely generates a file path for the video and writes the video data to
   /// a file based on the type of the video.
+  ///
+  /// Throws an [UnsupportedError] for an [EditorVideo.content] video, which has
+  /// no file path; use [contentOrSafeFilePath] instead.
   Future<String> safeFilePath() async {
     switch (typePreferredFile) {
       case EditorVideoType.memory:
@@ -204,7 +231,9 @@ class EditorVideo {
         // file is already present
         break;
       case EditorVideoType.content:
-        throw UnsupportedError('safeFilePath is not supported for content://');
+        throw UnsupportedError(
+          'A content:// video has no file path; use contentOrSafeFilePath().',
+        );
     }
     return file!.path;
   }
@@ -227,7 +256,7 @@ class EditorVideo {
   /// Returns the type of the video source.
   ///
   /// This is determined by the first non-null source in the order:
-  /// memory, file, network, asset.
+  /// memory, network, content, asset, file.
   EditorVideoType get type {
     if (hasBytes) {
       return EditorVideoType.memory;
@@ -264,8 +293,6 @@ class EditorVideo {
 
     if (hasAssetPath) {
       sourcePath = assetPath;
-    } else if (hasContentUrl) {
-      // TODO load extension from SAF metadata
     } else if (hasNetworkUrl) {
       // Remove query parameters from URL
       sourcePath = networkUrl?.split('?').first;

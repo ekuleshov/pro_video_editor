@@ -205,7 +205,7 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
         }) ??
         {};
 
-    return VideoMetadata.fromMap(response, response['extension'] ?? extension);
+    return VideoMetadata.fromMap(response, extension);
   }
 
   @override

@@ -238,9 +238,7 @@ class RenderVideo(private val context: Context) {
                                 (workingConfig.composition?.layers ?: emptyList())
                                     .flatMap { layer -> layer.clips.map { it.inputPath } }
                             ).distinct()
-                        val transcodeMap = videoTranscoder.transcodeClipsIfNeeded(
-                            context, inputPaths
-                        )
+                        val transcodeMap = videoTranscoder.transcodeClipsIfNeeded(inputPaths)
                         transcodedFiles = transcodeMap.values
                             .filter { it.contains("transcoded_") }
                         if (transcodedFiles.isNotEmpty()) {

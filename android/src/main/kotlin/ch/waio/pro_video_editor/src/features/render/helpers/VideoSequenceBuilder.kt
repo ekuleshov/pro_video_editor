@@ -2,7 +2,6 @@ package ch.waio.pro_video_editor.src.features.render.helpers
 
 import RENDER_TAG
 import android.content.Context
-import ch.waio.pro_video_editor.src.shared.media.contentUri
 import applyChromaKey
 import applyScale
 import androidx.media3.common.C
@@ -23,6 +22,9 @@ import ch.waio.pro_video_editor.src.features.render.models.VideoClip
 import ch.waio.pro_video_editor.src.features.render.utils.getRotatedVideoDimensions
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
 import ch.waio.pro_video_editor.src.shared.media.EncodedImage
+import ch.waio.pro_video_editor.src.shared.media.contentUri
+import ch.waio.pro_video_editor.src.shared.media.isContentUri
+import java.io.File
 
 /**
  * Builder class for creating video sequences with effects in video compositions.
@@ -520,13 +522,14 @@ class VideoSequenceBuilder(
         layerFrame: Pair<Int, Int>?
     ): EditedMediaItem {
         Log.d(RENDER_TAG, "Processing clip $index: ${clip.inputPath}")
-        // val inputFile = File(clip.inputPath)
-
-        // if (!inputFile.exists()) {
-        //     Log.e(RENDER_TAG, "ERROR: Video file does not exist: ${clip.inputPath}")
-        // } else {
-        //     Log.d(RENDER_TAG, "Video file exists, size: ${inputFile.length()} bytes")
-        // }
+        if (!clip.inputPath.isContentUri()) {
+            val inputFile = File(clip.inputPath)
+            if (!inputFile.exists()) {
+                Log.e(RENDER_TAG, "ERROR: Video file does not exist: ${clip.inputPath}")
+            } else {
+                Log.d(RENDER_TAG, "Video file exists, size: ${inputFile.length()} bytes")
+            }
+        }
 
         // Build MediaItem with optional trimming
         val mediaItemBuilder = MediaItem.Builder().contentUri(clip.inputPath)
@@ -828,15 +831,6 @@ class VideoSequenceBuilder(
      */
     private fun expandReversedClips(clips: List<VideoClip>): List<VideoClip> {
         if (clips.none { it.reverseVideo }) return clips
-        val ctx = context
-        if (ctx == null) {
-            Log.w(
-                RENDER_TAG,
-                "Reverse requested but no Context provided to VideoSequenceBuilder; " +
-                        "leaving clips unchanged."
-            )
-            return clips
-        }
         Log.w(
             RENDER_TAG,
             "Reversed clip reached VideoSequenceBuilder — pre-render fallback engaged " +
@@ -857,7 +851,7 @@ class VideoSequenceBuilder(
             }
             try {
                 val reversed = VideoReverser.reverseSync(
-                    context = ctx,
+                    context = context,
                     inputPath = clip.inputPath,
                     segmentStartUs = sourceStartUs,
                     segmentEndUs = sourceEndUs,

@@ -8,6 +8,7 @@ import androidx.media3.common.util.UnstableApi
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
 import ch.waio.pro_video_editor.src.shared.media.PcmRangeDecoder
 import ch.waio.pro_video_editor.src.shared.media.contentDataSource
+import ch.waio.pro_video_editor.src.shared.media.mediaSourceExists
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -46,7 +47,7 @@ import java.nio.ByteOrder
  * encoder pipeline.
  */
 @UnstableApi
-class AudioPreRenderer(private val context: Context) {
+object AudioPreRenderer {
 
     /**
      * Result of a successful pre-render operation.
@@ -65,8 +66,10 @@ class AudioPreRenderer(private val context: Context) {
     /**
      * Pre-renders the audio track described by the parameters.
      *
-     * @param context Android context (used for `cacheDir`).
-     * @param audioPath Absolute path to the source audio file.
+     * @param context Android context (used for `cacheDir` and to open
+     *   content URIs).
+     * @param audioPath Absolute path to the source audio file, or a
+     *   `content://` URI.
      * @param audioStartUs Trim start within the source (microseconds, >=0).
      * @param audioEndUs Trim end within the source (microseconds, null
      *   = use full source duration).
@@ -100,8 +103,7 @@ class AudioPreRenderer(private val context: Context) {
         fadeInUs: Long = 0L,
         fadeOutUs: Long = 0L
     ): Result? {
-        val sourceFile = File(audioPath)
-        if (!sourceFile.exists()) {
+        if (!mediaSourceExists(context, audioPath)) {
             Log.e(RENDER_TAG, "AudioPreRenderer: source file not found: $audioPath")
             return null
         }
@@ -114,7 +116,7 @@ class AudioPreRenderer(private val context: Context) {
         // Step 1: Decode the trimmed source range into a scratch PCM file.
         val decoded = try {
             decodeRange(
-                context.cacheDir, audioPath, audioStartUs.coerceAtLeast(0L), audioEndUs
+                context, audioPath, audioStartUs.coerceAtLeast(0L), audioEndUs
             )
         } catch (e: Exception) {
             Log.e(RENDER_TAG, "AudioPreRenderer: decode failed: ${e.message}")
@@ -268,14 +270,14 @@ class AudioPreRenderer(private val context: Context) {
      * to stereo. The output sample rate matches the decoder output.
      */
     private fun decodeRange(
-        cacheDir: File,
+        context: Context,
         path: String,
         startUs: Long,
         endUs: Long?
     ): DecodedAudio? {
         val extractor = MediaExtractor()
         val pcmFile = File(
-            cacheDir,
+            context.cacheDir,
             "prerender_pcm_${System.currentTimeMillis()}_${System.nanoTime()}.raw"
         )
         var pcmOutput: OutputStream? = null
@@ -627,11 +629,9 @@ class AudioPreRenderer(private val context: Context) {
         return ByteArray(4) { i -> ((value ushr (8 * i)) and 0xFF).toByte() }
     }
 
-    companion object {
-        /** The largest value a RIFF/data chunk size field can hold. */
-        private const val MAX_RIFF_SIZE = 0xFFFFFFFFL
+    /** The largest value a RIFF/data chunk size field can hold. */
+    private const val MAX_RIFF_SIZE = 0xFFFFFFFFL
 
-        /** Size of the canonical PCM WAV header [writeWavHeader] writes. */
-        private const val WAV_HEADER_BYTES = 44L
-    }
+    /** Size of the canonical PCM WAV header [writeWavHeader] writes. */
+    private const val WAV_HEADER_BYTES = 44L
 }

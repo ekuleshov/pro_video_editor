@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference
  * we can then safely apply effects like ColorMatrix, Blur, or Overlay.
  */
 @UnstableApi
-class VideoTranscoder(val context: Context) {
+class VideoTranscoder(private val context: Context) {
     private val mediaInfoExtractor: MediaInfoExtractor = MediaInfoExtractor(context)
 
     /**
@@ -73,11 +73,10 @@ class VideoTranscoder(val context: Context) {
      * This is a blocking operation that should be called from a background thread.
      * The transcoded file is saved to the app's cache directory.
      * 
-     * @param context Android context
      * @param inputPath Path to the input video
      * @return TranscodeResult indicating success, not-needed, or error
      */
-    fun transcodeToH264Sync(context: Context, inputPath: String): TranscodeResult {
+    fun transcodeToH264Sync(inputPath: String): TranscodeResult {
         // Check if transcoding is needed
         if (!needsTranscoding(inputPath)) {
             Log.d(RENDER_TAG, "No transcoding needed for: $inputPath")
@@ -177,17 +176,15 @@ class VideoTranscoder(val context: Context) {
     /**
      * Async version of transcoding.
      * 
-     * @param context Android context
      * @param inputPath Path to the input video
      * @param onComplete Callback with result
      */
     fun transcodeToH264Async(
-        context: Context,
         inputPath: String,
         onComplete: (TranscodeResult) -> Unit
     ) {
         Thread {
-            val result = transcodeToH264Sync(context, inputPath)
+            val result = transcodeToH264Sync(inputPath)
             Handler(Looper.getMainLooper()).post {
                 onComplete(result)
             }
@@ -197,18 +194,14 @@ class VideoTranscoder(val context: Context) {
     /**
      * Transcodes multiple video clips if needed.
      * 
-     * @param context Android context
      * @param inputPaths List of input video paths
      * @return Map of original path to transcoded path (or original if no transcoding needed)
      */
-    fun transcodeClipsIfNeeded(
-        context: Context,
-        inputPaths: List<String>
-    ): Map<String, String> {
+    fun transcodeClipsIfNeeded(inputPaths: List<String>): Map<String, String> {
         val result = mutableMapOf<String, String>()
 
         for (inputPath in inputPaths) {
-            when (val transcodeResult = transcodeToH264Sync(context, inputPath)) {
+            when (val transcodeResult = transcodeToH264Sync(inputPath)) {
                 is TranscodeResult.Success -> {
                     result[inputPath] = transcodeResult.outputPath
                 }

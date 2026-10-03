@@ -1,6 +1,5 @@
 package ch.waio.pro_video_editor.src.features.render.helpers
 
-import android.content.Context
 import android.media.MediaFormat
 import androidx.media3.common.util.UnstableApi
 import ch.waio.pro_video_editor.src.features.render.models.RenderConfig
@@ -25,17 +24,18 @@ object RenderSourceFormats {
      * One entry per distinct format among the clips, then the layers' clips.
      * Opens every source, so it must not run on the main thread.
      */
-    fun of(config: RenderConfig, mediaInfoExtractor: MediaInfoExtractor): List<Map<String, Any>> {
-        return describeDistinct(
-            (
-                    config.videoClips.map { it.inputPath } +
-                            (config.composition?.layers ?: emptyList())
-                                .flatMap { layer -> layer.clips.map { it.inputPath } }
-                    )
-                .distinct()
-                .map { mediaInfoExtractor.getVideoFormatInfo(it) }
-        )
-    }
+    fun of(
+        config: RenderConfig,
+        mediaInfoExtractor: MediaInfoExtractor,
+    ): List<Map<String, Any>> = describeDistinct(
+        (
+            config.videoClips.map { it.inputPath } +
+                (config.composition?.layers ?: emptyList())
+                    .flatMap { layer -> layer.clips.map { it.inputPath } }
+            )
+            .distinct()
+            .map { mediaInfoExtractor.getVideoFormatInfo(it) }
+    )
 
     /**
      * [infos] described in order, a format a previous source already had left

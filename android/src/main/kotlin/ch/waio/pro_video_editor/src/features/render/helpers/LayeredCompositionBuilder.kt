@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.webkit.MimeTypeMap
 import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
@@ -24,7 +25,10 @@ import ch.waio.pro_video_editor.src.features.render.models.SegmentTransformConfi
 import ch.waio.pro_video_editor.src.features.render.models.VideoClip
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
 import ch.waio.pro_video_editor.src.shared.media.contentDataSource
+import ch.waio.pro_video_editor.src.shared.media.contentMimeType
 import ch.waio.pro_video_editor.src.shared.media.contentUri
+import ch.waio.pro_video_editor.src.shared.media.isContentUri
+import ch.waio.pro_video_editor.src.shared.media.openMediaInputStream
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
@@ -565,8 +569,27 @@ class LayeredCompositionBuilder(
      * Returns a distinct file path with the same content as [path], so Media3
      * sees a unique URI per layer. Prefers a symlink, falls back to a copy. The
      * result is registered in [temporaryFiles] for cleanup after export.
+     *
+     * A content URI cannot be symlinked, so it is copied.
      */
     private fun distinctSourceFor(path: String): String {
+        if (path.isContentUri()) {
+            val ext = contentMimeType(context, path)
+                ?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
+                ?: "mp4"
+            val dst = File(context.cacheDir, "layer_src_${System.nanoTime()}.$ext")
+            return try {
+                openMediaInputStream(context, path).use { input ->
+                    dst.outputStream().use { output -> input.copyTo(output) }
+                }
+                temporaryFiles.add(dst)
+                dst.path
+            } catch (e: Exception) {
+                dst.delete()
+                Log.w(RENDER_TAG, "Could not duplicate source $path: ${e.message}")
+                path
+            }
+        }
         val src = File(path)
         val ext = src.extension.ifEmpty { "mp4" }
         val dst = File(context.cacheDir, "layer_src_${System.nanoTime()}.$ext")

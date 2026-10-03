@@ -6,14 +6,14 @@ import android.graphics.Bitmap
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
-import ch.waio.pro_video_editor.src.shared.media.contentDataSource
-import ch.waio.pro_video_editor.src.shared.media.toContentOrFileUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.inspector.frame.FrameExtractor
 import ch.waio.pro_video_editor.src.features.thumbnail.models.ThumbnailConfig
 import ch.waio.pro_video_editor.src.features.thumbnail.models.ThumbnailJobHandle
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
+import ch.waio.pro_video_editor.src.shared.media.contentDataSource
+import ch.waio.pro_video_editor.src.shared.media.toContentOrFileUri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -463,9 +463,10 @@ class ThumbnailGenerator(private val context: Context) {
                 val startTime = System.currentTimeMillis()
                 var retriever: MediaMetadataRetriever? = null
                 try {
-                    retriever = MediaMetadataRetriever().apply {
-                        contentDataSource(context, config.inputPath)
-                    }
+                    // Assigned before opening, so the finally block also
+                    // releases it when the source cannot be opened.
+                    retriever = MediaMetadataRetriever()
+                    retriever.contentDataSource(context, config.inputPath)
 
                     // Extract frame at specified timestamp (closest frame)
                     val bitmap =
@@ -542,9 +543,10 @@ class ThumbnailGenerator(private val context: Context) {
                 val startTime = System.currentTimeMillis()
                 var retriever: MediaMetadataRetriever? = null
                 try {
-                    retriever = MediaMetadataRetriever().apply {
-                        contentDataSource(context, inputPath)
-                    }
+                    // Assigned before opening, so the finally block also
+                    // releases it when the source cannot be opened.
+                    retriever = MediaMetadataRetriever()
+                    retriever.contentDataSource(context, inputPath)
 
                     // Extract keyframe (OPTION_CLOSEST_SYNC ensures we get exact keyframe)
                     val bitmap =

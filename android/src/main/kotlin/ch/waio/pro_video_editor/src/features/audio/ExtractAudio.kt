@@ -28,7 +28,6 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.text.startsWith
 
 /**
  * Exception thrown when no audio track is found in the video file.

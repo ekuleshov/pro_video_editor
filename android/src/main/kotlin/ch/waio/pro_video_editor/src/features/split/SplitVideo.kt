@@ -3,7 +3,6 @@ package ch.waio.pro_video_editor.src.features.split
 import mapFormatToMimeType
 import android.content.Context
 import android.media.MediaMetadataRetriever
-import ch.waio.pro_video_editor.src.shared.media.contentUri
 import android.os.Handler
 import android.os.SystemClock
 import androidx.media3.common.MediaItem
@@ -19,6 +18,8 @@ import ch.waio.pro_video_editor.src.features.render.models.RenderJobHandle
 import ch.waio.pro_video_editor.src.shared.concurrency.ExportGate
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
 import ch.waio.pro_video_editor.src.shared.media.contentDataSource
+import ch.waio.pro_video_editor.src.shared.media.contentUri
+import ch.waio.pro_video_editor.src.shared.media.isContentUri
 import java.io.File
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -140,7 +141,7 @@ class SplitVideo(private val context: Context) {
             return handle
         }
 
-        if (!inputPath.startsWith("content://") && !File(inputPath).exists()) {
+        if (!inputPath.isContentUri() && !File(inputPath).exists()) {
             finishError(IllegalArgumentException("Input file not found: $inputPath"))
             return handle
         }

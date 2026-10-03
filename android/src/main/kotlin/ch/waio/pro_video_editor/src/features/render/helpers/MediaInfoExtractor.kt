@@ -8,6 +8,8 @@ import android.media.MediaMetadataRetriever
 import androidx.media3.common.util.UnstableApi
 import ch.waio.pro_video_editor.src.shared.logging.PluginLog as Log
 import ch.waio.pro_video_editor.src.shared.media.contentDataSource
+import ch.waio.pro_video_editor.src.shared.media.mediaSourceLength
+import ch.waio.pro_video_editor.src.shared.media.openMediaExtractor
 
 /**
  * Utility class for extracting media information from video and audio files.
@@ -47,8 +49,7 @@ class MediaInfoExtractor(private val context: Context) {
      */
     fun getVideoDuration(videoPath: String): Long {
         return try {
-            val extractor = MediaExtractor()
-            extractor.contentDataSource(context, videoPath)
+            val extractor = openMediaExtractor(context, videoPath)
             var duration = 0L
 
             for (i in 0 until extractor.trackCount) {
@@ -121,7 +122,7 @@ class MediaInfoExtractor(private val context: Context) {
 
         try {
             val durationUs = getVideoDuration(videoPath)
-            val sizeBytes = java.io.File(videoPath).length()
+            val sizeBytes = mediaSourceLength(context, videoPath)
             if (durationUs > 0 && sizeBytes > 0) {
                 return sizeBytes * 8L * 1_000_000L / durationUs
             }
@@ -141,8 +142,7 @@ class MediaInfoExtractor(private val context: Context) {
      */
     fun getVideoFrameRate(videoPath: String): Float? {
         return try {
-            val extractor = MediaExtractor()
-            extractor.contentDataSource(context, videoPath)
+            val extractor = openMediaExtractor(context, videoPath)
             var frameRate: Float? = null
 
             for (i in 0 until extractor.trackCount) {
@@ -172,8 +172,7 @@ class MediaInfoExtractor(private val context: Context) {
      */
     fun getAudioDuration(audioPath: String): Long {
         return try {
-            val extractor = MediaExtractor()
-            extractor.contentDataSource(context, audioPath)
+            val extractor = openMediaExtractor(context, audioPath)
             var duration = 0L
 
             for (i in 0 until extractor.trackCount) {
@@ -202,8 +201,7 @@ class MediaInfoExtractor(private val context: Context) {
      */
     fun getAudioChannelCount(videoPath: String): Int? {
         return try {
-            val extractor = MediaExtractor()
-            extractor.contentDataSource(context, videoPath)
+            val extractor = openMediaExtractor(context, videoPath)
             var channelCount: Int? = null
 
             for (i in 0 until extractor.trackCount) {
@@ -232,8 +230,7 @@ class MediaInfoExtractor(private val context: Context) {
      */
     fun getAudioSampleRate(audioPath: String): Int {
         return try {
-            val extractor = MediaExtractor()
-            extractor.contentDataSource(context, audioPath)
+            val extractor = openMediaExtractor(context, audioPath)
             var sampleRate = 0
 
             for (i in 0 until extractor.trackCount) {
@@ -300,8 +297,7 @@ class MediaInfoExtractor(private val context: Context) {
      */
     fun getVideoFormatInfo(videoPath: String): VideoFormatInfo {
         return try {
-            val extractor = MediaExtractor()
-            extractor.contentDataSource(context, videoPath)
+            val extractor = openMediaExtractor(context, videoPath)
 
             var isHevc = false
             var bitDepth = 8

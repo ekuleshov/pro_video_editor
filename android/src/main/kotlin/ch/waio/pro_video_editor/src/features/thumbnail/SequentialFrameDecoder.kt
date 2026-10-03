@@ -51,7 +51,6 @@ class SequentialFrameDecoder(private val context: Context) {
      */
     class MediaScan(
         val trackIndex: Int,
-        val trackFormat: MediaFormat,
         val mime: String,
         val width: Int,
         val height: Int,
@@ -347,7 +346,6 @@ class SequentialFrameDecoder(private val context: Context) {
 
             return MediaScan(
                 trackIndex = trackIndex,
-                trackFormat = extractor.getTrackFormat(trackIndex),
                 mime = format.getString(MediaFormat.KEY_MIME)!!,
                 width = format.getInteger(MediaFormat.KEY_WIDTH),
                 height = format.getInteger(MediaFormat.KEY_HEIGHT),

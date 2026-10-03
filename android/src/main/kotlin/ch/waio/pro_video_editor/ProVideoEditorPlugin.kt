@@ -169,7 +169,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
         extractAudio = ExtractAudio(flutterPluginBinding.applicationContext)
         mergeAudio = MergeAudio(flutterPluginBinding.applicationContext)
         waveformGenerator = WaveformGenerator(flutterPluginBinding.applicationContext)
-        mediaInfoExtractor  = MediaInfoExtractor(flutterPluginBinding.applicationContext)
+        mediaInfoExtractor = MediaInfoExtractor(flutterPluginBinding.applicationContext)
     }
 
     /**
